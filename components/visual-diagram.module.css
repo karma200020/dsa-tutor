@@ -1,0 +1,504 @@
+/* Visual Diagram Component Styles */
+/* Dark theme with animations and interactive elements */
+
+.diagramContainer {
+  background: linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%);
+  border: 1px solid #404040;
+  border-radius: 12px;
+  padding: 24px;
+  margin: 20px 0;
+  color: #e0e0e0;
+}
+
+.header {
+  margin-bottom: 20px;
+}
+
+.header h3 {
+  font-size: 20px;
+  color: #4da6ff;
+  margin: 0 0 8px 0;
+  font-weight: 600;
+}
+
+.description {
+  font-size: 14px;
+  color: #a0a0a0;
+  margin: 0;
+  line-height: 1.4;
+}
+
+/* Canvas Area */
+.canvasArea {
+  background: #0f0f0f;
+  border: 1px solid #2d2d2d;
+  border-radius: 8px;
+  padding: 16px;
+  margin-bottom: 16px;
+  min-height: 300px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow-x: auto;
+}
+
+.svg {
+  width: 100%;
+  height: 100%;
+  max-width: 100%;
+}
+
+/* Controls */
+.controls {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.animateButton {
+  background: linear-gradient(135deg, #4da6ff 0%, #2d7fd9 100%);
+  color: white;
+  border: none;
+  padding: 10px 16px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500;
+  transition: all 0.3s ease;
+}
+
+.animateButton:hover {
+  background: linear-gradient(135deg, #66b3ff 0%, #3d8fff 100%);
+  transform: translateY(-2px);
+}
+
+.animateButton:active {
+  transform: translateY(0);
+}
+
+/* SVG Elements */
+.label {
+  font-size: 16px;
+  font-weight: 600;
+  fill: #4da6ff;
+}
+
+.text,
+.explanation {
+  font-size: 14px;
+  fill: #e0e0e0;
+  font-family: 'Courier New', monospace;
+}
+
+.index {
+  font-size: 12px;
+  fill: #888;
+  font-weight: 500;
+}
+
+/* Array Visualization */
+.arrayBox {
+  fill: #1a3a52;
+  stroke: #4da6ff;
+  stroke-width: 2;
+  transition: all 0.3s ease;
+}
+
+.arrayBox:hover {
+  fill: #2d5a7a;
+  stroke: #66b3ff;
+}
+
+.activeBox {
+  fill: #2d7fd9;
+  stroke: #66b3ff;
+  filter: drop-shadow(0 0 8px rgba(77, 166, 255, 0.5));
+}
+
+/* Hash Map */
+.mapBox {
+  fill: #1a2d3d;
+  stroke: #404040;
+  stroke-width: 1;
+}
+
+.mapEntry {
+  font-size: 13px;
+  fill: #e0e0e0;
+  font-family: 'Courier New', monospace;
+}
+
+/* Solution highlight */
+.solution {
+  font-size: 14px;
+  fill: #4dd94d;
+  font-weight: 600;
+  font-family: 'Courier New', monospace;
+}
+
+/* Character box (for sliding window) */
+.charBox {
+  fill: #1a3a52;
+  stroke: #666;
+  stroke-width: 1;
+  transition: all 0.3s ease;
+}
+
+.charBox:hover {
+  fill: #2d5a7a;
+}
+
+.inWindow {
+  fill: #2d7fd9;
+  stroke: #4da6ff;
+  stroke-width: 2;
+  filter: drop-shadow(0 0 6px rgba(77, 166, 255, 0.4));
+}
+
+.char {
+  font-size: 18px;
+  fill: #e0e0e0;
+  font-weight: 600;
+  font-family: 'Courier New', monospace;
+}
+
+/* Pointers */
+.leftPointer {
+  stroke: #ff6b6b;
+  stroke-linecap: round;
+  opacity: 0.8;
+}
+
+.rightPointer {
+  stroke: #4da6ff;
+  stroke-linecap: round;
+  opacity: 0.8;
+}
+
+.pointerLabel {
+  font-size: 12px;
+  fill: #e0e0e0;
+  font-weight: 500;
+}
+
+/* Tree nodes */
+.treeNode {
+  fill: #1a3a52;
+  stroke: #4da6ff;
+  stroke-width: 2;
+  transition: all 0.3s ease;
+}
+
+.treeNode:hover {
+  fill: #2d5a7a;
+  filter: drop-shadow(0 0 6px rgba(77, 166, 255, 0.5));
+}
+
+.nodeLabel {
+  font-size: 14px;
+  fill: #e0e0e0;
+  font-weight: 600;
+}
+
+/* Graph nodes */
+.node {
+  fill: #1a3a52;
+  stroke: #4da6ff;
+  stroke-width: 2;
+  transition: all 0.3s ease;
+}
+
+.node:hover {
+  fill: #2d5a7a;
+  filter: drop-shadow(0 0 8px rgba(77, 166, 255, 0.5));
+}
+
+.cycleNode {
+  fill: #2d5a7a;
+  stroke: #ff9500;
+}
+
+.slowPointer {
+  stroke: #ff6b6b;
+  filter: drop-shadow(0 0 6px rgba(255, 107, 107, 0.5));
+}
+
+.fastPointer {
+  stroke: #4dd94d;
+  filter: drop-shadow(0 0 6px rgba(77, 217, 77, 0.5));
+}
+
+/* Edges */
+.edge {
+  stroke: #666;
+  fill: none;
+  transition: stroke 0.3s ease;
+}
+
+.edge:hover {
+  stroke: #4da6ff;
+  stroke-width: 3;
+}
+
+/* Ring visualization */
+.ringNode {
+  fill: #1a3a52;
+  stroke: #4da6ff;
+  stroke-width: 2;
+}
+
+.failedNode {
+  fill: #8b0000;
+  stroke: #ff6b6b;
+  opacity: 0.5;
+}
+
+.keyPoint {
+  fill: #ffb84d;
+  stroke: #ff9500;
+  stroke-width: 1;
+}
+
+.keyLabel {
+  font-size: 12px;
+  fill: #ffb84d;
+  font-weight: 600;
+}
+
+/* Architecture diagram */
+.component {
+  fill: #1a3a52;
+  stroke: #4da6ff;
+  stroke-width: 2;
+  transition: all 0.3s ease;
+}
+
+.component:hover {
+  fill: #2d5a7a;
+  filter: drop-shadow(0 0 8px rgba(77, 166, 255, 0.5));
+}
+
+.database {
+  fill: #2d3a1a;
+  stroke: #4dd94d;
+  stroke-width: 2;
+}
+
+.database:hover {
+  fill: #3d5a2a;
+}
+
+.cache {
+  fill: #3a2d1a;
+  stroke: #ffb84d;
+  stroke-width: 2;
+}
+
+.cache:hover {
+  fill: #5a4d2a;
+}
+
+.componentLabel {
+  font-size: 13px;
+  fill: #e0e0e0;
+  font-weight: 600;
+}
+
+.arrow {
+  stroke: #666;
+  fill: none;
+}
+
+/* Explanation section */
+.explanation {
+  background: #1a2d3d;
+  border-left: 3px solid #4da6ff;
+  padding: 16px;
+  border-radius: 4px;
+}
+
+.explanation h4 {
+  margin: 0 0 12px 0;
+  font-size: 14px;
+  color: #4da6ff;
+  font-weight: 600;
+}
+
+.explanation ul {
+  margin: 0;
+  padding-left: 20px;
+}
+
+.explanation li {
+  margin: 6px 0;
+  font-size: 13px;
+  color: #a0a0a0;
+  line-height: 1.4;
+}
+
+/* Buttons in diagram */
+.button {
+  background: linear-gradient(135deg, #4da6ff 0%, #2d7fd9 100%);
+  color: white;
+  border: none;
+  padding: 8px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 500;
+  position: absolute;
+  transition: all 0.2s ease;
+}
+
+.button:hover {
+  background: linear-gradient(135deg, #66b3ff 0%, #3d8fff 100%);
+  transform: translateY(-2px);
+}
+
+.traversalButton {
+  background: #1a3a52;
+  color: #4da6ff;
+  border: 1px solid #4da6ff;
+  padding: 8px 12px;
+  margin-right: 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 500;
+  transition: all 0.2s ease;
+  position: relative;
+  display: inline-block;
+}
+
+.traversalButton:hover {
+  background: #2d5a7a;
+  border-color: #66b3ff;
+}
+
+.traversalButton.active {
+  background: linear-gradient(135deg, #4da6ff 0%, #2d7fd9 100%);
+  border-color: #66b3ff;
+  color: white;
+  box-shadow: 0 0 8px rgba(77, 166, 255, 0.5);
+}
+
+/* Animation keyframes */
+@keyframes slideIn {
+  from {
+    opacity: 0;
+    transform: translateX(-20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.6;
+  }
+}
+
+@keyframes highlight {
+  0% {
+    filter: drop-shadow(0 0 0px rgba(77, 166, 255, 0));
+  }
+  50% {
+    filter: drop-shadow(0 0 8px rgba(77, 166, 255, 0.8));
+  }
+  100% {
+    filter: drop-shadow(0 0 0px rgba(77, 166, 255, 0));
+  }
+}
+
+.animate {
+  animation: slideIn 0.3s ease;
+}
+
+.pulse {
+  animation: pulse 1s ease-in-out infinite;
+}
+
+.highlight {
+  animation: highlight 2s ease-in-out infinite;
+}
+
+/* Responsive design */
+@media (max-width: 768px) {
+  .diagramContainer {
+    padding: 16px;
+  }
+
+  .canvasArea {
+    min-height: 250px;
+    overflow-x: auto;
+  }
+
+  .svg {
+    width: 100%;
+  }
+
+  .label {
+    font-size: 14px;
+  }
+
+  .text,
+  .explanation {
+    font-size: 12px;
+  }
+
+  .controls {
+    flex-wrap: wrap;
+  }
+
+  .button {
+    position: relative;
+    margin-bottom: 8px;
+  }
+}
+
+/* Dark theme optimizations */
+@media (prefers-color-scheme: dark) {
+  .diagramContainer {
+    background: linear-gradient(135deg, #121212 0%, #1e1e1e 100%);
+  }
+
+  .canvasArea {
+    background: #0a0a0a;
+    border-color: #262626;
+  }
+}
+
+/* Accessibility */
+.diagramContainer:focus-within {
+  outline: 2px solid #4da6ff;
+  outline-offset: 2px;
+}
+
+button:focus-visible {
+  outline: 2px solid #4da6ff;
+  outline-offset: 2px;
+}
+
+/* Print styles */
+@media print {
+  .controls {
+    display: none;
+  }
+
+  .diagramContainer {
+    page-break-inside: avoid;
+    border: 1px solid #ddd;
+    background: white;
+    color: black;
+  }
+
+  .svg {
+    max-width: 100%;
+    height: auto;
+  }
+}

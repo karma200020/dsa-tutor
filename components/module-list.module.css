@@ -1,0 +1,213 @@
+.container {
+  display: grid;
+  gap: 20px;
+}
+
+.container h2 {
+  margin: 0 0 16px;
+  font-size: 24px;
+  color: #e2e8f0;
+}
+
+.module {
+  background: #1e293b;
+  border: 1px solid #334155;
+  border-radius: 12px;
+  padding: 20px;
+  display: grid;
+  gap: 16px;
+}
+
+.moduleHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+}
+
+.moduleHeader h3 {
+  margin: 0 0 8px;
+  font-size: 18px;
+  color: #e2e8f0;
+}
+
+.description {
+  margin: 0;
+  color: #94a3b8;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.moduleMeta {
+  display: flex;
+  gap: 12px;
+  flex-shrink: 0;
+  flex-direction: column;
+  text-align: right;
+}
+
+.moduleMeta span {
+  background: #334155;
+  padding: 4px 8px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #cbd5e1;
+}
+
+.progressBar {
+  background: #334155;
+  height: 8px;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.progressFill {
+  background: linear-gradient(90deg, #10b981, #34d399);
+  height: 100%;
+  transition: width 0.3s ease;
+}
+
+.progressText {
+  margin: 0;
+  font-size: 13px;
+  color: #94a3b8;
+}
+
+.topicsList {
+  display: grid;
+  gap: 12px;
+}
+
+.topicRow {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  background: #0f172a;
+  border-radius: 8px;
+  border: 1px solid #334155;
+  padding: 0;
+  overflow: hidden;
+}
+
+.topicBtn {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: none;
+  border: none;
+  padding: 12px;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.2s;
+  color: #cbd5e1;
+}
+
+.topicBtn:hover {
+  background: #1e293b;
+}
+
+.topicBtn:active {
+  background: #334155;
+}
+
+.statusEmoji {
+  font-size: 20px;
+  flex-shrink: 0;
+  display: inline-block;
+}
+
+.topicInfo {
+  flex: 1;
+  min-width: 0;
+}
+
+.topicBtn h4 {
+  margin: 0 0 4px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #e2e8f0;
+}
+
+.topicBtn p {
+  margin: 0;
+  color: #94a3b8;
+  font-size: 12px;
+  line-height: 1.4;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.viewCue {
+  color: #64748b;
+  font-weight: 600;
+  flex-shrink: 0;
+  padding-right: 0;
+  transition: color 0.2s, transform 0.2s;
+}
+
+.topicBtn:hover .viewCue {
+  color: #6366f1;
+  transform: translateX(2px);
+}
+
+.statusSelect {
+  padding: 8px 12px;
+  border: 2px solid #475569;
+  border-radius: 0;
+  font-size: 12px;
+  font-weight: 600;
+  background: #1e293b;
+  color: #cbd5e1;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: border-color 0.2s, background 0.2s;
+  height: 100%;
+  border-left: 1px solid #334155;
+}
+
+.statusSelect:hover {
+  border-color: #64748b;
+  background: #334155;
+}
+
+.statusSelect:focus {
+  outline: none;
+  border-color: #6366f1;
+  background: #1e293b;
+}
+
+@media (max-width: 768px) {
+  .moduleHeader {
+    flex-direction: column;
+  }
+
+  .moduleMeta {
+    flex-direction: row;
+    text-align: left;
+  }
+
+  .topicRow {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .topicBtn {
+    padding: 12px;
+  }
+
+  .statusSelect {
+    width: 100%;
+    border-left: none;
+    border-top: 1px solid #334155;
+  }
+
+  .viewCue {
+    display: none;
+  }
+}

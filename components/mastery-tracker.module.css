@@ -1,0 +1,145 @@
+.container {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  border-radius: 12px;
+  padding: 24px;
+  color: #ffffff;
+  margin-bottom: 24px;
+}
+
+.container h2 {
+  margin: 0 0 20px;
+  font-size: 22px;
+}
+
+.content {
+  display: grid;
+  grid-template-columns: 200px 1fr;
+  gap: 32px;
+  align-items: center;
+}
+
+.gauge {
+  display: flex;
+  justify-content: center;
+}
+
+.gaugeCircle {
+  position: relative;
+  width: 180px;
+  height: 180px;
+}
+
+.progressSvg {
+  width: 100%;
+  height: 100%;
+  transform: rotate(-90deg);
+}
+
+.progressBg {
+  fill: none;
+  stroke: rgba(255, 255, 255, 0.2);
+  stroke-width: 8;
+}
+
+.progressFill {
+  fill: none;
+  stroke: #fbbf24;
+  stroke-width: 8;
+  stroke-linecap: round;
+  transition: stroke-dasharray 0.5s ease;
+}
+
+.gaugeText {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  text-align: center;
+}
+
+.percentage {
+  margin: 0;
+  font-size: 32px;
+  font-weight: 700;
+}
+
+.label {
+  margin: 4px 0 0;
+  font-size: 12px;
+  opacity: 0.9;
+}
+
+.breakdown h3 {
+  margin: 0 0 16px;
+  font-size: 18px;
+}
+
+.statGrid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.stat {
+  background: rgba(255, 255, 255, 0.1);
+  padding: 12px;
+  border-radius: 8px;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.statLabel {
+  margin: 0;
+  font-size: 12px;
+  opacity: 0.9;
+}
+
+.statCount {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.stats {
+  background: rgba(255, 255, 255, 0.1);
+  padding: 12px;
+  border-radius: 8px;
+  border-left: 3px solid #fbbf24;
+}
+
+.stats p {
+  margin: 8px 0;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.stats p:first-child {
+  margin-top: 0;
+}
+
+.stats p:last-child {
+  margin-bottom: 0;
+}
+
+.stats strong {
+  font-weight: 700;
+  color: #fbbf24;
+}
+
+@media (max-width: 768px) {
+  .content {
+    grid-template-columns: 1fr;
+    gap: 20px;
+  }
+
+  .statGrid {
+    grid-template-columns: repeat(4, 1fr);
+  }
+
+  .stat {
+    flex-direction: column;
+    text-align: center;
+  }
+}

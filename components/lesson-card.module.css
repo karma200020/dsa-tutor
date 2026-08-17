@@ -1,0 +1,43 @@
+.card {
+  background: #1e293b;
+  border: 1px solid #334155;
+  border-radius: 14px;
+  padding: 16px;
+  display: grid;
+  gap: 10px;
+}
+
+.header {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  font-weight: 700;
+  color: #cbd5e1;
+}
+
+.track,
+.level {
+  background: #312e81;
+  padding: 4px 8px;
+  border-radius: 999px;
+  color: #a5f3fc;
+}
+
+.intuition {
+  margin: 0;
+  color: #cbd5e1;
+}
+
+.section h4 {
+  margin: 0 0 6px;
+  font-size: 14px;
+  color: #e2e8f0;
+}
+
+.section ul {
+  margin: 0;
+  padding-left: 18px;
+  color: #94a3b8;
+  display: grid;
+  gap: 4px;
+}
