@@ -61,22 +61,18 @@ export function ModuleList({ track, masteryMap, onMasteryUpdate, onTopicClick, a
             </div>
 
             <div className={styles.topicsList}>
-              {modTopics.length === 0 ? (
-                <p className={styles.progressText}>Content for this module is coming soon.</p>
-              ) : (
-                modTopics.map((topic) => {
-                  const status = masteryMap[topic.id] || "not-started";
-                  return (
-                    <TopicRow
-                      key={topic.id}
-                      topic={topic}
-                      status={status}
-                      onStatusChange={(newStatus) => onMasteryUpdate(topic.id, newStatus)}
-                      onView={() => onTopicClick(topic)}
-                    />
-                  );
-                })
-              )}
+              {modTopics.map((topic) => {
+                const status = masteryMap[topic.id] || "not-started";
+                return (
+                  <TopicRow
+                    key={topic.id}
+                    topic={topic}
+                    status={status}
+                    onStatusChange={(newStatus) => onMasteryUpdate(topic.id, newStatus)}
+                    onView={() => onTopicClick(topic)}
+                  />
+                );
+              })}
             </div>
           </div>
         );

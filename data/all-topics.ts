@@ -63,18 +63,12 @@ function buildFallbackTopic(moduleId: string, moduleTitle: string): Topic {
 }
 
 function ensureModuleCoverage(topics: Topic[], moduleIds: string[]): Topic[] {
-  const existing = new Set(topics.map((topic) => topic.moduleId));
-  const fallbackTopics: Topic[] = moduleIds
-    .filter((moduleId) => !existing.has(moduleId))
-    .map((moduleId) => {
-      const mod = syllabus.find((entry) => entry.id === moduleId);
-      return mod ? buildFallbackTopic(mod.id, mod.title) : null;
-    })
-    .filter((topic): topic is Topic => !!topic);
-  return [...topics, ...fallbackTopics];
+  return topics;
 }
 
 function enrichTopic(topic: Topic): Topic {
+  return topic;
+  /*
   const fallbackTitle = topic.title || "Topic";
   const words = fallbackTitle.replace(/[^a-zA-Z0-9\s]/g, " ").trim().split(/\s+/).filter(Boolean);
   const keyWord = words[0] || "pattern";
@@ -177,6 +171,7 @@ function enrichTopic(topic: Topic): Topic {
         ? topic.practiceProblems
         : [`lc-${fallbackTitle.toLowerCase().replace(/\s+/g, "-")}`]
   };
+  */
 }
 
 function collect(...sources: Topic[][]): Topic[] {
