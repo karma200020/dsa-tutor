@@ -22,16 +22,16 @@ function makeTopic(
     intuition,
     lesson: [
       {
-        title: "Core idea",
+        title: `${cleanTitle}: worked setup`,
         content:
-          "This is a high-frequency interview pattern. Learn the intuition first, then reduce the problem to the right data structure, state transition, or pointer strategy.",
-        codeExample: "// Core approach\n// Step 1: recognize the pattern\n// Step 2: maintain state efficiently\n// Step 3: handle edge cases and constraints"
+          `Input: ${exampleInput}\nExpected output: ${exampleOutput}\n${intuition} Start by identifying the state that changes while processing this exact input.`,
+        codeExample: exampleInput
       },
       {
-        title: "Interview execution",
+        title: `${cleanTitle}: trace`,
         content:
-          "Walk through the problem aloud, explain your state, justify the chosen algorithm, and then validate correctness with a small dry run before coding.",
-        codeExample: "// Talk-through\n// - What is changing over time?\n// - What state must be tracked?\n// - Why is this O(n) or O(log n)?"
+          `${exampleExplanation} The final state is ${exampleOutput}; compare it with the expected output before considering edge cases.`,
+        codeExample: `// Expected output: ${exampleOutput}`
       }
     ],
     examples: [
