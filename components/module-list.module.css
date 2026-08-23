@@ -74,6 +74,36 @@
   color: #94a3b8;
 }
 
+.cheatsheet {
+  background: linear-gradient(180deg, rgba(59, 130, 246, 0.08), rgba(15, 23, 42, 0.5));
+  border: 1px solid rgba(96, 165, 250, 0.3);
+  border-radius: 10px;
+  padding: 12px 14px;
+}
+
+.cheatsheetHeader {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #93c5fd;
+  margin-bottom: 8px;
+}
+
+.cheatsheetList {
+  margin: 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 8px;
+  color: #dbeafe;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.cheatsheetList li::marker {
+  color: #60a5fa;
+}
+
 .topicsList {
   display: grid;
   gap: 12px;

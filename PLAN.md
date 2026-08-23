@@ -27,9 +27,11 @@ Build a realistic, easy-to-understand SWE interview tutor for engineers with 3â€
 - App architecture is complete and running.
 - Full interview-track curriculum has been expanded across DSA, LLD, and HLD.
 - Data enrichment is now complete for the topic detail cards so common teaching fields are no longer blank.
+- Independent audit confirmed the highest-value FAANG scope is covered: foundations, heaps, greedy/backtracking, HLD estimation, and mock rounds were explicitly filled in.
+- The syllabus now matches actual content with non-empty module coverage and synchronized topic counts.
 - Dev build and app startup are verified.
 
 ## Next up
-- Fill more topic-specific examples and diagrams for the highest-frequency DP, graph, and distributed systems topics.
-- Continue enriching the remaining advanced modules with deeper interview walkthroughs.
-- Keep the module count and topic counts aligned with real coverage rather than placeholder counts.
+- Keep refining the highest-frequency DP, graph, and distributed systems topics with deeper walkthroughs and diagrams.
+- Add more challenge variations and timed practice sets for mock rounds.
+- Maintain the module count and topic counts aligned with real coverage rather than placeholder counts.

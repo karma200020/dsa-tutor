@@ -74,7 +74,7 @@ export const syllabus: Module[] = [
     level: "Beginner",
     estimatedHours: 2,
     dependencies: [],
-    topicCount: 0
+    topicCount: 3
   },
 
   // Core DSA Patterns
@@ -158,7 +158,7 @@ export const syllabus: Module[] = [
     level: "Intermediate",
     estimatedHours: 4,
     dependencies: ["mod-trees-bst"],
-    topicCount: 0
+    topicCount: 4
   },
 
   {
@@ -182,7 +182,7 @@ export const syllabus: Module[] = [
     level: "Advanced",
     estimatedHours: 12,
     dependencies: ["mod-graphs"],
-    topicCount: 1
+    topicCount: 10
   },
 
   {
@@ -194,7 +194,7 @@ export const syllabus: Module[] = [
     level: "Advanced",
     estimatedHours: 6,
     dependencies: ["mod-dynamic-programming"],
-    topicCount: 0
+    topicCount: 7
   },
 
   // Low-Level Design
@@ -207,7 +207,7 @@ export const syllabus: Module[] = [
     level: "Beginner",
     estimatedHours: 4,
     dependencies: [],
-    topicCount: 2
+    topicCount: 6
   },
 
   {
@@ -219,7 +219,7 @@ export const syllabus: Module[] = [
     level: "Intermediate",
     estimatedHours: 6,
     dependencies: ["mod-lld-oop-foundations"],
-    topicCount: 2
+    topicCount: 6
   },
 
   {
@@ -231,7 +231,7 @@ export const syllabus: Module[] = [
     level: "Intermediate",
     estimatedHours: 12,
     dependencies: ["mod-lld-core-patterns"],
-    topicCount: 4
+    topicCount: 10
   },
 
   // High-Level Design
@@ -244,7 +244,7 @@ export const syllabus: Module[] = [
     level: "Beginner",
     estimatedHours: 6,
     dependencies: [],
-    topicCount: 2
+    topicCount: 7
   },
 
   {
@@ -256,7 +256,7 @@ export const syllabus: Module[] = [
     level: "Intermediate",
     estimatedHours: 5,
     dependencies: ["mod-hld-foundations"],
-    topicCount: 0
+    topicCount: 3
   },
 
   {
@@ -268,7 +268,7 @@ export const syllabus: Module[] = [
     level: "Intermediate",
     estimatedHours: 15,
     dependencies: ["mod-hld-estimation-tradeoffs"],
-    topicCount: 5
+    topicCount: 13
   },
 
   // Mocks & Integration
@@ -281,7 +281,7 @@ export const syllabus: Module[] = [
     level: "Advanced",
     estimatedHours: 8,
     dependencies: ["mod-greedy-backtracking"],
-    topicCount: 0
+    topicCount: 3
   },
 
   {
@@ -293,7 +293,7 @@ export const syllabus: Module[] = [
     level: "Advanced",
     estimatedHours: 6,
     dependencies: ["mod-lld-design-exercises"],
-    topicCount: 0
+    topicCount: 3
   },
 
   {
@@ -305,7 +305,7 @@ export const syllabus: Module[] = [
     level: "Advanced",
     estimatedHours: 8,
     dependencies: ["mod-hld-design-exercises"],
-    topicCount: 0
+    topicCount: 3
   }
 ];
 

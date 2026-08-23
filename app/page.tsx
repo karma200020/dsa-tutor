@@ -145,6 +145,41 @@ export default function HomePage() {
         </div>
       </section>
 
+      <section style={{ 
+        margin: "40px 0", 
+        padding: "30px", 
+        backgroundColor: "#fff", 
+        borderRadius: "8px",
+        border: "2px solid #4285f4"
+      }}>
+        <div style={{ display: "flex", gap: "20px", alignItems: "center" }}>
+          <div style={{ flex: 1 }}>
+            <h2 style={{ margin: "0 0 10px 0", color: "#1f2937" }}>🔗 Google DSA Cheat Sheet</h2>
+            <p style={{ margin: "0 0 15px 0", color: "#666", lineHeight: "1.6" }}>
+              Access 100+ curated DSA problems from Google interviews with C++ code templates, 
+              pattern analysis, common mistakes, and interview tips. Master the patterns that 
+              appear in 95% of FAANG coding rounds.
+            </p>
+            <button 
+              onClick={() => window.location.href = '/cheat-sheet'}
+              style={{
+                padding: "10px 24px",
+                backgroundColor: "#4285f4",
+                color: "white",
+                border: "none",
+                borderRadius: "4px",
+                fontSize: "14px",
+                fontWeight: "600",
+                cursor: "pointer"
+              }}
+            >
+              View Cheat Sheet →
+            </button>
+          </div>
+          <div style={{ fontSize: "64px" }}>📋</div>
+        </div>
+      </section>
+
       <section className={styles.stats}>
         <div className={styles.statBox}>
           <div className={styles.statNumber}>{allTopics.length}</div>

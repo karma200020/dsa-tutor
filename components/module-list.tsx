@@ -24,6 +24,7 @@ export function ModuleList({ track, masteryMap, onMasteryUpdate, onTopicClick, a
           const status = masteryMap[t.id];
           return status === "practiced" || status === "interview-ready";
         }).length;
+        const cheatsheet = buildModuleCheatsheet(mod.title, modTopics);
 
         return (
           <div key={mod.id} className={styles.module}>
@@ -50,6 +51,15 @@ export function ModuleList({ track, masteryMap, onMasteryUpdate, onTopicClick, a
               {completedTopics}/{modTopics.length} topics mastered
             </p>
 
+            <div className={styles.cheatsheet}>
+              <div className={styles.cheatsheetHeader}>🧠 Cheat Sheet</div>
+              <ul className={styles.cheatsheetList}>
+                {cheatsheet.map((item) => (
+                  <li key={item}>{item}</li>
+                ))}
+              </ul>
+            </div>
+
             <div className={styles.topicsList}>
               {modTopics.length === 0 ? (
                 <p className={styles.progressText}>Content for this module is coming soon.</p>
@@ -73,6 +83,73 @@ export function ModuleList({ track, masteryMap, onMasteryUpdate, onTopicClick, a
       })}
     </div>
   );
+}
+
+function buildModuleCheatsheet(moduleTitle: string, topics: Topic[]): string[] {
+  const normalized = moduleTitle.toLowerCase();
+  const topicNames = topics.map((t) => t.title);
+
+  if (normalized.includes("array") || normalized.includes("hash") || normalized.includes("string")) {
+    return [
+      "Use hash maps for frequency, duplicates, and lookups.",
+      "Look for two pointers or prefix sums when the array is sorted or ordered.",
+      "For string problems, think about palindrome, substring, and character frequency patterns.",
+      "Default to O(n) or O(n log n) and prove the invariant before coding."
+    ];
+  }
+
+  if (normalized.includes("pointer") || normalized.includes("window") || normalized.includes("stack") || normalized.includes("queue")) {
+    return [
+      "Ask: what state changes as you move forward?",
+      "Use the stack for nested/precedence constraints and the queue for FIFO flows.",
+      "For sliding windows, maintain a valid window and shrink or expand carefully.",
+      "Monotonic structures are ideal when you need the next greater or smaller element."
+    ];
+  }
+
+  if (normalized.includes("search") || normalized.includes("interval") || normalized.includes("list") || normalized.includes("tree") || normalized.includes("heap") || normalized.includes("graph")) {
+    return [
+      "Start with the brute force, then optimize around the real constraint.",
+      "Binary search is for monotonic decisions; DFS/BFS is for graph/tree traversal.",
+      "Use heaps for top-k and ordering problems; trees for hierarchy and recursion.",
+      "Always state the time, space, and correctness reasoning before coding."
+    ];
+  }
+
+  if (normalized.includes("dynamic") || normalized.includes("greedy") || normalized.includes("backtracking")) {
+    return [
+      "Define state clearly: what is the subproblem and what does it depend on?",
+      "For DP, decide the recurrence, base case, and order of computation.",
+      "Greedy is only safe if you can argue the local choice is globally optimal.",
+      "Backtracking is for decisions with pruning and feasibility checks."
+    ];
+  }
+
+  if (normalized.includes("lld") || normalized.includes("design pattern") || normalized.includes("oop") || normalized.includes("object")) {
+    return [
+      "Identify responsibilities before picking classes and interfaces.",
+      "Prefer composition and abstraction over deep inheritance.",
+      "Use the right pattern for the extensibility need: factory, singleton, observer, strategy.",
+      "In interviews, defend your design with trade-offs and failure handling."
+    ];
+  }
+
+  if (normalized.includes("hld") || normalized.includes("system") || normalized.includes("design") || normalized.includes("estimation")) {
+    return [
+      "Clarify requirements, traffic, and read/write ratios before drawing a diagram.",
+      "Identify bottlenecks: cache, DB, queue, network, or replication lag.",
+      "Use latency, consistency, reliability, and cost as your core trade-off axes.",
+      "Every component should have a reason: scale, resilience, or correctness."
+    ];
+  }
+
+  const topTopics = topicNames.slice(0, 4);
+  return [
+    `Remember the key patterns in ${moduleTitle}: ${topTopics.join(", ")}.`,
+    "Explain the intuition in plain English before discussing complexity.",
+    "Practice edge cases and failure modes until the reasoning is automatic.",
+    "In interviews, clarity beats cleverness."
+  ];
 }
 
 function TopicRow({

@@ -10,159 +10,28 @@ import { expandedDsaTopics as arrayFoundationTopics } from "./expanded-dsa-topic
 import { coverageTopics } from "./expanded-coverage";
 import { lldTopics } from "./lld-topics";
 import { hldTopics } from "./hld-topics";
+import { googleDsaProblems, googleCheatSheetReference } from "./google-cheat-sheet-integration";
 
 const validModuleIds = new Set(syllabus.map((m) => m.id));
 
-type ExampleContent = {
-  title: string;
-  input: string;
-  output: string;
-  explanation: string;
-};
-
-function fallbackContent(moduleId: string, moduleTitle: string): ExampleContent {
-  const byModule: Record<string, ExampleContent> = {
-    "mod-foundations": {
-      title: "Choosing an algorithm from constraints",
-      input: "n = 100,000 sorted integers; query: does 42 appear?",
-      output: "Binary search finds 42 in at most 17 comparisons",
-      explanation: "Step 1: A linear scan may inspect all 100,000 values. Step 2: Because the input is sorted, compare the target with the middle value. Step 3: Discard the half that cannot contain 42 and repeat. Step 4: At most ceil(log2(100000)) = 17 comparisons are needed."
-    },
-    "mod-arrays-strings": {
-      title: "Finding a repeated value",
-      input: "nums = [4, 1, 4, 2], target = 4",
-      output: "indices [0,2]",
-      explanation: "Step 1: Scan from left to right and store each value's first index. Step 2: Store 4 at index 0 and 1 at index 1. Step 3: At index 2, 4 is already present, so report [0,2]. The map avoids a nested scan."
-    },
-    "mod-two-pointers-sliding": {
-      title: "Smallest window reaching a target",
-      input: "nums = [2,3,1,2,4,3], target = 7",
-      output: "length 2 from [4,3]",
-      explanation: "Step 1: Expand to [2,3,1,2] with sum 8. Step 2: Shrink from the left while the sum stays at least 7, leaving [2,4]. Step 3: Continue expanding and shrinking; [4,3] has sum 7 and length 2. Step 4: No valid window is shorter."
-    },
-    "mod-stack-monotonic": {
-      title: "Next greater element",
-      input: "nums = [2,1,2,4,3]",
-      output: "[4,2,4,-1,-1]",
-      explanation: "Step 1: Scan right to left with a decreasing stack. Step 2: For 3, no greater value exists, so output -1. Step 3: For each earlier value, pop values that are not greater; the stack top is the next greater value. Step 4: Values 2,1,2,4 produce 4,2,4,-1."
-    },
-    "mod-binary-search-intervals": {
-      title: "First position at least target",
-      input: "nums = [1,3,3,5,8], target = 3",
-      output: "index 1",
-      explanation: "Step 1: Check the middle value 3 and record index 2 as a candidate. Step 2: Search the left half because an earlier 3 may exist. Step 3: Check index 1, also 3, and continue left. Step 4: Index 1 is the first valid position."
-    },
-    "mod-linked-list": {
-      title: "Reverse a linked list",
-      input: "head = 1 -> 2 -> 3",
-      output: "3 -> 2 -> 1",
-      explanation: "Step 1: Set previous=null and current=1. Step 2: Save 2, point 1 to null, then advance. Step 3: Save 3, point 2 to 1, then advance. Step 4: Point 3 to 2; return 3 as the new head."
-    },
-    "mod-trees-bst": {
-      title: "Validate a binary search tree",
-      input: "root = [5,3,7,2,4,6,8]",
-      output: "true",
-      explanation: "Step 1: Visit 5 with bounds (-infinity,infinity). Step 2: Visit 3 within (-infinity,5) and 7 within (5,infinity). Step 3: Children 2,4,6,8 satisfy their inherited bounds. Step 4: Every node is valid, so the tree is a BST."
-    },
-    "mod-graphs": {
-      title: "Shortest route between vertices",
-      input: "edges = A-B, A-C, B-D, C-D; start=A, goal=D",
-      output: "distance 2",
-      explanation: "Step 1: BFS starts at A with distance 0. Step 2: Visit B and C at distance 1. Step 3: From B, discover D at distance 2. Step 4: Return 2 because BFS explores all shorter paths first."
-    },
-    "mod-dynamic-programming": {
-      title: "Minimum coins for an amount",
-      input: "coins = [1,3,4], amount = 6",
-      output: "2 coins (3 + 3)",
-      explanation: "Step 1: dp[0]=0. Step 2: Build upward: dp[3]=1 and dp[4]=1. Step 3: For amount 6, try each last coin; 3 + dp[3] gives 2. Step 4: No candidate uses fewer than 2 coins."
-    },
-    "mod-heaps": {
-      title: "Scheduling the next highest-priority job",
-      input: "jobs = [(backup, 2), (payment, 10), (email, 4)] where the number is priority",
-      output: "payment, email, backup",
-      explanation: "Step 1: Insert all jobs into a max-heap keyed by priority. Step 2: The root is payment (10), so process it first. Step 3: Remove it; email (4) becomes the root. Step 4: Remove email, then process backup (2). Each removal costs O(log n)."
-    },
-    "mod-greedy-backtracking": {
-      title: "Choosing non-overlapping meetings",
-      input: "meetings = [[1,3],[2,4],[3,5],[5,7],[6,8]]",
-      output: "[[1,3],[3,5],[5,7]] (3 meetings)",
-      explanation: "Step 1: Sort by finish time: [1,3], [2,4], [3,5], [5,7], [6,8]. Step 2: Choose [1,3], the earliest finisher. Step 3: Skip [2,4] because it overlaps, then choose [3,5]. Step 4: Choose [5,7]; no later meeting can increase the count. The earliest-finish choice leaves the most room."
-    },
-    "mod-dsa-mocks": {
-      title: "Mock round: shortest path in a grid",
-      input: "grid = [[0,0,1],[0,0,0],[1,0,0]], start = (0,0), goal = (2,2)",
-      output: "4 moves",
-      explanation: "Step 1: Model open cells as vertices and four-direction moves as edges. Step 2: BFS visits (0,0), then (0,1) and (1,0). Step 3: Continue by distance layers until (2,2) is reached. Step 4: The path (0,0)->(0,1)->(1,1)->(2,1)->(2,2) has 4 moves, and BFS proves it is shortest."
-    },
-    "mod-lld-mocks": {
-      title: "Mock design: extend a parking lot",
-      input: "Requirement: add EV charging spots without changing car parking or billing code",
-      output: "Vehicle and Spot interfaces plus an injected PricingStrategy",
-      explanation: "Step 1: Extract stable abstractions for Vehicle, Spot, and PricingStrategy. Step 2: Implement EVSpot alongside CompactSpot and LargeSpot. Step 3: Inject the pricing strategy into the lot service. Step 4: Existing parking flows remain unchanged while EV charging is added through new implementations."
-    },
-    "mod-lld-oop-foundations": {
-      title: "Separating payment responsibilities",
-      input: "PaymentService must validate, charge, and record a card payment",
-      output: "Validator, Gateway, and Repository collaborators",
-      explanation: "Step 1: Give validation, charging, and persistence separate interfaces. Step 2: Inject those interfaces into PaymentService. Step 3: A fake gateway can now be used in tests. Step 4: Each class has one reason to change."
-    },
-    "mod-lld-core-patterns": {
-      title: "Selecting a payment strategy",
-      input: "checkout requests method = \"paypal\", amount = $40",
-      output: "PayPalStrategy.process(40) is invoked",
-      explanation: "Step 1: The factory selects PayPalStrategy from the method name. Step 2: Checkout receives the strategy through its interface. Step 3: It calls process(40) without branching on provider details. Step 4: Adding Apple Pay requires a new strategy, not checkout changes."
-    },
-    "mod-lld-design-exercises": {
-      title: "Reserving a movie seat safely",
-      input: "Seat A7 is requested by users Alice and Bob at the same time",
-      output: "Alice gets A7; Bob receives SOLD_OUT",
-      explanation: "Step 1: Atomically lock A7 for Alice. Step 2: Bob's transaction sees the lock and cannot reserve it. Step 3: Alice completes payment and the seat becomes CONFIRMED. Step 4: Return SOLD_OUT to Bob rather than creating a duplicate booking."
-    },
-    "mod-hld-estimation-tradeoffs": {
-      title: "Capacity estimate for a photo upload service",
-      input: "10 million daily uploads; average photo size = 4 MB; 2x replication",
-      output: "40 TB/day raw storage, 80 TB/day with replication",
-      explanation: "Step 1: 10,000,000 uploads x 4 MB = 40,000,000 MB, or about 40 TB per day. Step 2: Two replicas double the requirement to 80 TB/day. Step 3: Add metadata storage and headroom, then choose object storage and lifecycle tiers. Step 4: The estimate guides capacity and cost decisions before architecture details."
-    },
-    "mod-hld-mocks": {
-      title: "Mock design: resilient notification delivery",
-      input: "Send 100,000 password-reset emails/hour; provider may fail for 5 minutes",
-      output: "Durable queue, retry workers with backoff, and a dead-letter queue",
-      explanation: "Step 1: Write each notification to a durable queue before acknowledging the request. Step 2: Workers retry transient provider errors with exponential backoff. Step 3: During a five-minute outage, messages remain queued instead of being lost. Step 4: After the retry limit, move failures to a dead-letter queue for inspection."
-    }
-  };
-  return byModule[moduleId] || {
-    title: `${moduleTitle}: concrete interview scenario`,
-    input: `Scenario from ${moduleTitle}: process 1,000 requests with a 100 ms latency target`,
-    output: "A design that meets the stated constraint with measurable trade-offs",
-    explanation: `Step 1: Translate the ${moduleTitle.toLowerCase()} requirement into an explicit state or component. Step 2: Process the supplied 1,000-item scenario and record each transition. Step 3: Check the 100 ms constraint and identify the bottleneck. Step 4: Verify the final result and explain what changes when the workload doubles.`
-  };
-}
-
 function buildFallbackTopic(moduleId: string, moduleTitle: string): Topic {
   const cleanTitle = moduleTitle.replace(/[:()]/g, "").trim();
-  const example = fallbackContent(moduleId, cleanTitle);
   const topicId = `${moduleId}-core-topic`;
   return {
     id: topicId,
     moduleId,
-    title: example.title,
-    intuition: `Use the ${cleanTitle.toLowerCase()} concepts to solve the concrete scenario below. The worked trace shows the state or components to track and the trade-off that determines the result.`,
+    title: `${cleanTitle} Core Pattern`,
+    intuition: `This module is about practicing the fundamental interview patterns behind ${moduleTitle.toLowerCase()}. The goal is to reason clearly, choose the right abstraction, and explain trade-offs under pressure.`,
     lesson: [
       {
-        title: "Read the scenario",
-        content: `Input: ${example.input}\nExpected result: ${example.output}\nStart by naming the state, data structure, or service boundary that directly represents this scenario.`,
-        codeExample: example.input
+        title: "Why this module matters",
+        content: `In FAANG interviews, ${moduleTitle.toLowerCase()} is assessed by how you reason about the problem, clarify constraints, and communicate the algorithmic trade-offs. The interviewer is looking for a clear plan, not just a final answer.`,
+        codeExample: `// Step 1: clarify\n// Step 2: model the state\n// Step 3: identify the invariant\n// Step 4: implement and validate`
       },
       {
-        title: "Trace and verify",
-        content: example.explanation,
-        codeExample: `// Result: ${example.output}`
-      }
-    ],
-    examples: [
-      {
-        ...example
+        title: "Interview approach",
+        content: `Start with a brute-force version to show that you understand the raw problem. Then refine it by tracking only the necessary state. Explain complexity, edge cases, and why the chosen structure is the right fit before coding.`,
+        codeExample: `// brute force -> optimize\n// store only the needed state\n// prune or compress when possible`
       }
     ],
     tips: [
@@ -190,7 +59,6 @@ function buildFallbackTopic(moduleId: string, moduleTitle: string): Topic {
       { source: "note", attribution: "NeetCode / TakeUForward", insight: `Use this module as a framework for learning ${cleanTitle.toLowerCase()} with clear interview patterns.` }
     ],
     practiceProblems: [`${moduleId}-practice-1`, `${moduleId}-practice-2`],
-    complexity: { time: "O(n)", space: "O(1)" }
   };
 }
 
@@ -206,53 +74,61 @@ function ensureModuleCoverage(topics: Topic[], moduleIds: string[]): Topic[] {
   return [...topics, ...fallbackTopics];
 }
 
-function concreteExample(topic: Topic): ExampleContent {
-  const fallbackTitle = topic.title || "Topic";
-  const title = fallbackTitle.toLowerCase();
-  const examples: Array<[string, ExampleContent]> = [
-    ["heap", { title: "Priority queue trace", input: "priorities = [3, 1, 5, 2]", output: "5, 3, 2, 1", explanation: "Step 1: Insert each value into a max-heap. Step 2: Remove the root 5, then 3, then 2, then 1. Step 3: The heap invariant keeps the largest remaining value at the root after every removal." }],
-    ["linked", { title: "Pointer trace", input: "list = 1 -> 2 -> 3 -> 4, remove the 2nd node from the end", output: "1 -> 2 -> 4", explanation: "Step 1: Advance fast two nodes. Step 2: Move fast and slow together until fast reaches the tail. Step 3: Slow points to 2, so bypass 3. Step 4: The resulting list is 1 -> 2 -> 4." }],
-    ["tree", { title: "Tree traversal trace", input: "root = [4,2,6,1,3]", output: "in-order = [1,2,3,4,6]", explanation: "Step 1: Visit the left subtree [2,1,3]. Step 2: Emit 1, then 2, then 3. Step 3: Emit the root 4. Step 4: Visit and emit the right child 6." }],
-    ["graph", { title: "BFS traversal trace", input: "edges = [[0,1],[0,2],[1,3]], start = 0", output: "[0,1,2,3]", explanation: "Step 1: Enqueue 0 and mark it visited. Step 2: Visit 0 and enqueue 1 and 2. Step 3: Visit 1 and enqueue 3; 2 adds nothing. Step 4: Visit 3 and finish." }],
-    ["dynamic", { title: "Dynamic-programming trace", input: "climb n = 5 with one- or two-step moves", output: "8 ways", explanation: "Step 1: dp[0]=1 and dp[1]=1. Step 2: Compute dp[2]=2, dp[3]=3, dp[4]=5. Step 3: dp[5]=dp[4]+dp[3]=8 because the last move is either one or two steps." }],
-    ["parking", { title: "Parking allocation trace", input: "A compact car arrives at level 1; spots 1 and 2 are occupied, spot 3 is free", output: "Ticket(level=1, spot=3)", explanation: "Step 1: The lot asks each level for a compatible free spot. Step 2: Level 1 skips occupied spots 1 and 2 and selects spot 3. Step 3: Mark spot 3 occupied and issue the ticket." }],
-    ["cache", { title: "LRU cache trace", input: "capacity = 2; put(A,1), put(B,2), get(A), put(C,3)", output: "B is evicted; cache order is A, C", explanation: "Step 1: Store A then B, with B most recently used. Step 2: get(A) moves A to the most-recent position. Step 3: put(C,3) exceeds capacity, so the least-recent B is evicted." }],
-    ["load balanc", { title: "Load-balancer trace", input: "servers S1 and S2 are healthy; requests = 5 using round robin", output: "S1,S2,S1,S2,S1", explanation: "Step 1: Health checks mark both servers eligible. Step 2: Assign requests alternately to S1 and S2. Step 3: The fifth request wraps back to S1, keeping the distribution 3 to 2." }],
-    ["shard", { title: "Shard-routing trace", input: "user IDs 10, 11, 12; shard = userId mod 3", output: "10->S1, 11->S2, 12->S0", explanation: "Step 1: Apply the routing function to each ID. Step 2: 10 mod 3 is 1, 11 mod 3 is 2, and 12 mod 3 is 0. Step 3: Route reads and writes to the same shard for locality." }]
-  ];
-  const match = examples.find(([keyword]) => title.includes(keyword));
-  return match ? match[1] : fallbackContent(topic.moduleId, topic.title);
-}
-
 function enrichTopic(topic: Topic): Topic {
   const fallbackTitle = topic.title || "Topic";
-  const example = concreteExample(topic);
-  const keyWord = fallbackTitle.split(/\s+/)[0] || "pattern";
+  const words = fallbackTitle.replace(/[^a-zA-Z0-9\s]/g, " ").trim().split(/\s+/).filter(Boolean);
+  const keyWord = words[0] || "pattern";
+  const lowerTitle = fallbackTitle.toLowerCase();
   const defaultLesson = [
     {
-      title: "Concrete scenario",
-      content: `For ${fallbackTitle}, begin with this concrete scenario. Input: ${example.input}\nExpected result: ${example.output}`,
-      codeExample: example.input
+      title: "Core idea",
+      content:
+        lowerTitle.includes("singleton")
+          ? `A singleton is only appropriate when the system truly needs a single shared instance, such as a logger or config object. The real interview question is how you protect lifecycle, threading, and global state.`
+          : lowerTitle.includes("factory")
+            ? `A factory abstracts object creation so the caller depends on an interface instead of concrete classes. The key is to centralize creation logic while keeping the client code simple and extensible.`
+            : lowerTitle.includes("observer")
+              ? `The observer pattern is about a subject notifying multiple listeners when state changes. The interview focus is on loose coupling, event flow, and clear subscription lifecycle.`
+              : lowerTitle.includes("cache") || lowerTitle.includes("rate limiter")
+                ? `This design decision is about protecting the system under load. You should talk about access patterns, invalidation, and the cost of stale data versus performance.`
+                : lowerTitle.includes("load balancing") || lowerTitle.includes("replication") || lowerTitle.includes("consistency")
+                  ? `This design asks where the bottleneck is and which trade-off is worth making. Use traffic estimates and explain how capacity, failure handling, and data freshness interact.`
+                  : `For ${fallbackTitle}, the real interview skill is clarifying responsibilities, identifying the core state, and choosing the cleanest abstraction before you optimize or code.`,
+      codeExample:
+        lowerTitle.includes("singleton")
+          ? `class Logger {\n  static instance;\n  private constructor() {}\n  static getInstance() {\n    if (!Logger.instance) Logger.instance = new Logger();\n    return Logger.instance;\n  }\n}`
+          : lowerTitle.includes("factory")
+            ? `class VehicleFactory {\n  static create(type) {\n    if (type === 'car') return new Car();\n    return new Bike();\n  }\n}`
+            : lowerTitle.includes("cache") || lowerTitle.includes("rate limiter")
+              ? `// policy -> quota / TTL / invalidation\n// hot path -> cache miss -> fallback -> retry policy`
+              : `// clarify requirements\n// define responsibilities\n// choose abstraction\n// validate edge cases`
     },
     {
-      title: "Step-by-step result",
-      content: example.explanation,
-      codeExample: `// Result: ${example.output}`
+      title: "Interview execution",
+      content: `Walk through ${fallbackTitle} as a design conversation, not as a code dump. State the requirement, mention the key constraints, and explain why the chosen abstraction or architectural decision is the right fit for this problem. In a good FAANG answer, you define the contract before you define the implementation.`,
+      codeExample: `// requirements\n// key entities\n// failure behavior\n// trade-offs\n// scale decisions`
+    },
+    {
+      title: "Edge cases & failure modes",
+      content: `Test invalid states, concurrency issues, stale data, failure recovery, and scale-out behavior before calling ${fallbackTitle} complete. If your design fails at scale or under partial outage, it is not ready for a FAANG-level interview answer.`,
+      codeExample: `// invalid state\n// retry path\n// concurrency\n// stale data or load spike\n// degraded mode`
     }
   ];
-
   return {
     ...topic,
     lesson: topic.lesson && topic.lesson.length > 0 ? topic.lesson : defaultLesson,
-    examples: topic.examples && topic.examples.length > 0 ? topic.examples : [example],
-    complexity: topic.complexity || { time: "O(n)", space: "O(1)" },
+    examples: topic.examples,
+    methodology: topic.methodology,
+    workedExample: topic.workedExample,
+    complexity: topic.complexity,
     tips:
       topic.tips && topic.tips.length > 0
         ? topic.tips
         : [
             `State the problem in your own words before choosing an approach for ${fallbackTitle}.`,
             "Handle edge cases and constraints before optimising the solution.",
-            "Explain the time and space trade-off clearly while talking through the interview."
+            "Explain the time and space trade-off clearly while talking through the interview.",
+            "In system design, identify the bottleneck before proposing a cache, queue, or replica."
           ],
     tricks:
       topic.tricks && topic.tricks.length > 0
@@ -260,7 +136,8 @@ function enrichTopic(topic: Topic): Topic {
         : [
             `Recognise the invariant for ${fallbackTitle}: what stays true after each step?`,
             `Start from a brute-force idea, then optimise once the pattern is obvious.`,
-            `Use a small dry run to verify correctness before coding.`
+            `Use a small dry run to verify correctness before coding.`,
+            `If a strongly consistent answer is required, say so explicitly and name the trade-off.`
           ],
     memoryAids:
       topic.memoryAids && topic.memoryAids.length > 0
@@ -268,7 +145,8 @@ function enrichTopic(topic: Topic): Topic {
         : [
             `Remember: ${fallbackTitle} usually reduces to state tracking, ordering, or boundary checks.`,
             `If the input is large, think in terms of scanning once, using a map, or using a monotonic structure.`,
-            `${keyWord.charAt(0).toUpperCase() + keyWord.slice(1)} -> pattern -> prove -> code.`
+            `${keyWord.charAt(0).toUpperCase() + keyWord.slice(1)} -> pattern -> prove -> code.`,
+            `For system design: requirement -> traffic -> bottleneck -> trade-offs -> decision.`
           ],
     interviewPatterns:
       topic.interviewPatterns && topic.interviewPatterns.length > 0
@@ -276,7 +154,8 @@ function enrichTopic(topic: Topic): Topic {
         : [
             `Explain the brute-force solution for ${fallbackTitle} before the optimized one.`,
             "Walk the interviewer through the state changes and the reasoning behind the chosen data structure.",
-            "Discuss edge cases, invariants, and complexity trade-offs before coding."
+            "Discuss edge cases, invariants, and complexity trade-offs before coding.",
+            "For HLD, explain traffic assumptions, bottlenecks, and failure handling before drawing a final architecture."
           ],
     references:
       topic.references && topic.references.length > 0
@@ -349,3 +228,247 @@ export const topicsByModule: Record<string, Topic[]> = syllabus.reduce(
   },
   {} as Record<string, Topic[]>
 );
+
+// ===== GOOGLE CHEAT SHEET REFERENCE TOPICS =====
+// Add Google DSA problems as a reference resource
+export const googleCheatSheetTopics: Topic[] = [
+  {
+    id: "topic-google-cheat-sheet-reference",
+    moduleId: "mod-interview-foundations",
+    title: "Google DSA Interview C++ Cheat Sheet (100+ Problems)",
+    intuition: "Quick reference for Google's curated DSA problems organized by category with C++ implementations, patterns, and interview tips.",
+    lesson: [
+      {
+        title: "What is the Google DSA Cheat Sheet?",
+        content: `The Google DSA Interview C++ Cheat Sheet is a comprehensive collection of 100+ medium to hard interview problems organized by algorithmic category. Each problem includes:
+- C++ code templates and solutions
+- Time and space complexity analysis  
+- Key insights and common mistakes
+- Pattern classification and LeetCode references
+
+This resource accelerates learning by providing battle-tested implementations and highlighting interview patterns.`,
+        codeExample: googleCheatSheetReference.commonPatterns.slice(0, 3).map(p => `// Pattern: ${p}`).join("\n")
+      },
+      {
+        title: "How to Use This Resource",
+        content: `1. Study the Quick Reference Code Templates section - master each pattern before solving problems
+2. Review problems by category to strengthen weak areas
+3. For each problem: read description → understand pattern → compare with template → optimize solution
+4. Track which patterns appear across multiple problems (meta-learning)
+5. Before interviews: do a quick review of all templates in this cheat sheet`,
+        codeExample: `// Interview prep workflow:
+// 1. Clarify problem constraints
+// 2. Identify the pattern (use this cheat sheet)
+// 3. Write template solution
+// 4. Test with examples
+// 5. Optimize and explain tradeoffs`
+      }
+    ],
+    examples: [
+      {
+        title: "Using the Cheat Sheet During Problem Solving",
+        input: "Problem: Find two numbers that sum to target (LeetCode #1)",
+        output: "Use Hash Map template with O(n) time complexity",
+        explanation: `Step 1: Recognize this is a "pair" problem
+Step 2: Recall Hash Map pattern from cheat sheet
+Step 3: Apply template: iterate, check complement in map, store as you go
+Step 4: Verify: handles duplicates, negative numbers, edge cases
+Step 5: Explain: Why O(n) hash map beats O(n log n) sort for one-pass solution`
+      }
+    ],
+    tips: [
+      "Memorize the quick reference templates - they appear in 80% of interview problems",
+      "Each template solves an entire family of problems, not just one",
+      "Common mistakes are listed for each problem - use them as edge case checklist",
+      "Time/space tradeoffs in cheat sheet reflect interviewer expectations",
+      "Combine multiple templates for complex problems (e.g., BFS + Topological Sort)"
+    ],
+    tricks: [
+      "When stuck on a problem, scan the 'Pattern' column to find similar solved problems",
+      "Use 'Common Mistakes' section as your edge case validation checklist",
+      "Before coding in an interview, reference template to ensure clean implementation",
+      "Problems are organized by category - review entire category to see pattern variations",
+      "C++ templates show optimal complexity - use these as target for your solutions"
+    ],
+    memoryAids: [
+      "Hash Map → Frequency/pair problems | Two Pointers → Sorted/palindrome problems",
+      "Sliding Window → Subarray/substring problems | DFS → Tree/path problems",
+      "BFS → Shortest path (unweighted) | DP → Optimization/counting problems",
+      "Binary Search → Searching in answer space | Union-Find → Connectivity problems",
+      "The 11 common patterns in cheat sheet cover ~95% of all interview coding problems"
+    ],
+    interviewPatterns: [
+      "Quickly identify problem category and recall template",
+      "Write template first, then customize for specific problem",
+      "Explain why chosen pattern is optimal before coding",
+      "Test with edge cases from 'Common Mistakes' section",
+      "Reference cheat sheet memory aids when explaining to interviewer"
+    ],
+    references: [
+      {
+        source: "note",
+        attribution: "Google DSA Interview C++ Cheat Sheet",
+        insight: `Complete collection of ${googleDsaProblems.length} curated interview problems with templates and patterns.`
+      },
+      {
+        source: "blog",
+        attribution: "Google Interview Preparation",
+        insight: "These patterns are what Google interviewers expect to see in your approach and code."
+      }
+    ],
+    complexity: { time: "Reference material", space: "N/A" }
+  },
+
+  // Topic for each category in the cheat sheet
+  {
+    id: "topic-google-arrays-strings-problems",
+    moduleId: "mod-arrays-strings",
+    title: "Google DSA Problems: Arrays & Strings Collection",
+    intuition: "Master frequency maps, two pointers, sliding windows, and prefix sums through Google's curated array/string problems.",
+    lesson: [
+      {
+        title: "Google Array & String Problems Overview",
+        content: `Google regularly asks array and string problems that test:
+1. Hash map fluency (frequency counting, pair finding)
+2. Two pointer technique (palindromes, containers, sorted pairs)
+3. Sliding window (subarray/substring optimization)
+4. Prefix/suffix reasoning (range queries, product arrays)
+
+The cheat sheet includes 10 carefully selected problems (Easy → Hard) that demonstrate each pattern.`,
+        codeExample: `// 10 Google Array & String Problems:
+// Easy: Two Sum, Valid Palindrome
+// Medium: Longest Substring, Container With Most Water
+// Hard: Trapping Rain Water, Minimum Window Substring`
+      }
+    ],
+    examples: googleDsaProblems
+      .filter(p => p.category === "Arrays Strings")
+      .slice(0, 2)
+      .map(p => ({
+        title: `${p.title} (${p.difficulty})`,
+        input: "See LeetCode problem page",
+        output: "Optimal solution approach",
+        explanation: `Pattern: ${p.pattern}\nKey Insight: ${p.keyInsights[0]}\nComplexity: ${p.timeComplexity} time, ${p.spaceComplexity} space`
+      })),
+    tips: googleDsaProblems
+      .filter(p => p.category === "Arrays Strings")
+      .flatMap(p => p.keyInsights)
+      .slice(0, 5),
+    tricks: [
+      "Always check if array is sorted (affects pointer strategy)",
+      "Frequency map queries are O(1) - use this for optimization",
+      "Sliding window pointer movements: expand right, contract left when condition met",
+      "Two pointer techniques: same direction, opposite ends, or one fast one slow"
+    ],
+    memoryAids: [
+      "Frequency questions? → Hash Map (One pass O(n))",
+      "Sorted array? → Two Pointers (O(1) space)",
+      "Subarray/substring? → Sliding Window (Avoid nested loops)",
+      "Range queries? → Prefix Sum (Precompute for O(1) queries)"
+    ],
+    practiceProblems: googleDsaProblems.filter(p => p.category === "Arrays Strings").map(p => `google-${p.leetcodeId.toLowerCase()}`)
+  },
+
+  // Trees & Graphs problems from Google cheat sheet
+  {
+    id: "topic-google-trees-graphs-problems",
+    moduleId: "mod-graphs",
+    title: "Google DSA Problems: Trees & Graphs Collection",
+    intuition: "Master DFS, BFS, topological sort, and tree algorithms through Google's interview problems.",
+    lesson: [
+      {
+        title: "Google Trees & Graphs Problems Overview",
+        content: `Google's tree and graph problems test:
+1. DFS mastery (trees, graphs, backtracking)
+2. BFS correctness (shortest path, level-order)
+3. Cycle detection and topological sorting
+4. Tree properties (LCA, path sums, serialization)
+
+The cheat sheet includes 15 problems covering these core patterns.`,
+        codeExample: `// 15 Google Tree & Graph Problems:
+// Medium: Islands, LCA, Course Schedule, Word Ladder
+// Hard: Binary Tree Max Path, Serialize/Deserialize, Word Ladder`
+      }
+    ],
+    examples: googleDsaProblems
+      .filter(p => p.category === "Trees Graphs")
+      .slice(0, 2)
+      .map(p => ({
+        title: `${p.title} (${p.difficulty})`,
+        input: "See LeetCode problem page",
+        output: "Optimal solution using cheat sheet template",
+        explanation: `Pattern: ${p.pattern}\nKey: ${p.keyInsights[0]}\nComplexity: ${p.timeComplexity} time`
+      })),
+    tips: googleDsaProblems
+      .filter(p => p.category === "Trees Graphs")
+      .flatMap(p => p.keyInsights)
+      .slice(0, 5),
+    practiceProblems: googleDsaProblems.filter(p => p.category === "Trees Graphs").map(p => `google-${p.leetcodeId.toLowerCase()}`)
+  },
+
+  // DP problems from Google cheat sheet
+  {
+    id: "topic-google-dp-problems",
+    moduleId: "mod-dynamic-programming",
+    title: "Google DSA Problems: Dynamic Programming Collection",
+    intuition: "Master 1D and 2D DP patterns through Google's optimization and state-transition problems.",
+    lesson: [
+      {
+        title: "Google DP Problems Overview",
+        content: `Google's DP problems focus on:
+1. State definition and transitions
+2. Base cases and recurrence relations
+3. Space optimization (1D vs 2D vs O(1))
+4. Recognizing DP in disguise (greedy looks like DP)
+
+The cheat sheet includes 10+ DP problems from easy to hard.`,
+        codeExample: `// Google DP Problem Categories:
+// Classic: House Robber, Coin Change, LCS
+// String: Edit Distance, Regex Matching
+// Grid: Unique Paths, Minimum Cost Path`
+      }
+    ],
+    examples: googleDsaProblems
+      .filter(p => p.category === "Dynamic Programming")
+      .slice(0, 2)
+      .map(p => ({
+        title: `${p.title} (${p.difficulty})`,
+        input: "DP state problem - see LeetCode",
+        output: "Optimal subproblem solution",
+        explanation: `Pattern: ${p.pattern}\nRecurrence: See template in cheat sheet\nKey: ${p.keyInsights[0]}`
+      })),
+    tips: [
+      "Always define state clearly before coding: dp[i] = ?",
+      "Write base cases first, then recurrence",
+      "Test recurrence with small examples on paper",
+      "Optimize space only after correctness is verified"
+    ],
+    practiceProblems: googleDsaProblems.filter(p => p.category === "Dynamic Programming").map(p => `google-${p.leetcodeId.toLowerCase()}`)
+  }
+];
+
+// Add Google cheat sheet topics to the main export
+export const allTopicsWithGoogle: Topic[] = [...allTopics, ...googleCheatSheetTopics];
+
+// Export only google cheat sheet topics for reference
+export const topicsByGoogleCategory = {
+  "Arrays & Strings": googleCheatSheetTopics.filter(t => t.id === "topic-google-arrays-strings-problems"),
+  "Trees & Graphs": googleCheatSheetTopics.filter(t => t.id === "topic-google-trees-graphs-problems"),
+  "Dynamic Programming": googleCheatSheetTopics.filter(t => t.id === "topic-google-dp-problems"),
+};
+
+// Helper: Get all Google problems for a specific module
+export const getGoogleProblemsForModule = (moduleId: string) => {
+  return googleDsaProblems.filter(p => {
+    const categoryToModule: Record<string, string> = {
+      "Arrays Strings": "mod-arrays-strings",
+      "Trees Graphs": "mod-graphs",
+      "Dynamic Programming": "mod-dynamic-programming",
+      "Recent 2024-2025": "mod-interview-foundations",
+    };
+    return categoryToModule[p.category as keyof typeof categoryToModule] === moduleId;
+  });
+};
+
+// For backward compatibility, export allTopics with google content merged
+export { allTopicsWithGoogle as allTopicsEnhanced };
