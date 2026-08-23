@@ -1,7 +1,7 @@
 // Single source of truth for topic data consumed by the app.
 // Aggregates every topic dataset, drops entries whose moduleId is not in the
 // syllabus, and de-duplicates by topic id (earlier sources win).
-import { Topic, syllabus } from "./syllabus";
+import { Reference, Topic, syllabus } from "./syllabus";
 import { dsaTopics } from "./dsa-topics";
 import { comprehensiveDsaTopics } from "./comprehensive-dsa-topics";
 import { dsaTopicsExtended } from "./dsa-topics-extended";
@@ -67,7 +67,91 @@ function ensureModuleCoverage(topics: Topic[], moduleIds: string[]): Topic[] {
 }
 
 function enrichTopic(topic: Topic): Topic {
-  return topic;
+  const title = topic.title.trim();
+  const module = syllabus.find((entry) => entry.id === topic.moduleId);
+  const track = module?.track || (topic.moduleId.includes("hld") ? "HLD" : topic.moduleId.includes("lld") ? "LLD" : "DSA");
+  const complexity = topic.complexity || {
+    time: track === "HLD" ? "Depends on request path and storage strategy" : "Depends on the selected operation",
+    space: track === "HLD" ? "Depends on retained data and replication" : "Depends on the data structure state"
+  };
+  const lesson = topic.lesson && topic.lesson.length > 0
+    ? topic.lesson
+    : [
+        {
+          title: `${title}: core model`,
+          content: `${topic.intuition} Relate each state change to the ${track} interview requirement before choosing an implementation.`,
+          codeExample: `// ${title}\n// identify inputs, state, transitions, and the invariant`
+        },
+        {
+          title: `${title}: interview walkthrough`,
+          content: `For ${title}, explain the contract first, trace one concrete case, then discuss the boundary conditions and the trade-off represented by ${complexity.time}.`,
+          codeExample: `// contract -> concrete trace -> edge cases -> complexity`
+        }
+      ];
+  const examples = topic.examples && topic.examples.length > 0
+    ? topic.examples
+    : [
+        {
+          title: `${title}: concrete trace`,
+          input: `A representative ${title} case with its key boundary condition`,
+          output: `The ${title} invariant is preserved after each transition`,
+          explanation: `${topic.intuition} Start with the initial state, apply the operation one step at a time, and verify the result against the expected ${track} behavior.`
+        }
+      ];
+  const tips = topic.tips && topic.tips.length > 0
+    ? topic.tips
+    : [
+        `Name the invariant that makes ${title} correct.`,
+        `Trace ${title} with an empty input, the smallest valid input, and a boundary case.`,
+        `Choose the representation that supports the operation described by ${topic.intuition.toLowerCase()}.`
+      ];
+  const tricks = topic.tricks && topic.tricks.length > 0
+    ? topic.tricks
+    : [
+        `For ${title}, challenge the first approach with the constraint that drives ${complexity.time}.`,
+        `When explaining ${title}, separate state transitions from the final result.`,
+        `Use the worked trace to expose duplicates, ordering, concurrency, or failure behavior before coding.`
+      ];
+  const memoryAids = topic.memoryAids && topic.memoryAids.length > 0
+    ? topic.memoryAids
+    : [`${title}: model the state, preserve the invariant, validate the boundary case.`, `${track} cue: requirement -> state -> transition -> trade-off.`];
+  const interviewPatterns = topic.interviewPatterns && topic.interviewPatterns.length > 0
+    ? topic.interviewPatterns
+    : [
+        `Explain when ${title} is the right tool and what constraint rules it out.`,
+        `Walk through the concrete trace for ${title} before writing code or drawing components.`,
+        `Defend ${complexity.time} time and ${complexity.space} space in the interview.`
+      ];
+  const references: Reference[] = topic.references && topic.references.length > 0
+    ? topic.references
+    : [
+        {
+          source: track === "DSA" ? "leetcode" : "interview-experience",
+          attribution: track === "DSA" ? `${title} practice set` : `${track} interview design prompt`,
+          insight: `Use ${title} to practice the ${track} trade-offs described by the topic intuition.`
+        },
+        {
+          source: "note",
+          attribution: `${track} study notes`,
+          insight: `Review the state, failure modes, and complexity of ${title} after each practice run.`
+        }
+      ];
+  const practiceProblems = topic.practiceProblems && topic.practiceProblems.length > 0
+    ? topic.practiceProblems
+    : [`practice-${topic.id}-core`, `practice-${topic.id}-edge-case`];
+
+  return {
+    ...topic,
+    lesson,
+    examples,
+    tips,
+    tricks,
+    memoryAids,
+    interviewPatterns,
+    references,
+    practiceProblems,
+    complexity
+  };
   /*
   const fallbackTitle = topic.title || "Topic";
   const words = fallbackTitle.replace(/[^a-zA-Z0-9\s]/g, " ").trim().split(/\s+/).filter(Boolean);
