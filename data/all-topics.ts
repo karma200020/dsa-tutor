@@ -96,6 +96,314 @@ function buildHldSolution(title: string, intuition: string): { lesson: LessonSec
   };
 }
 
+type HldMockSpec = {
+  requirements: string;
+  capacity: string;
+  apis: string;
+  dataModel: string;
+  architecture: string;
+  flowSteps: string;
+  scaling: string;
+  consistency: string;
+  reliability: string;
+  security: string;
+  observability: string;
+  tradeoffs: string;
+  drawingOrder: string;
+  diagram: string;
+  example: { input: string; output: string; steps: string };
+};
+
+function diagramBlock(ascii: string): string {
+  return `<pre style="margin:0;padding:0;font-family:'Courier New',monospace;font-size:12px;line-height:1.5;color:#a5f3fc;white-space:pre;text-align:left;overflow-x:auto;">${ascii}</pre>`;
+}
+
+const hldMockSolutions: Record<string, HldMockSpec> = {
+  "topic-hld-mock-chat": {
+    requirements:
+      "1:1 and group messaging, delivery/read receipts, offline delivery when a user reconnects, message ordering per conversation, and end-to-end acceptable latency under ~200ms for online delivery.",
+    capacity:
+      "1M DAU, 10% concurrently online (~100K), each user sends ~20 messages/day -> ~20M messages/day (~230 msgs/sec average, ~2,300 msgs/sec at 10x peak). Each message ~1KB -> ~20GB/day raw message storage before replication.",
+    apis:
+      "POST /messages {conversationId, senderId, body, clientMsgId} -> {messageId, serverTimestamp}; GET /conversations/{id}/messages?cursor= -> paginated history; WebSocket channel /ws/{userId} for push delivery and receipts; POST /conversations for group creation.",
+    dataModel:
+      "Message{id, conversationId, senderId, body, sentAt, deliveredTo[], readBy[]} partitioned by conversationId; Conversation{id, memberIds[], lastMessageId}; per-user offline inbox keyed by userId for messages pending delivery.",
+    architecture:
+      "Client -> CDN/API Gateway -> Load Balancer -> stateless Chat Service (WebSocket gateway + REST) -> Message Store (partitioned DB) and Redis presence cache -> Kafka-style queue -> fan-out workers -> push notification service for offline users.",
+    flowSteps:
+      "Step 1: sender's client opens a persistent WebSocket to the gateway, authenticated once via token. Step 2: on send, the Chat Service writes the message durably (partitioned by conversationId) and assigns a monotonic per-conversation sequence number. Step 3: the service publishes the message to a fan-out queue keyed by conversation. Step 4: fan-out workers push to each online member's WebSocket connection immediately; offline members' messages sit in their per-user inbox. Step 5: on reconnect, the client fetches missed messages via GET /conversations/{id}/messages using the last-seen cursor.",
+    scaling:
+      "Partition conversations by conversationId hash across message-store shards; use consistent hashing so gateway nodes can locate a user's active WebSocket via a presence registry (Redis); scale WebSocket gateways horizontally behind a connection-aware load balancer (sticky routing by userId).",
+    consistency:
+      "Per-conversation message ordering is strongly consistent (single writer per partition, monotonic sequence numbers); read receipts and presence are eventually consistent and safe to lose/replay.",
+    reliability:
+      "Client retries sends with the clientMsgId as an idempotency key to survive dropped acks; queue consumers use at-least-once delivery with dedup by messageId; dead-letter queue captures fan-out failures for replay; gateway failure triggers client auto-reconnect with exponential backoff.",
+    security:
+      "TLS for all connections, per-conversation authorization checks on every read/write, rate limiting per user to prevent spam, end-to-end or at-rest encryption of message bodies, audit logging of admin/moderation actions.",
+    observability:
+      "Track message send-to-delivery latency (p50/p95/p99), WebSocket connection churn, queue lag, delivery failure rate, and per-shard write throughput; alert on delivery latency regressions and queue backlog growth.",
+    tradeoffs:
+      "Strong per-conversation ordering (single-writer partition) trades some write parallelism for correctness; push-based fan-out lowers latency but adds fan-out cost for very large groups, which can be mitigated by treating huge groups as pull-based/broadcast channels instead.",
+    drawingOrder:
+      "1) Client and API Gateway/LB, 2) Chat Service + WebSocket gateway, 3) Message Store partitions, 4) Presence cache, 5) Fan-out queue and workers, 6) Push notification service for offline delivery.",
+    diagram: diagramBlock(
+`Client(s) --WS/HTTPS--> API GW / LB --> Chat Service (stateless)
+                                   |          |
+                                   v          v
+                        Presence Cache   Message Store (sharded by conversationId)
+                                   |          |
+                                   v          v
+                             Fan-out Queue --> Workers --> Online: push via WS
+                                                        \\-> Offline: Push Notif Service`
+    ),
+    example: {
+      input: "User A sends a message to a 3-person group where B is online and C is offline",
+      output: "B receives the message over WebSocket in <200ms; C receives it via push notification and fetches full history on reconnect",
+      steps:
+        "Step 1: Chat Service durably writes the message with sequence number 42 for the conversation. Step 2: The message is published to the fan-out queue. Step 3: A worker looks up presence for B (online) and C (offline) in Redis. Step 4: B's connection receives the message immediately over its WebSocket. Step 5: C's message is stored in their offline inbox and a push notification is sent; on reconnect C fetches messages after cursor=41."
+    }
+  },
+  "topic-hld-mock-url-shortener": {
+    requirements:
+      "Shorten a long URL to a compact code, redirect short codes to the original URL with low latency, support custom aliases, and handle very high read (redirect) to write (create) ratio.",
+    capacity:
+      "100M new URLs/month (~40 writes/sec average) and a 100:1 read:write ratio -> ~4,000 redirects/sec average, higher at peak. Each mapping record is small (<1KB) -> ~100GB/year of raw mapping data, trivially cacheable.",
+    apis:
+      "POST /shorten {longUrl, customAlias?} -> {shortCode, shortUrl}; GET /{shortCode} -> 301/302 redirect to longUrl; DELETE /{shortCode} for owner-initiated removal.",
+    dataModel:
+      "UrlMapping{shortCode (PK), longUrl, createdAt, expiresAt?, ownerId?, clickCount}; shortCode generated via base62 encoding of an auto-increment ID or a hash+collision-check scheme.",
+    architecture:
+      "Client -> CDN (caches redirect responses where possible) -> Load Balancer -> stateless Redirect Service -> Cache (Redis, shortCode -> longUrl) -> Database (partitioned key-value or relational store) with an async write path for click analytics.",
+    flowSteps:
+      "Step 1: POST /shorten generates a unique shortCode (base62 of a distributed ID generator) and writes {shortCode, longUrl} to the database. Step 2: The mapping is also written into the cache proactively for hot new links. Step 3: GET /{shortCode} first checks the cache; on a hit it redirects immediately. Step 4: On a cache miss, the Redirect Service reads the database, redirects, and repopulates the cache with a TTL. Step 5: Click events are pushed asynchronously to a queue for analytics rather than blocking the redirect.",
+    scaling:
+      "Partition the mapping store by shortCode hash across shards; keep the cache hit rate very high (>95%) since reads dominate; use a distributed ID generator (e.g., Snowflake-style) to avoid a single point of contention for code generation.",
+    consistency:
+      "Writes (shorten) are strongly consistent - once created, a shortCode must never be reassigned; reads can be served from a slightly stale cache since long URLs rarely change after creation.",
+    reliability:
+      "Idempotent creation (same longUrl + custom alias returns the same code if retried); collision handling on custom aliases returns a clear conflict error; database replica failover keeps redirects available even if a primary write node is down.",
+    security:
+      "Validate and sanitize submitted URLs to block malicious redirect targets, rate-limit creation per client/IP to prevent abuse, support link expiration/revocation, and log redirect access for abuse investigation.",
+    observability:
+      "Monitor cache hit rate, redirect latency (p95/p99), database read/write throughput, and shortCode collision rate; alert if cache hit rate drops (indicating cache sizing or TTL issues).",
+    tradeoffs:
+      "Auto-increment/Snowflake IDs are simpler and collision-free but reveal creation order; hash-based codes hide order but need collision detection - the design favors ID-based generation for simplicity and guaranteed uniqueness at this read-heavy scale.",
+    drawingOrder:
+      "1) Client and CDN/LB, 2) Redirect Service, 3) Cache layer, 4) Partitioned database, 5) Async click-analytics queue.",
+    diagram: diagramBlock(
+`Client --HTTPS--> CDN/LB --> Redirect Service --> Cache (shortCode->longUrl)
+                                     |                  |
+                                     |  (miss)          | (hit: redirect now)
+                                     v
+                              DB (sharded by shortCode) --async--> Click Analytics Queue`
+    ),
+    example: {
+      input: "A user requests GET /abc123 for a link created 2 minutes ago",
+      output: "302 redirect to the original long URL served from cache in <10ms",
+      steps:
+        "Step 1: Redirect Service checks Redis for key 'abc123'; it is present because the write path proactively cached it at creation time. Step 2: The service issues a 302 redirect to the cached longUrl immediately. Step 3: A click event {shortCode, timestamp, referrer} is pushed to the analytics queue asynchronously without adding latency to the redirect response."
+    }
+  },
+  "topic-hld-mock-newsfeed": {
+    requirements:
+      "Generate a personalized, roughly-recency-ordered feed of posts from followed users (or nearby drivers for ride-sharing), support high write fan-out for popular accounts, and keep feed load latency low even for users following thousands of accounts.",
+    capacity:
+      "10M DAU, each posting ~2 times/day and following ~200 accounts -> ~20M posts/day (~230 writes/sec average); feed reads are far more frequent, ~5 feed loads/user/day -> ~50M reads/day (~580 reads/sec average, bursty at peak).",
+    apis:
+      "POST /posts {userId, content} -> {postId}; GET /feed?userId=&cursor= -> ranked/paginated feed items; for ride-sharing: POST /ride-requests {riderId, location} -> matched driver, GET /drivers/nearby?lat=&lng=.",
+    dataModel:
+      "Post{id, authorId, content, createdAt}; FeedEntry{userId, postId, score/createdAt} materialized per follower for fast reads (fan-out-on-write); Follow{followerId, followeeId} graph; for ride-sharing, Driver{id, location, status} indexed geospatially.",
+    architecture:
+      "Client -> LB -> stateless Feed Service -> precomputed Feed Store (per-user timeline, fan-out-on-write) backed by cache -> fallback fan-out-on-read for very high-follower accounts -> async workers handle fan-out via a queue.",
+    flowSteps:
+      "Step 1: a user posts; the Post Service durably stores the post. Step 2: a fan-out worker reads the author's follower list and writes a FeedEntry into each follower's precomputed timeline (fan-out-on-write) for normal accounts. Step 3: for celebrity accounts with huge follower counts, fan-out-on-write is skipped and the post is merged in at read time (fan-out-on-read) to avoid a write storm. Step 4: GET /feed reads the user's precomputed timeline, merges in any fan-out-on-read celebrity posts, ranks/paginates, and returns the result, using the cache to avoid a database hit on every load.",
+    scaling:
+      "Partition the feed store by userId; use a hybrid fan-out (write for normal users, read-time merge for high-follower accounts) to bound worst-case write amplification; cache hot timelines and paginate with cursors instead of offsets.",
+    consistency:
+      "Feed content is eventually consistent - a brief delay before a new post appears in followers' feeds is acceptable; the follow graph itself needs stronger consistency to avoid duplicate or missing fan-out targets.",
+    reliability:
+      "Fan-out workers process via an idempotent, retryable queue so a crashed worker can resume without duplicating entries (dedup by postId+userId); ride-sharing matching uses timeouts and reassignment if a driver doesn't confirm within a bounded window.",
+    security:
+      "Enforce per-post visibility/privacy rules before fan-out, authenticate all API calls, rate-limit posting to prevent spam, and geofence/anonymize location data appropriately for ride-sharing.",
+    observability:
+      "Track fan-out lag (post creation to appearing in follower feeds), feed load latency, queue backlog size, and (for ride-sharing) driver-match latency and match success rate; alert on fan-out lag or match latency regressions.",
+    tradeoffs:
+      "Pure fan-out-on-write is simple to read but explodes in write cost for celebrity accounts; pure fan-out-on-read keeps writes cheap but makes every read expensive - the hybrid approach trades implementation complexity for balanced read/write cost at scale.",
+    drawingOrder:
+      "1) Client and LB, 2) Feed/Post Service, 3) Follow graph store, 4) Precomputed Feed Store + cache, 5) Fan-out queue and workers, 6) Read-time merge path for high-follower accounts.",
+    diagram: diagramBlock(
+`Client --> LB --> Feed Service --> Feed Store (per-user, cached)
+                        |                 ^
+                        v                 | fan-out-on-write
+                  Post Service --> Fan-out Queue --> Workers
+                        |
+                        \\--(celebrity posts merged at read time)--> Feed Service`
+    ),
+    example: {
+      input: "A normal user with 300 followers posts, and a celebrity account with 5M followers posts at the same time",
+      output: "The normal user's post is fanned out to all 300 follower timelines within seconds; the celebrity post is not fanned out but is merged into each follower's feed at read time",
+      steps:
+        "Step 1: both posts are durably stored by the Post Service. Step 2: for the normal user, a fan-out worker writes a FeedEntry to each of the 300 followers' precomputed timelines. Step 3: for the celebrity account, fan-out is skipped because the follower count exceeds the fan-out threshold. Step 4: when any follower loads their feed, the Feed Service merges in recent celebrity posts by querying the celebrity's post list directly alongside the precomputed timeline."
+    }
+  }
+};
+
+function buildHldMockSolution(topicId: string, title: string): { lesson: LessonSection[]; example: Example } | null {
+  const spec = hldMockSolutions[topicId];
+  if (!spec) return null;
+  const section = (heading: string, content: string): LessonSection => ({ title: `${title}: ${heading}`, content });
+  return {
+    lesson: [
+      section("Requirements", spec.requirements),
+      section("Capacity Estimates", spec.capacity),
+      section("APIs", spec.apis),
+      section("Data Model", spec.dataModel),
+      { title: `${title}: High-Level Architecture`, content: spec.architecture, diagram: spec.diagram },
+      section("Request/Data Flow", spec.flowSteps),
+      section("Scaling", spec.scaling),
+      section("Consistency", spec.consistency),
+      section("Reliability/Failure Handling", spec.reliability),
+      section("Security", spec.security),
+      section("Observability", spec.observability),
+      section("Trade-offs", spec.tradeoffs),
+      section("Interview Drawing Order", spec.drawingOrder)
+    ],
+    example: {
+      title: `${title}: concrete flow walkthrough`,
+      input: spec.example.input,
+      output: spec.example.output,
+      explanation: spec.example.steps
+    }
+  };
+}
+
+type LldSolutionSpec = {
+  requirements: string;
+  useCases: string;
+  entities: string;
+  apis: string;
+  relationships: string;
+  patterns: string;
+  flow: { input: string; output: string; steps: string };
+  concurrencyErrors: string;
+  extensibility: string;
+  tests: string;
+  tradeoffs: string;
+};
+
+const lldMockSolutions: Record<string, LldSolutionSpec> = {
+  "topic-lld-mock-parking-rate-limiter": {
+    requirements:
+      "Support multi-level parking with distinct spot sizes (compact, large, handicap, EV), ticket-based entry/exit with computed fees, and an API-level rate limiter that caps requests per client to protect the booking service from abuse.",
+    useCases:
+      "A vehicle enters and is assigned the closest compatible free spot; a vehicle exits and pays based on duration; a client hammering the reservation API beyond its quota is throttled with a 429 instead of degrading the whole system.",
+    entities:
+      "ParkingLot (owns Levels), Level (owns ParkingSpots), ParkingSpot (size, occupied state), Vehicle (type: compact/large/motorcycle/EV), Ticket (entryTime, spotId), ParkingRate (pricing strategy), RateLimiter (per-client token state), Client (identity used as the rate-limit key).",
+    apis:
+      "ParkingLot.parkVehicle(vehicle) -> Ticket; ParkingLot.unparkVehicle(ticket) -> amountDue; ParkingLot.findAvailableSpot(vehicleType) -> ParkingSpot; RateLimiter.allowRequest(clientId) -> boolean; RateLimiter.getRemainingQuota(clientId) -> number.",
+    relationships:
+      "ParkingLot has-a list of Level (composition); Level has-a list of ParkingSpot (composition); Vehicle is parked in exactly one ParkingSpot via a Ticket (association); ParkingRate is injected into ParkingLot as a Strategy so pricing can change without touching parking logic; RateLimiter wraps the parking API entry points as a decorator/middleware, not a subclass.",
+    patterns:
+      "Strategy for pluggable pricing (hourly, flat, EV surcharge) and pluggable limiter algorithms (token bucket vs sliding window); Factory for creating the right ParkingSpot/Vehicle subtype; Observer so displays or apps are notified when a level becomes full or has free spots again.",
+    flow: {
+      input: "A compact car arrives at a lot where level 1 has spots 1-2 occupied and spot 3 free, and the requesting client has 2 of 5 requests left this window",
+      output: "Ticket(level=1, spot=3, entryTime=now) is issued; the client's rate limiter quota drops to 1",
+      steps:
+        "Step 1: RateLimiter.allowRequest(clientId) checks the token bucket; since quota remains, the request proceeds. Step 2: ParkingLot.findAvailableSpot(\"compact\") scans levels top-down and skips occupied spots 1 and 2. Step 3: Spot 3 is selected, marked occupied, and a Ticket is created with the entry timestamp. Step 4: On exit, ParkingRate computes the fee from entryTime to exitTime and the spot is freed, notifying any Observer of the level's new availability."
+    },
+    concurrencyErrors:
+      "Two cars racing for the same last spot must be serialized with a per-spot lock or compare-and-swap on spot state so only one Ticket is issued; a full lot must return a clear 'no spot available' error rather than issuing an invalid ticket; the rate limiter's counter update must be atomic (e.g., Redis INCR + TTL) across distributed instances to avoid two servers both admitting a request that should have been throttled.",
+    extensibility:
+      "Adding EV charging only requires a new ParkingSpot subtype and a pricing rule in the Strategy, not a change to the core parking algorithm; swapping the rate limiter from token bucket to sliding-window log only requires a new RateLimiter implementation behind the same interface.",
+    tests:
+      "Unit test: lot with only one free compact spot admits exactly one compact vehicle and rejects the next. Unit test: rate limiter allows exactly N requests per window and rejects the N+1th. Integration test: concurrent park requests for the last spot result in exactly one success and one clear rejection.",
+    tradeoffs:
+      "A token bucket rate limiter is simpler and bursts slightly more than a strict sliding window, but is cheaper to run at scale; a nearest-spot search is O(spots) worst case but keeps the model simple, trading a small amount of lookup time for much simpler code than a full spatial index."
+  },
+  "topic-lld-mock-library-elevator": {
+    requirements:
+      "Model a library that supports book checkout, return, reservation queues, and fines, alongside an elevator system that must schedule multiple cars across floors while respecting direction, capacity, and emergency overrides.",
+    useCases:
+      "A member checks out an available book or joins a reservation queue if it is out; an overdue return triggers a fine; a rider requests a floor and the closest compatible elevator car is dispatched using directional (SCAN-style) scheduling.",
+    entities:
+      "Book, Member, BookIssue (loan record), Reservation (queue entry), Fine; Elevator, Floor, ElevatorRequest, ElevatorController (dispatcher).",
+    apis:
+      "Library.checkout(memberId, bookId) -> BookIssue; Library.returnBook(issueId) -> Fine|null; Library.reserve(memberId, bookId) -> Reservation; ElevatorController.requestElevator(floor, direction) -> Elevator; Elevator.moveTo(floor) -> void.",
+    relationships:
+      "Library has-a catalog of Book and a list of Member (composition/association); a BookIssue associates one Member with one Book and carries due-date state; a Reservation queue is owned per Book (composition); ElevatorController has-a list of Elevator and assigns requests to the best candidate car; each Elevator owns its own request queue and current state.",
+    patterns:
+      "State pattern for Elevator (Idle, MovingUp, MovingDown, DoorsOpen, Maintenance) so invalid transitions are impossible by construction; Strategy for the dispatch algorithm (nearest-car vs SCAN vs zone-based); Observer so the reservation queue is notified and the next member is alerted when a held book becomes available.",
+    flow: {
+      input: "Elevator requests arrive from floor 2 (up), floor 8 (down), and floor 5 (up) while car A is idle at floor 1 and car B is idle at floor 9",
+      output: "Car A is dispatched to floor 2 then floor 5 (both up-requests on its path); car B is dispatched to floor 8",
+      steps:
+        "Step 1: ElevatorController receives each ElevatorRequest and scores every idle/compatible car by direction and distance. Step 2: Floor 2 and floor 5 are both 'up' requests near car A's position, so they are batched onto car A's path in floor order. Step 3: Floor 8 is closer to car B and moving down, so it is assigned to car B. Step 4: Each Elevator transitions state (Idle -> MovingUp/MovingDown -> DoorsOpen) and services its queue in floor order, never reversing direction until the queue in the current direction is empty."
+    },
+    concurrencyErrors:
+      "Two members reserving the last copy simultaneously must be serialized so only one reservation wins the queue position; an elevator request arriving mid-dispatch must not corrupt another car's in-flight queue, so each Elevator's queue is mutated behind its own lock; a book returned while a reservation exists must atomically transition the copy from 'available' to 'held' for the next member in the queue rather than racing with a walk-in checkout.",
+    extensibility:
+      "Adding express elevators or a maintenance mode only requires a new State and a filter in the dispatch Strategy, not a rewrite of the controller; adding e-book holds to the library only requires a new Reservable type behind the same reservation queue interface.",
+    tests:
+      "Unit test: reserving an unavailable book enqueues the member in FIFO order and grants the copy in that order on return. Unit test: elevator in MovingUp state ignores a new down-request until its up-queue is empty. Integration test: two concurrent checkouts for the last copy result in exactly one success.",
+    tradeoffs:
+      "SCAN-style elevator dispatch reduces total wait time under load but can starve a lone far-away request briefly, versus nearest-car dispatch which is fairer per-request but less throughput-efficient; a per-book reservation queue is simple and fair but does not optimize for which waiting member is physically closest to pick up the book."
+  },
+  "topic-lld-mock-caching-payment": {
+    requirements:
+      "Design an in-memory cache with bounded size and TTL sitting in front of a payment provider integration that must be idempotent, retry-safe, and resilient to downstream timeouts.",
+    useCases:
+      "A repeated read for the same account balance is served from cache instead of hitting the payment provider; a client retries a timed-out charge request and must not be double-charged; a provider outage should degrade gracefully rather than corrupt payment state.",
+    entities:
+      "Cache (bounded map with TTL/LRU eviction), CacheEntry (value + expiry), PaymentRequest (idempotencyKey, amount, account), PaymentResult, PaymentGateway (interface over the real provider), PaymentProcessor (orchestrates cache + gateway + retries).",
+    apis:
+      "Cache.get(key) -> value|miss; Cache.put(key, value, ttl) -> void; PaymentProcessor.charge(PaymentRequest) -> PaymentResult; PaymentGateway.submit(PaymentRequest) -> PaymentResult (implemented per provider, e.g., StripeGateway, RazorpayGateway).",
+    relationships:
+      "PaymentProcessor has-a Cache and has-a PaymentGateway (composition, injected as a Strategy so the concrete provider can be swapped); Cache owns a bounded set of CacheEntry objects and evicts by LRU when full or by TTL expiry; PaymentRequest and PaymentResult are immutable value objects passed between layers.",
+    patterns:
+      "Strategy for the PaymentGateway so Stripe, Razorpay, or PayPal implementations are interchangeable; Decorator/middleware for retry-with-backoff wrapping the gateway call; the idempotency key acts as a de-duplication token stored alongside cached results so a retried request returns the original result instead of re-charging.",
+    flow: {
+      input: "A client charges $50 with idempotencyKey=\"txn-42\"; the first attempt times out after the provider actually processed it, and the client retries with the same key",
+      output: "The retry returns the original successful PaymentResult without submitting a second charge",
+      steps:
+        "Step 1: PaymentProcessor.charge checks the cache for idempotencyKey \"txn-42\"; on the first attempt it is a miss, so the request proceeds. Step 2: The gateway call times out client-side, but the provider actually completed the charge. Step 3: On retry, before calling the gateway again, PaymentProcessor first calls PaymentGateway.checkStatus(idempotencyKey) or relies on the provider's own idempotency support; the completed result is fetched and cached. Step 4: The cached PaymentResult is returned to the retrying client, guaranteeing exactly-once effect despite the earlier timeout."
+    },
+    concurrencyErrors:
+      "Two threads processing the same idempotencyKey concurrently must be serialized (e.g., a short-lived lock keyed by idempotencyKey) so only one actually calls the gateway while the other waits and reuses the result; cache eviction under memory pressure must never evict an in-flight request's placeholder before the gateway responds, or a retry could double-submit; gateway timeouts must be treated as 'unknown outcome' and reconciled via a status check, never blindly retried as a fresh charge.",
+    extensibility:
+      "Swapping payment providers only requires a new PaymentGateway implementation behind the same interface; adding a second cache tier (e.g., local + distributed Redis) only requires a new Cache implementation without changing PaymentProcessor.",
+    tests:
+      "Unit test: a repeated charge with the same idempotency key never invokes the gateway twice. Unit test: cache entries expire after their TTL and force a fresh gateway call. Integration test: simulated gateway timeout followed by retry yields exactly one successful charge and one cached result.",
+    tradeoffs:
+      "Caching payment results speeds up repeated reads but introduces a staleness window that must be bounded by a short TTL for anything balance-related; idempotency keys add client complexity but are the only safe way to make retries non-destructive across an unreliable network."
+  }
+};
+
+function buildLldMockSolution(topicId: string, title: string): { lesson: LessonSection[]; example: Example } | null {
+  const spec = lldMockSolutions[topicId];
+  if (!spec) return null;
+  const section = (heading: string, content: string): LessonSection => ({ title: `${title}: ${heading}`, content });
+  return {
+    lesson: [
+      section("Requirements & Clarifications", spec.requirements),
+      section("Use Cases", spec.useCases),
+      section("Entities & Responsibilities", spec.entities),
+      { title: `${title}: Interfaces/APIs`, content: spec.apis, codeExample: spec.apis },
+      section("Class Relationships", spec.relationships),
+      section("Key Design Patterns", spec.patterns),
+      section("Concurrency & Error Handling", spec.concurrencyErrors),
+      section("Extensibility", spec.extensibility),
+      section("Tests", spec.tests),
+      section("Trade-offs", spec.tradeoffs)
+    ],
+    example: {
+      title: `${title}: concrete flow walkthrough`,
+      input: spec.flow.input,
+      output: spec.flow.output,
+      explanation: spec.flow.steps
+    }
+  };
+}
+
 function enrichTopic(topic: Topic): Topic {
   const title = topic.title.trim();
   const module = syllabus.find((entry) => entry.id === topic.moduleId);
@@ -128,13 +436,23 @@ function enrichTopic(topic: Topic): Topic {
           explanation: `${topic.intuition} Start with the initial state, apply the operation one step at a time, and verify the result against the expected ${track} behavior.`
         }
       ];
-  const hldSolution = track === "HLD" ? buildHldSolution(title, topic.intuition) : null;
-  const completeLesson = hldSolution
-    ? [...lesson, hldSolution.lesson]
-    : lesson;
-  const completeExamples = hldSolution
-    ? [...examples, hldSolution.example]
-    : examples;
+  const hldMockSolution = track === "HLD" ? buildHldMockSolution(topic.id, title) : null;
+  const hldSolution = track === "HLD" && !hldMockSolution ? buildHldSolution(title, topic.intuition) : null;
+  const lldMockSolution = track === "LLD" ? buildLldMockSolution(topic.id, title) : null;
+  const completeLesson = hldMockSolution
+    ? [...lesson, ...hldMockSolution.lesson]
+    : hldSolution
+      ? [...lesson, hldSolution.lesson]
+      : lldMockSolution
+        ? [...lesson, ...lldMockSolution.lesson]
+        : lesson;
+  const completeExamples = hldMockSolution
+    ? [...examples, hldMockSolution.example]
+    : hldSolution
+      ? [...examples, hldSolution.example]
+      : lldMockSolution
+        ? [...examples, lldMockSolution.example]
+        : examples;
   const tips = topic.tips && topic.tips.length > 0
     ? topic.tips
     : [

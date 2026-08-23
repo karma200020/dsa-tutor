@@ -340,6 +340,7 @@
   margin: 0 0 12px;
   color: #cbd5e1;
   line-height: 1.6;
+  white-space: pre-wrap;
 }
 
 /* Examples Container */
