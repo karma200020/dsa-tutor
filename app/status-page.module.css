@@ -1,0 +1,152 @@
+/*
+ * Shared visual treatment for the app's required Next.js special routes:
+ * error.tsx, global-error.tsx, not-found.tsx, and loading.tsx. Keeps these
+ * "unhappy path" screens on the same premium dark theme as the rest of the
+ * app instead of falling back to an unstyled default.
+ */
+
+.wrap {
+  min-height: 100dvh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-8) var(--space-4);
+  background:
+    radial-gradient(900px 480px at 15% -10%, rgba(109, 91, 255, 0.25), transparent 60%),
+    radial-gradient(700px 420px at 100% 0%, rgba(34, 211, 238, 0.16), transparent 55%),
+    var(--color-bg);
+  color: var(--color-text);
+}
+
+.card {
+  width: 100%;
+  max-width: 560px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-lg);
+  padding: var(--space-8) var(--space-6);
+  text-align: center;
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-3);
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  background: rgba(251, 113, 133, 0.14);
+  color: var(--color-danger);
+  border: 1px solid rgba(251, 113, 133, 0.32);
+  margin-bottom: var(--space-5);
+}
+
+.badgeNeutral {
+  background: rgba(109, 91, 255, 0.14);
+  color: var(--color-accent-soft);
+  border-color: rgba(109, 91, 255, 0.32);
+}
+
+.title {
+  margin: 0 0 var(--space-3);
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--color-text);
+}
+
+.message {
+  margin: 0 0 var(--space-6);
+  color: var(--color-text-muted);
+  font-size: 15px;
+  line-height: 1.6;
+}
+
+.details {
+  margin: 0 0 var(--space-6);
+  text-align: left;
+  background: var(--color-surface-muted);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-3) var(--space-4);
+  font-size: 12px;
+  color: var(--color-text-subtle);
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  white-space: pre-wrap;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  justify-content: center;
+}
+
+.button {
+  appearance: none;
+  border: none;
+  cursor: pointer;
+  border-radius: var(--radius-md);
+  padding: var(--space-3) var(--space-5);
+  font-size: 14px;
+  font-weight: 600;
+  transition: transform 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+}
+
+.button:focus-visible {
+  outline: 2px solid var(--color-cyan);
+  outline-offset: 2px;
+}
+
+.buttonPrimary {
+  background: linear-gradient(135deg, var(--color-accent), var(--color-accent-strong));
+  color: #ffffff;
+  box-shadow: var(--shadow-glow);
+}
+
+.buttonPrimary:hover {
+  transform: translateY(-1px);
+}
+
+.buttonSecondary {
+  background: var(--color-surface-muted);
+  color: var(--color-text);
+  border: 1px solid var(--color-border-strong);
+}
+
+.buttonSecondary:hover {
+  transform: translateY(-1px);
+  border-color: var(--color-accent-soft);
+}
+
+.spinner {
+  width: 36px;
+  height: 36px;
+  margin: 0 auto var(--space-5);
+  border-radius: 50%;
+  border: 3px solid var(--color-border);
+  border-top-color: var(--color-accent);
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .button,
+  .buttonPrimary,
+  .buttonSecondary {
+    transition: none;
+  }
+
+  .spinner {
+    animation-duration: 1.6s;
+  }
+}
