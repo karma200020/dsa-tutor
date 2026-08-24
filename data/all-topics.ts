@@ -334,6 +334,7 @@ type LldSolutionSpec = {
   extensibility: string;
   tests: string;
   tradeoffs: string;
+  diagram?: string;
 };
 
 const lldMockSolutions: Record<string, LldSolutionSpec> = {
@@ -363,7 +364,17 @@ const lldMockSolutions: Record<string, LldSolutionSpec> = {
     tests:
       "Unit test: lot with only one free compact spot admits exactly one compact vehicle and rejects the next. Unit test: rate limiter allows exactly N requests per window and rejects the N+1th. Integration test: concurrent park requests for the last spot result in exactly one success and one clear rejection.",
     tradeoffs:
-      "A token bucket rate limiter is simpler and bursts slightly more than a strict sliding window, but is cheaper to run at scale; a nearest-spot search is O(spots) worst case but keeps the model simple, trading a small amount of lookup time for much simpler code than a full spatial index."
+      "A token bucket rate limiter is simpler and bursts slightly more than a strict sliding window, but is cheaper to run at scale; a nearest-spot search is O(spots) worst case but keeps the model simple, trading a small amount of lookup time for much simpler code than a full spatial index.",
+    diagram: diagramBlock(
+`Class relationships (drawing order: ParkingLot -> Level -> Spot, then Strategy/limiter):
+
+  ParkingLot --*-- Level --*-- ParkingSpot        RateLimiter (middleware, wraps API)
+       |                                                   |
+       + uses PricingStrategy (injected)          Client --> [RateLimiter] --> ParkingLot API
+
+Sequence (park a vehicle):
+Client -> RateLimiter.allowRequest -> ParkingLot.findAvailableSpot -> Spot(occupied=true) -> Ticket`
+    )
   },
   "topic-lld-mock-library-elevator": {
     requirements:
@@ -391,7 +402,17 @@ const lldMockSolutions: Record<string, LldSolutionSpec> = {
     tests:
       "Unit test: reserving an unavailable book enqueues the member in FIFO order and grants the copy in that order on return. Unit test: elevator in MovingUp state ignores a new down-request until its up-queue is empty. Integration test: two concurrent checkouts for the last copy result in exactly one success.",
     tradeoffs:
-      "SCAN-style elevator dispatch reduces total wait time under load but can starve a lone far-away request briefly, versus nearest-car dispatch which is fairer per-request but less throughput-efficient; a per-book reservation queue is simple and fair but does not optimize for which waiting member is physically closest to pick up the book."
+      "SCAN-style elevator dispatch reduces total wait time under load but can starve a lone far-away request briefly, versus nearest-car dispatch which is fairer per-request but less throughput-efficient; a per-book reservation queue is simple and fair but does not optimize for which waiting member is physically closest to pick up the book.",
+    diagram: diagramBlock(
+`Elevator state diagram (drawing order: states, then transitions):
+
+[Idle] --request(floor,dir)--> [MovingUp/MovingDown] --arrived--> [DoorsOpen] --closed--> [Idle]
+                                                                        |
+                                                                  (emergency) --> [Maintenance]
+
+Library sequence (reservation):
+Member -> Library.reserve(book) -> Reservation queue (FIFO) -> notified when copy returned`
+    )
   },
   "topic-lld-mock-caching-payment": {
     requirements:
@@ -419,7 +440,17 @@ const lldMockSolutions: Record<string, LldSolutionSpec> = {
     tests:
       "Unit test: a repeated charge with the same idempotency key never invokes the gateway twice. Unit test: cache entries expire after their TTL and force a fresh gateway call. Integration test: simulated gateway timeout followed by retry yields exactly one successful charge and one cached result.",
     tradeoffs:
-      "Caching payment results speeds up repeated reads but introduces a staleness window that must be bounded by a short TTL for anything balance-related; idempotency keys add client complexity but are the only safe way to make retries non-destructive across an unreliable network."
+      "Caching payment results speeds up repeated reads but introduces a staleness window that must be bounded by a short TTL for anything balance-related; idempotency keys add client complexity but are the only safe way to make retries non-destructive across an unreliable network.",
+    diagram: diagramBlock(
+`Sequence (retry-safe charge, drawing order: client, processor, cache, gateway):
+
+Client --charge(idempotencyKey)--> PaymentProcessor --check cache--> [Cache]
+                                          |  (miss/expired)
+                                          v
+                                   PaymentGateway.submit() --timeout--> (unknown outcome)
+                                          |
+                                 checkStatus(idempotencyKey) --completed--> cache result --> return to client`
+    )
   }
 };
 
@@ -433,7 +464,7 @@ function buildLldMockSolution(topicId: string, title: string): { lesson: LessonS
       section("Use Cases", spec.useCases),
       section("Entities & Responsibilities", spec.entities),
       { title: `${title}: Interfaces/APIs`, content: spec.apis, codeExample: spec.apis },
-      section("Class Relationships", spec.relationships),
+      { title: `${title}: Class Relationships & Diagram`, content: spec.relationships, diagram: spec.diagram },
       section("Key Design Patterns", spec.patterns),
       section("Concurrency & Error Handling", spec.concurrencyErrors),
       section("Extensibility", spec.extensibility),
@@ -444,7 +475,8 @@ function buildLldMockSolution(topicId: string, title: string): { lesson: LessonS
       title: `${title}: concrete flow walkthrough`,
       input: spec.flow.input,
       output: spec.flow.output,
-      explanation: spec.flow.steps
+      explanation: spec.flow.steps,
+      diagram: spec.diagram
     }
   };
 }
