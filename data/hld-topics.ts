@@ -213,37 +213,99 @@ Client -> [Redirect Svc] -> [Cache] MISS       Client -> [Redirect Svc] -> [Cach
     intuition: "Each user has followers, posts to feed, followers see posts. Billions of users, trillions of posts.",
     lesson: [
       {
-        title: "Feed generation models",
-        content: "The big decision is push versus pull. A push system precomputes a user's feed, which gives fast reads but expensive writes. A pull system composes feed items on demand, which is better for sparse or inactive users. Many real systems use a hybrid: push for active users, pull for cold users.",
-        codeExample: "Push model: post -> fanout -> feed cache\\nPull model: read -> query follow list -> fetch recent posts\\nHybrid: active user feed cached, inactive user feed pulled"
+        title: "Definition & clarifying questions",
+        content: "A news feed shows each user a reverse-chronological or ranked stream of posts from accounts they follow. Before designing, clarify: is the feed strictly chronological or ranked by an algorithm? Can users have millions of followers (celebrity case)? Do we need to support media attachments and comments in-line? Is there a read-receipt or 'seen' requirement? These answers decide whether push fan-out is even viable for every user.",
+        codeExample: "Clarify: chronological or ranked? celebrity accounts (millions of followers)? media in feed? real-time or eventually-consistent ok?"
       },
       {
-        title: "Scaling the follower graph",
-        content: "The follower graph is effectively a graph problem. You need efficient storage, traversal, and timely updates. Whether you store the graph in a relational table, a key-value store, or a dedicated graph store, the key is to keep the access pattern close to the query pattern.",
-        codeExample: "User A follows 1000 people\\nQuery feed = select recent posts from those users\\nNeed: efficient follower list + sorted merge + cache"
+        title: "Functional & non-functional requirements",
+        content: "Functional: a user can post content; a user can follow/unfollow other users; a user can view a feed composed of recent posts from followed accounts, ordered by time or rank. Non-functional: feed reads must be fast (under ~200ms) since they are the most frequent action in the product; the system must tolerate a small amount of staleness (a post appearing a few seconds late is acceptable); it must handle extreme fan-out skew (a celebrity with 100M followers posting once) without falling over; storage and compute must scale horizontally with user growth.",
+        codeExample: "Functional: post(content), follow(userId), getFeed(userId) -> ranked/chronological posts\\nNon-functional: <200ms feed reads, eventual consistency acceptable, handle extreme fan-out skew, horizontal scale"
       },
       {
-        title: "Interview trade-off",
-        content: "A simple answer is 'we use caches and a fan-out service.' A better one is 'for active users we fan out to a feed cache because read latency matters more; for inactive users we fall back to pull because write cost is too high to fan out for everyone.' That level of nuance is what makes the answer feel mature.",
-        codeExample: "active user -> push fanout to feed cache\\ninactive user -> pull on view\\nhot feed -> LRU cache + truncation"
+        title: "Back-of-envelope estimates",
+        content: "Assume 500M daily active users, each posting on average 0.5 times/day and reading their feed 10 times/day. Writes: 500M * 0.5 / 86,400 is about 2,900 posts/sec average, bursting higher during peak hours. Reads: 500M * 10 / 86,400 is about 57,900 feed reads/sec average, confirming a read:write ratio of roughly 20:1, which justifies caching feeds rather than recomputing them per request. Fan-out cost: an average user has, say, 300 followers, so a push model generates 2,900 posts/sec * 300 = ~870,000 feed-cache writes/sec on average - manageable - but a single celebrity post to 100M followers would instantly generate 100M fan-out writes, which must be handled differently (see hybrid model below).",
+        codeExample: "Writes: 500M DAU * 0.5 posts/day -> ~2,900 posts/sec avg\\nReads: 500M * 10 views/day -> ~57,900 feed reads/sec avg (20:1 read:write)\\nAvg fan-out: 2,900/sec * 300 followers -> ~870K feed-cache writes/sec\\nCelebrity fan-out: 1 post * 100M followers -> needs pull, not push"
+      },
+      {
+        title: "APIs",
+        content: "The core contract separates posting, following, and reading, with explicit pagination and error handling so clients can page through a feed reliably.",
+        codeExample:
+          "POST /api/v1/posts\\nRequest: { \"authorId\": \"u1\", \"text\": \"...\", \"mediaUrls\": [] }\\nResponse 201: { \"postId\": \"p123\", \"createdAt\": \"...\" }\\nErrors: 400 empty/invalid content, 413 media too large\\n\\nPOST /api/v1/follow { \"followerId\": \"u1\", \"followeeId\": \"u2\" } -> 204\\nErrors: 404 user not found, 409 already following\\n\\nGET /api/v1/feed?userId=u1&cursor=abc&limit=20\\nResponse 200: { \"posts\": [...], \"nextCursor\": \"def\" }\\nErrors: 401 unauthenticated"
+      },
+      {
+        title: "Requirement-driven architecture",
+        content: "Because reads dominate 20:1 and users expect a fast feed, the architecture precomputes feeds for most users (push/fan-out-on-write) and stores them in a feed cache, so a read is a cheap lookup rather than an expensive query across every followed account. Because a small number of celebrity accounts would make push fan-out prohibitively expensive, those accounts are excluded from push and instead merged in at read time (fan-out-on-read/pull), giving a hybrid model that handles both the common case and the extreme outlier gracefully.",
+        codeExample: "Post Service -> writes post to DB -> publishes fan-out event to Queue\\nQueue -> Fan-out Workers -> write postId into each follower's Feed Cache (for normal accounts)\\nCelebrity accounts -> skip push -> merged at read time by Feed Service\\nFeed Service -> read from Feed Cache + pull celebrity posts -> merge, sort, return"
+      },
+      {
+        title: "Component responsibilities",
+        content: "Post service: validates and persists new posts, then emits a fan-out event. Follow graph store: stores follower/followee edges, queried both to fan out a new post and to pull celebrity posts at read time. Queue and fan-out workers: consume post events and write the post reference into every normal follower's feed cache entry, spreading the write cost over time instead of blocking the post call. Feed cache: a per-user sorted list of recent post references (typically the last few hundred), read on every feed view. Feed service: on a read, merges the cached feed with any pulled celebrity posts, sorts, paginates, and returns the result.",
+        codeExample: "Post Service -> validate + persist + emit fan-out event\\nFollow Graph Store -> follower/followee edges\\nQueue + Fan-out Workers -> async write postId into follower feed caches\\nFeed Cache -> per-user sorted recent post refs\\nFeed Service -> merge cache + celebrity pulls -> sort -> paginate"
+      },
+      {
+        title: "Data model and schema",
+        content: "Posts are stored once in a durable store keyed by post ID, with the author ID and timestamp indexed for celebrity pull queries. The follow graph is stored as an edge list, indexed both by follower (to fan out) and by followee (to pull). The feed cache is a separate, ephemeral store optimized for fast per-user reads, holding only post references, not full post content, so a post edit does not require rewriting every follower's cache entry.",
+        codeExample: "Post{id, authorId, text, mediaUrls, createdAt}  -- indexed by (authorId, createdAt)\\nFollowEdge{followerId, followeeId, createdAt}  -- indexed both directions\\nFeedCache[userId] -> sorted list of {postId, createdAt}  -- references only, TTL-bounded, capped length"
+      },
+      {
+        title: "Bottlenecks and scaling",
+        content: "The primary bottleneck is celebrity fan-out, solved by the hybrid push/pull split described above. A secondary bottleneck is the follow graph itself becoming hot for very popular accounts; this is mitigated by sharding the graph store by user ID and caching follower-count-heavy lookups. Feed cache size is bounded (e.g. last 500 post references per user) to keep memory predictable, with older entries falling back to a database query if a user scrolls further than the cached window.",
+        codeExample: "Celebrity fan-out -> hybrid push/pull, not pure push\\nFollow graph hot spots -> shard by user ID, cache heavy lookups\\nFeed cache size -> bounded window (e.g. 500 posts), older history falls back to DB query"
+      },
+      {
+        title: "Consistency, reliability, security, and observability",
+        content: "Consistency: feed visibility is eventually consistent by design - a follower may see a new post a few seconds after it is created, which is an acceptable trade-off for availability and throughput. Reliability: if a fan-out worker crashes mid-batch, the queue's at-least-once delivery combined with an idempotent fan-out write (checking if the postId is already in the follower's cache) prevents duplicate or lost fan-out. Security: enforce that only followers (or public visibility) can see a post, and rate-limit posting to prevent spam. Observability: monitor fan-out queue lag (a leading indicator of feed staleness), feed cache hit rate, and p95/p99 feed read latency.",
+        codeExample: "Consistency: eventual, feed lag measured in seconds, acceptable trade-off\\nReliability: idempotent fan-out write + at-least-once queue delivery\\nSecurity: visibility check per post, rate-limit posting\\nObservability: fan-out queue lag, feed cache hit rate, p95/p99 read latency"
+      },
+      {
+        title: "Trade-offs",
+        content: "Pure push (fan-out-on-write) gives the fastest possible reads but fails catastrophically for celebrity accounts and wastes writes on inactive followers who may never view their feed. Pure pull (fan-out-on-read) avoids wasted writes and handles celebrities trivially, but every feed read becomes an expensive multi-account query, which is too slow for the common case. The hybrid model accepts the added complexity of two code paths in exchange for good performance in both the common case and the extreme outlier, which is why nearly every large-scale feed system converges on it.",
+        codeExample: "Pure push -> fastest reads, fails on celebrity fan-out, wastes writes on inactive followers\\nPure pull -> no wasted writes, celebrity-safe, slow reads at scale\\nHybrid -> extra complexity, but fast reads + celebrity-safe + no wasted writes"
       }
     ],
     examples: [
       {
-        title: "Feed timeline generation",
-        input: "User follows 500 people; they view the feed when they log in",
-        output: "Top 20 recent posts are merged and sorted without reading every post in the system",
-        explanation: "Step 1: Get the set of followed accounts. Step 2: Read the latest posts for each account from the timeline store or cache. Step 3: Merge and sort by time, keeping only the top 20. Step 4: Cache the result for a short TTL. Step 5: Invalidate or refresh the cache when new content arrives. This balances freshness and performance."
+        title: "Normal user posts: push fan-out",
+        input: "A user with 300 followers creates a new post",
+        output: "The post is persisted once, then asynchronously written into 300 followers' feed caches within a second or two",
+        explanation: "Step 1: The post service validates and persists the post, returning success to the author immediately. Step 2: A fan-out event is published to the queue rather than fanning out synchronously. Step 3: Fan-out workers read the follower list and write the post reference into each follower's feed cache. Step 4: Any follower who opens their feed after this point sees the new post from cache with no extra query cost. Step 5: The author's own post-creation latency was not affected by the fan-out work at all, since it happens asynchronously.",
+        diagram: asciiDiagram(
+`Interview drawing order: 1) client 2) post service 3) DB 4) queue 5) fan-out workers 6) feed caches
+
+Client --POST /posts--> [Post Service] --persist--> [Post DB]
+                              |
+                              +--publish fan-out event--> [Queue]
+                                                              |
+                                                              v
+                                                     [Fan-out Workers]
+                                                              |
+                                        writes postId into each follower's cache
+                                                              v
+                                              [Follower A Cache] [Follower B Cache] ...`
+        )
       },
       {
-        title: "High-activity celebrity scenario",
-        input: "A celebrity with 100M followers posts one update",
-        output: "The system fans out to a queued fan-out worker rather than doing a synchronous DB write for every follower",
-        explanation: "Step 1: The post is written once to the global timeline. Step 2: A worker asynchronously creates feed items for followers or relevant caches. Step 3: The system keeps the hot path fast and tolerates eventual consistency for the feed view. Step 4: It explains why write amplification is not acceptable for a giant social graph."
+        title: "Celebrity posts: hybrid pull at read time",
+        input: "A celebrity with 100M followers posts once; a follower opens their feed a minute later",
+        output: "The celebrity's post is never pushed to 100M caches; instead it is merged into each follower's feed on demand when they read it",
+        explanation: "Step 1: The post service persists the celebrity's post but the fan-out step explicitly skips push for accounts above a follower-count threshold. Step 2: When a follower requests their feed, the feed service reads their normal cached feed and separately queries the small set of celebrity accounts they follow for recent posts. Step 3: The two result sets are merged and sorted before returning to the client. Step 4: This bounds the read-time cost to 'a handful of celebrity lookups' rather than causing a 100M-write fan-out storm, which is the concrete mechanism that makes the hybrid model viable at this scale.",
+        diagram: asciiDiagram(
+`Interview drawing order: 1) client 2) feed service 3) feed cache (normal) 4) celebrity pull path 5) merge
+
+Client --GET /feed--> [Feed Service] --read--> [Feed Cache: cached normal-account posts]
+                             |
+                             +--query recent posts for followed celebrity accounts--> [Post DB / Celebrity Post Cache]
+                             |
+                             +--merge + sort + paginate--> Client`
+        )
       }
     ],
-    tips: ["Push for active users, pull for inactive users", "Cache the feed and recent timeline", "Graph relationships are expensive to traverse; keep them sharded", "Async processing is critical for giant fan-out events"],
-    references: [{ source: "interview-experience", attribution: "Facebook System Design", insight: "Feed generation at Facebook's scale is a massive engineering challenge." }],
+    tips: ["Push for active/normal users, pull for celebrity accounts - name the hybrid explicitly", "Cache post references, not full post content, so edits don't require rewriting every cache entry", "Bound the feed cache window; fall back to a DB query for deep scroll history", "Feed staleness of a few seconds is an acceptable, explicit trade-off for availability and throughput"],
+    references: [
+      { source: "interview-experience", attribution: "Facebook System Design", insight: "Feed generation at Facebook's scale is a massive engineering challenge." },
+      { source: "note", attribution: "AlgoMaster - System Design: News Feed structural framing (requirements -> estimates -> architecture -> flows -> trade-offs)", insight: "Used only as a structural template; all prose and diagrams here are original." }
+    ],
     practiceProblems: []
   },
 
@@ -254,37 +316,100 @@ Client -> [Redirect Svc] -> [Cache] MISS       Client -> [Redirect Svc] -> [Cach
     intuition: "Real-time messaging between users. Billions of users, millions concurrent. Ensure messages delivered reliably.",
     lesson: [
       {
-        title: "Message flow",
-        content: "The critical path is sender -> server -> storage -> receiver. Real-time delivery needs WebSockets or long-polling, but the architecture also needs durability and offline support. Without durable storage and retries, 'real-time' is not enough.",
-        codeExample: "Sender sends a message -> server validates -> store in DB -> enqueue to recipient -> deliver via WebSocket or push when connected"
+        title: "Definition & clarifying questions",
+        content: "A chat system lets users exchange messages in real time, with delivery even when the recipient is temporarily offline. Clarify up front: 1:1 only, or also group chat? Is message ordering per-conversation strictly required? Do we need read receipts and typing indicators? What is the acceptable delivery latency for an online recipient? These answers decide whether a simple queue-per-user suffices or a more elaborate presence and fan-out system is needed.",
+        codeExample: "Clarify: 1:1 and/or group? strict per-conversation ordering? read receipts/typing indicators? target online delivery latency?"
       },
       {
-        title: "Ordering and delivery guarantees",
-        content: "In chat, ordering matters. Users usually expect messages in send order. A message queue or event log ensures this, even when the recipient reconnects later. If the design ignores ordering and offline delivery, it is incomplete.",
-        codeExample: "message log -> consumer -> online delivery -> pending queue -> delivery receipt"
+        title: "Functional & non-functional requirements",
+        content: "Functional: send a message to a conversation (1:1 or group); receive messages in real time while online; retrieve message history with pagination; deliver missed messages on reconnect. Non-functional: online delivery latency under ~200ms; messages must not be lost even if a server crashes mid-delivery; message order within a conversation must be preserved; the system must scale to millions of concurrent open connections, which is a different scaling axis than request throughput.",
+        codeExample: "Functional: sendMessage(conversationId, body), receive in real time, getHistory(cursor), deliver-on-reconnect\\nNon-functional: <200ms online delivery, no message loss, per-conversation order, millions of concurrent connections"
       },
       {
-        title: "Scaling under concurrency",
-        content: "A chat system needs multiple message servers, user-to-server mapping, and presence tracking. You want to minimize reconnect churn when a node fails and keep message state consistent across read replicas or local caches.",
-        codeExample: "consistent hashing for user -> server mapping\\nWebSocket fan-out per connection\\nRedis presence cache + DB history"
+        title: "Back-of-envelope estimates",
+        content: "Assume 200M daily active users, 20% concurrently online at peak (~40M concurrent WebSocket connections), each sending an average of 20 messages/day. Message volume: 200M * 20 / 86,400 is about 46,300 messages/sec average, with peak bursts several times higher. Storage: each message averages ~200 bytes (text + metadata); 200M * 20 messages/day * 200 bytes is about 800GB/day, or roughly 290TB/year, which needs a horizontally partitioned store rather than a single database instance. Connection memory: 40M concurrent WebSocket connections at roughly 10KB of server-side state each is about 400GB of connection state, which must be spread across many connection-handling servers, not run on a single box.",
+        codeExample: "DAU 200M, 20% online -> ~40M concurrent connections\\nMessages: 200M*20/86,400 -> ~46,300 msgs/sec avg\\nStorage: ~800GB/day, ~290TB/year -> partitioned store required\\nConnection memory: 40M * ~10KB -> ~400GB spread across many connection servers"
+      },
+      {
+        title: "APIs",
+        content: "A WebSocket channel handles real-time send/receive, while REST endpoints handle history retrieval and conversation setup, each with explicit error handling for offline/duplicate cases.",
+        codeExample:
+          "WebSocket /ws/{userId}\\nClient -> Server: { \"type\": \"send\", \"conversationId\": \"c1\", \"body\": \"hi\", \"clientMsgId\": \"uuid\" }\\nServer -> Client: { \"type\": \"ack\", \"messageId\": \"m123\", \"serverTimestamp\": \"...\" } or delivered push to recipient\\n\\nGET /api/v1/conversations/{id}/messages?cursor=abc&limit=50\\nResponse 200: { \"messages\": [...], \"nextCursor\": \"def\" }\\nErrors: 403 not a conversation member, 404 conversation not found"
+      },
+      {
+        title: "Requirement-driven architecture",
+        content: "Because delivery must work whether the recipient is online or not, every message is first written to a durable, ordered message log, and only then delivered - either pushed immediately via an open WebSocket if the recipient is online, or left for retrieval when they reconnect. Because the system must scale to tens of millions of concurrent connections, dedicated connection-gateway servers hold the WebSocket state and are looked up via a user-to-server routing table, decoupling connection management from message processing.",
+        codeExample: "Client --WebSocket--> [Connection Gateway] --route lookup--> [User->Gateway Registry (Redis)]\\n[Connection Gateway] --publish--> [Message Service] --write--> [Message Log/DB]\\n[Message Service] --if recipient online--> push via recipient's Connection Gateway\\n[Message Service] --if recipient offline--> mark pending, deliver on reconnect"
+      },
+      {
+        title: "Component responsibilities",
+        content: "Connection gateway: holds the long-lived WebSocket per online user and forwards inbound/outbound frames; stateless in the sense that any gateway instance can serve any user, as long as the registry tracks which instance currently holds that user's connection. User-to-gateway registry (Redis): maps userId to the specific gateway instance and connection ID currently serving them, updated on connect/disconnect. Message service: validates, assigns a server timestamp and sequence position, writes to the durable log, and decides whether to push immediately or queue for later delivery. Message log/database: the durable, ordered system of record per conversation, partitioned by conversation ID. Presence service: tracks online/offline/typing state, backed by the same fast cache used for routing.",
+        codeExample: "Connection Gateway -> holds WebSocket, forwards frames\\nUser->Gateway Registry (Redis) -> userId -> gateway instance + connection id\\nMessage Service -> validate + timestamp + persist + route (push or queue)\\nMessage Log/DB -> durable, ordered, partitioned by conversationId\\nPresence Service -> online/offline/typing state"
+      },
+      {
+        title: "Data model and schema",
+        content: "Messages are stored per conversation with a monotonically increasing sequence number so ordering is well-defined even if server timestamps have clock skew. A per-user pending-delivery marker (or a per-conversation read cursor) tracks how far each participant has consumed the log, which drives both the offline-delivery-on-reconnect flow and read receipts.",
+        codeExample: "Message{id, conversationId, senderId, body, seq, sentAt}  -- partitioned by conversationId, ordered by seq\\nConversation{id, memberIds[], lastSeq}\\nReadCursor{userId, conversationId, lastReadSeq}  -- drives offline delivery + read receipts"
+      },
+      {
+        title: "Bottlenecks and scaling",
+        content: "The primary bottleneck is connection state at scale (tens of millions of open sockets), addressed by horizontally scaling connection-gateway instances and keeping the user-to-gateway mapping in a fast, shared registry rather than in memory on a single node. A secondary bottleneck is hot conversations (large group chats), addressed by partitioning the message log by conversation ID and, for very large groups, treating fan-out similarly to the news feed's push/pull hybrid.",
+        codeExample: "Connection scale -> horizontally scaled gateways + shared registry (Redis), not one big server\\nHot/large group conversations -> partition log by conversationId; very large groups mirror push/pull hybrid fan-out"
+      },
+      {
+        title: "Consistency, reliability, security, and observability",
+        content: "Consistency: message order within a conversation is strongly guaranteed via the sequence number; cross-conversation ordering is not guaranteed and does not need to be. Reliability: a client-provided idempotency key (clientMsgId) prevents duplicate sends on retry; if a gateway crashes, the registry entry expires and the client reconnects to a new gateway, resuming from its last acknowledged sequence number. Security: authenticate the WebSocket connection at handshake time, authorize that the sender is a member of the conversation before accepting a message, and encrypt messages in transit (and optionally end-to-end). Observability: monitor message delivery latency (send-to-ack), gateway connection counts per instance, queue/log lag for offline delivery, and reconnect churn rate.",
+        codeExample: "Consistency: strict per-conversation order via seq number, no cross-conversation guarantee\\nReliability: clientMsgId idempotency + resume-from-lastSeq on reconnect\\nSecurity: authenticated handshake, per-conversation membership check, transport encryption\\nObservability: send-to-ack latency, connections per gateway, offline-delivery lag, reconnect churn"
+      },
+      {
+        title: "Trade-offs",
+        content: "WebSockets give the lowest latency and most efficient real-time delivery but require holding significant per-connection server memory and more complex infrastructure (sticky routing, presence tracking) than plain HTTP polling. Storing every message in a durable log before delivery adds a small amount of write latency compared to a fire-and-forget push, but it is what makes offline delivery and message history possible at all, so the design accepts that cost.",
+        codeExample: "WebSocket -> lowest latency, higher connection-memory + infra cost, vs polling -> simpler infra, higher latency/waste\\nDurable log before push -> small extra write latency, but enables offline delivery + history"
       }
     ],
     examples: [
       {
         title: "User A sends to user B while B is online",
-        input: "A and B are both connected to different message servers",
+        input: "A and B are both connected to different connection-gateway instances",
         output: "The server routes the message to B's active connection and writes the message to the durable log",
-        explanation: "Step 1: A sends to the message service. Step 2: Server validates authentication and rate limits. Step 3: It writes the event to the durable message log. Step 4: It finds B's server via the user-to-server mapping. Step 5: It pushes the event to B's WebSocket. Step 6: It updates presence and caches. This shows the difference between a messaging system and a generic queue."
+        explanation: "Step 1: A sends to its connection gateway. Step 2: The message service validates authentication and rate limits, then assigns a sequence number and writes the event to the durable message log. Step 3: It looks up B's current gateway via the registry. Step 4: It pushes the event to B's WebSocket through that gateway. Step 5: It updates presence and sends a delivery ack back to A. This shows the difference between a messaging system and a generic queue: durability first, then real-time push.",
+        diagram: asciiDiagram(
+`Interview drawing order: 1) sender 2) sender's gateway 3) message service 4) log 5) registry 6) recipient's gateway 7) recipient
+
+A --send--> [Gateway A] --forward--> [Message Service] --persist(seq)--> [Message Log]
+                                              |
+                                              +--lookup B's gateway--> [Registry: userId->gateway]
+                                              |
+                                              +--push--> [Gateway B] --deliver--> B
+                                              |
+A <--ack------------------------------------+`
+        )
       },
       {
-        title: "B is offline",
-        input: "User B is not connected, and the app receives 20 pending messages",
-        output: "Messages are stored and delivered once B reconnects without losing order or duplicates",
-        explanation: "Step 1: The server keeps the messages in an outbox or pending queue. Step 2: It maintains a sequence number or delivery state. Step 3: When B reconnects, the app fetches pending messages in order. Step 4: It acknowledges delivery. Step 5: A duplicate-safe client or idempotent design prevents the same message from being delivered twice."
+        title: "B is offline, then reconnects",
+        input: "User B is not connected, and the app has 20 pending messages when B comes back online",
+        output: "Messages are delivered once B reconnects, in order, without duplicates",
+        explanation: "Step 1: While B is offline, the message service still writes every incoming message to B's conversation log; there is no separate 'offline queue' data structure, just the same durable log. Step 2: B's read cursor tracks the last sequence number they have consumed. Step 3: When B reconnects, the client requests all messages with seq greater than its last known cursor. Step 4: The server returns them in order and B's client updates its cursor as it acknowledges each one. Step 5: Because delivery is driven by comparing sequence numbers rather than a fragile in-memory queue, no messages are lost or duplicated across a reconnect.",
+        diagram: asciiDiagram(
+`Interview drawing order: 1) B reconnects 2) gateway 3) message service 4) read cursor 5) log 6) ordered replay
+
+B --reconnect--> [Gateway] --auth--> [Message Service]
+                                          |
+                                          +--read B's cursor (lastReadSeq)--> [Read Cursor Store]
+                                          |
+                                          +--fetch seq > lastReadSeq--> [Message Log]
+                                          |
+                                          +--deliver in order-------------> B
+                                          |
+                                    B acks -> cursor advances`
+        )
       }
     ],
-    tips: ["WebSocket for low-latency delivery", "Queue for reliability when receiver is offline", "Message ordering is critical for UX", "Presence and typing indicators belong in a fast cache"],
-    references: [{ source: "interview-experience", attribution: "WhatsApp HLD", insight: "Messaging at scale requires reliable queues and presence tracking." }],
+    tips: ["WebSocket for low-latency delivery, but always persist to a durable log first", "Queue/log-based delivery for reliability when the receiver is offline", "Per-conversation sequence numbers guarantee order without relying on clock sync", "Presence and typing indicators belong in a fast cache, not the durable log"],
+    references: [
+      { source: "interview-experience", attribution: "WhatsApp HLD", insight: "Messaging at scale requires reliable queues and presence tracking." },
+      { source: "note", attribution: "AlgoMaster - System Design: Chat/Messaging structural framing (requirements -> estimates -> architecture -> flows -> trade-offs)", insight: "Used only as a structural template; all prose and diagrams here are original." }
+    ],
     practiceProblems: []
   },
 
@@ -295,37 +420,101 @@ Client -> [Redirect Svc] -> [Cache] MISS       Client -> [Redirect Svc] -> [Cach
     intuition: "Send millions of notifications daily. Prioritize (alerts urgent), rate-limit, track delivery.",
     lesson: [
       {
-        title: "Priority and channel routing",
-        content: "Notifications are not all equal. A security alert should be immediate through multiple channels; a marketing push can be queued and delayed. The key is not just sending messages but doing it in a way that preserves trust and avoids spam.",
-        codeExample: "security alert -> HIGH priority -> SMS + push + email\\nmarketing update -> LOW priority -> batch queue + schedule"
+        title: "Definition & clarifying questions",
+        content: "A notification system delivers messages to users across channels (push, email, SMS) triggered by application events. Clarify: which channels must be supported, and does the user choose a preferred channel? Are there different urgency tiers (security alert vs marketing)? Is exact delivery guaranteed, or is best-effort acceptable for low-priority notifications? Do we need a user-facing notification center (in-app list) in addition to push/email/SMS?",
+        codeExample: "Clarify: channels supported? per-user channel preference? urgency tiers? exactly-once or best-effort? in-app notification center needed?"
       },
       {
-        title: "Failure handling",
-        content: "A real notification system protects against the provider failing or rate-limiting you. Use retries with exponential backoff, idempotent message keys, and a dead-letter queue for messages that keep failing.",
-        codeExample: "retry 1m -> 5m -> 30m -> dead-letter queue\\nprovider-specific throttling: backoff + queue"
+        title: "Functional & non-functional requirements",
+        content: "Functional: accept a notification request from an internal service or event stream; route it to the correct channel(s) based on priority and user preference; retry on transient provider failure; deduplicate repeated triggers for the same logical event. Non-functional: high-priority notifications (security alerts) must be attempted within seconds; the system must not overwhelm a user with duplicate or excessive notifications (rate limiting is a trust/UX requirement, not just a technical one); it must tolerate third-party provider outages without losing notifications; throughput must scale to tens of millions of notifications per day.",
+        codeExample: "Functional: submit(event) -> route by priority/preference -> multi-channel send -> retry -> dedupe\\nNon-functional: seconds-level delivery for high priority, per-user rate limiting, provider-outage tolerance, tens of millions/day throughput"
       },
       {
-        title: "Scale trade-off",
-        content: "The bigger your platform, the more important it becomes to track deliverability and deduplicate notifications. The system must guard against users receiving the same alert multiple times while still being resilient enough to retry messages under load.",
-        codeExample: "message dedupe key -> user_id + event_id + channel\\nstatus table -> sent / delivered / failed / suppressed"
+        title: "Back-of-envelope estimates",
+        content: "Assume 50M daily active users, averaging 4 notifications/day each (mix of transactional and marketing): 50M * 4 / 86,400 is about 2,300 notifications/sec average, with large bursts around scheduled campaigns (e.g. a marketing blast could push tens of thousands/sec for a short window). Storage: each notification record (recipient, channel, status, timestamps) is roughly 300 bytes; 200M notifications/day * 300 bytes is about 60GB/day, or roughly 22TB/year, well within reach of a partitioned relational or NoSQL store. Provider throughput: SMS/push providers often cap requests/sec per account, so a burst of 50,000/sec must be smoothed by a queue to stay under the provider's rate limit rather than sent all at once.",
+        codeExample: "50M DAU * 4 notifications/day -> ~2,300/sec avg, tens of thousands/sec burst\\nStorage: ~60GB/day, ~22TB/year\\nProvider rate caps -> queue smooths bursts to stay under per-provider limits"
+      },
+      {
+        title: "APIs",
+        content: "An internal submission API accepts notification requests from other services; a status API lets callers check delivery outcome; explicit error responses cover invalid channel/recipient and provider rejection.",
+        codeExample:
+          "POST /internal/v1/notifications\\nRequest: { \"userId\": \"u1\", \"eventId\": \"evt-42\", \"priority\": \"high|low\", \"channels\": [\"push\",\"sms\",\"email\"], \"template\": \"security_alert\", \"data\": {...} }\\nResponse 202: { \"notificationId\": \"n1\", \"status\": \"queued\" }\\nErrors: 400 unknown template/channel, 409 duplicate eventId+userId (dedupe)\\n\\nGET /internal/v1/notifications/{id} -> { \"status\": \"sent|delivered|failed|suppressed\", \"attempts\": [...] }"
+      },
+      {
+        title: "Requirement-driven architecture",
+        content: "Because delivery must survive provider outages and must not overwhelm users, every request is first written to a durable store and placed on a priority queue rather than sent synchronously; high-priority notifications use a separate, higher-throughput queue/partition so a marketing blast can never delay a security alert. Channel-specific workers pull from the queue and call the relevant provider (push gateway, SMS gateway, email service), applying per-user rate limiting and per-provider backoff before dispatch.",
+        codeExample: "Event Source -> Notification Service -> persist + dedupe check -> Priority Queue (high) / Queue (low)\\nPriority Queue -> High-Priority Workers -> Push/SMS/Email Providers\\nQueue (low) -> Standard Workers -> Push/SMS/Email Providers (rate-limited)\\nDelivery status --> Status Store (for GET /notifications/{id})"
+      },
+      {
+        title: "Component responsibilities",
+        content: "Notification service: validates the request, checks the dedupe key (userId+eventId+channel), persists the notification, and enqueues it on the priority-appropriate queue. Priority queues: separate lanes so high-priority traffic is never starved by bulk/marketing volume. Channel workers: consume from a queue, apply per-user rate limiting (checking a shared counter in Redis), call the channel-specific provider API, and record the outcome. Provider adapters: normalize the different push/SMS/email provider APIs behind one interface, including their distinct retry/backoff semantics. Status store: tracks per-notification attempt history and final status for the status API and for operational debugging.",
+        codeExample: "Notification Service -> validate + dedupe + persist + enqueue\\nPriority Queues -> separate high vs low lanes\\nChannel Workers -> rate-limit check + provider call + record outcome\\nProvider Adapters -> normalize push/SMS/email provider APIs\\nStatus Store -> per-notification attempt history + final status"
+      },
+      {
+        title: "Data model and schema",
+        content: "Each notification is keyed by a dedupe key so repeated triggers of the same event (e.g. a retried upstream call) do not produce duplicate sends. Attempt history is stored separately from the notification itself so retries do not require rewriting the original record, and so the status API can show a full timeline.",
+        codeExample: "Notification{id, userId, eventId, dedupeKey (userId+eventId+channel), priority, channel, template, status, createdAt}\\nAttempt{notificationId, channel, providerResponse, attemptedAt, outcome}\\nUserPreference{userId, channel, optIn, quietHours}"
+      },
+      {
+        title: "Bottlenecks and scaling",
+        content: "The primary bottleneck is provider-side rate limits, which are addressed by queue-based smoothing and per-provider backoff rather than trying to send everything immediately. A secondary bottleneck is a single user receiving an unreasonable volume of notifications in a short window (either a bug or abuse), addressed by a per-user rate limit enforced before dispatch, independent of overall system throughput.",
+        codeExample: "Provider rate limits -> queue smoothing + per-provider backoff, not immediate send-all\\nPer-user overload -> per-user rate limit checked before dispatch, independent of total system load"
+      },
+      {
+        title: "Consistency, reliability, security, and observability",
+        content: "Consistency: notification status is eventually consistent - there is normally a short delay between 'sent to provider' and 'confirmed delivered' via a provider webhook. Reliability: retries use exponential backoff (e.g. 1m, 5m, 30m) with a bounded attempt count, after which the notification moves to a dead-letter queue for manual or automated investigation instead of retrying forever. Security: validate that the requesting internal service is authorized to notify the given user, and never include sensitive data in a push/SMS payload that could be seen in a lock-screen preview. Observability: monitor per-channel delivery success rate, queue depth per priority lane, dead-letter queue size, and provider-reported latency, alerting when the high-priority lane's delivery time exceeds its SLA.",
+        codeExample: "Consistency: eventual, status confirmed via provider webhook\\nReliability: backoff 1m->5m->30m, bounded attempts, then dead-letter queue\\nSecurity: authorize requesting service, avoid sensitive data in lock-screen-visible payloads\\nObservability: per-channel success rate, queue depth per lane, DLQ size, high-priority SLA alerting"
+      },
+      {
+        title: "Trade-offs",
+        content: "Sending synchronously (call the provider directly in the request path) is simpler and has lower latency for a single notification, but it couples the caller to provider availability and cannot smooth bursts, so it fails under load or provider outages; the queue-based design adds a small amount of latency and operational complexity in exchange for durability and burst tolerance. Separating high and low priority queues costs some infrastructure complexity but is the only way to guarantee a marketing blast cannot delay a security alert, which is a hard product requirement.",
+        codeExample: "Synchronous send -> simpler, lower single-request latency, fails under load/provider outage\\nQueue-based -> small added latency, durable + burst-tolerant\\nSeparate priority lanes -> more infra, but guarantees high-priority is never starved by bulk traffic"
       }
     ],
     examples: [
       {
         title: "Security alert notification",
-        input: "An unusual login from a new device triggers a high-priority alert for 1M users",
-        output: "The notification is routed through multiple channels with retries and suppression logic to prevent duplicates",
-        explanation: "Step 1: Create the alert with a high-priority flag. Step 2: Put it in the priority queue. Step 3: Workers route the alert through the channel that is most likely to be seen quickly while still using a backup channel if needed. Step 4: The system records the message ID and status so retries and duplicate suppression are explicit."
+        input: "An unusual login from a new device triggers a high-priority alert for 1 user across push, SMS, and email",
+        output: "The notification is routed through the high-priority lane and delivered within a couple of seconds via at least one channel, with attempts recorded for all three",
+        explanation: "Step 1: The auth service submits a notification request with priority=high and channels=[push,sms,email]. Step 2: The notification service checks the dedupe key, persists the record, and enqueues it on the high-priority lane, bypassing the bulk/marketing queue entirely. Step 3: High-priority workers immediately pick it up, apply per-user rate limiting (which allows security alerts to bypass normal caps), and call each provider adapter in parallel. Step 4: Each attempt's outcome is recorded in the status store, giving the caller a full multi-channel delivery picture within seconds.",
+        diagram: asciiDiagram(
+`Interview drawing order: 1) event source 2) notification service 3) high-priority queue 4) workers 5) providers 6) status store
+
+Auth Service --submit(high)--> [Notification Service] --persist+dedupe--> [DB]
+                                        |
+                                        +--enqueue--> [High-Priority Queue]
+                                                              |
+                                                              v
+                                                     [High-Priority Workers]
+                                                        /       |        \\
+                                                [Push Provider][SMS Provider][Email Provider]
+                                                        \\       |        /
+                                                              v
+                                                       [Status Store]`
+        )
       },
       {
-        title: "Rate-limit check",
-        input: "A user receives 100 notifications in 10 minutes",
-        output: "The system suppresses the lower-priority messages and preserves the most relevant ones",
-        explanation: "Step 1: Evaluate the user's notification policy. Step 2: Drop or batch low-priority messages when the user is over a daily quota. Step 3: Keep the security or transaction text. Step 4: Explain that rate limiting is not just a product feature; it is a reliability and trust issue."
+        title: "Rate-limit check on bulk/marketing traffic",
+        input: "A marketing campaign tries to send 100 notifications to a user in 10 minutes, exceeding their daily quota",
+        output: "The system suppresses the excess low-priority messages after the quota is reached, while any concurrent high-priority alert for that user is unaffected",
+        explanation: "Step 1: Each marketing notification passes through the standard (low-priority) queue and workers. Step 2: Before dispatch, a worker checks the user's rolling notification count in a shared rate-limit counter (Redis). Step 3: Once the user's quota for that channel/priority tier is exceeded, further low-priority sends in the window are marked 'suppressed' rather than dispatched, and this is recorded in the status store for transparency. Step 4: Because high-priority traffic uses a separate lane and a separate (much higher) quota, a security alert sent to the same user in the same window is unaffected by the marketing suppression - this separation is exactly what protects user trust.",
+        diagram: asciiDiagram(
+`Interview drawing order: 1) low-priority queue 2) worker 3) rate-limit check 4) suppress or send
+
+[Low-Priority Queue] --> [Standard Worker] --check quota--> [Rate Limit Counter (Redis)]
+                                  |                                  |
+                                  |<---- over quota? ----------------+
+                                  |
+                          yes -> mark "suppressed" in Status Store
+                          no  -> dispatch to Provider Adapter`
+        )
       }
     ],
-    tips: ["Priority queue is essential", "rate limiting protects trust and system health", "multi-channel improves reliability", "dead-letter queues help operational debugging"],
-    references: [{ source: "blog", attribution: "Uber Notification System", insight: "Scalability and reliability at trillions of notifications." }],
+    tips: ["Priority queue lanes are essential so bulk traffic can never delay a security alert", "rate limiting protects trust and system health, not just infrastructure", "multi-channel with provider adapters improves reliability against a single provider outage", "dead-letter queues after bounded retries help operational debugging without infinite retry loops"],
+    references: [
+      { source: "blog", attribution: "Uber Notification System", insight: "Scalability and reliability at trillions of notifications." },
+      { source: "note", attribution: "AlgoMaster - System Design: Notification System structural framing (requirements -> estimates -> architecture -> flows -> trade-offs)", insight: "Used only as a structural template; all prose and diagrams here are original." }
+    ],
     practiceProblems: []
   },
 
@@ -336,19 +525,55 @@ Client -> [Redirect Svc] -> [Cache] MISS       Client -> [Redirect Svc] -> [Cach
     intuition: "Match riders with drivers in real-time. Track locations, calculate fares, ensure safety.",
     lesson: [
       {
-        title: "Core components",
-        content: "At scale, ride sharing is a real-time location and match problem. It depends on a geo-index for driver locations, a matching engine for nearby drivers, a pricing service for surge, and a transaction flow for booking and payment.",
-        codeExample: "driver app -> location stream -> geo-index -> match engine -> rider offer -> accept -> trip lifecycle"
+        title: "Definition & clarifying questions",
+        content: "A ride-sharing system matches a rider requesting a trip with a nearby available driver, tracks the trip in real time, and settles payment at the end. Clarify: is matching purely nearest-driver, or does it need to account for driver rating/vehicle type/surge? What is the acceptable matching latency? Do we need real-time ETA updates during the trip? Is fare calculated up front (fixed quote) or metered live? These decisions shape the matching engine and the location-tracking pipeline.",
+        codeExample: "Clarify: matching criteria beyond distance? acceptable match latency? live ETA updates mid-trip? upfront quote vs live metering?"
       },
       {
-        title: "Matching quality",
-        content: "The matching engine must handle supply and demand under pressure. It must prefer a nearby driver with a good ETA, but also account for surge pricing, driver cancellations, and rider timeouts. In a real answer, the matching algorithm is more than 'nearest driver wins'.",
-        codeExample: "candidate drivers -> filter by availability -> sort by ETA + surge + acceptance probability -> offer -> retry"
+        title: "Functional & non-functional requirements",
+        content: "Functional: drivers continuously report location; a rider requests a ride and is matched to a nearby available driver; the trip is tracked from pickup to drop-off; fare is calculated and payment is settled at the end. Non-functional: matching latency should be a few seconds at most; location updates must be processed at very high frequency (every few seconds per active driver) without overwhelming the system; the system must degrade gracefully during demand spikes (e.g. a large event ending) rather than failing to match anyone; driver location data can be eventually consistent since it changes constantly anyway.",
+        codeExample: "Functional: reportLocation(driverId, lat, lng), requestRide(riderId, pickup, dropoff), track trip, calculate + settle fare\\nNon-functional: few-second matching latency, high-frequency location ingestion, graceful demand-spike degradation, eventual consistency ok for location"
       },
       {
-        title: "Availability and failure handling",
-        content: "When a driver accepts and then cancels, the system must re-match quickly. Under high demand, surge pricing and queueing are critical. If your answer ignores cancellations and ETA estimation, it is incomplete.",
-        codeExample: "request -> match -> accept -> trip state -> cancel -> re-match -> ETA update -> payment"
+        title: "Back-of-envelope estimates",
+        content: "Assume 5M active drivers globally, each reporting location every 4 seconds while online: 5M / 4 is about 1.25M location updates/sec at global peak (regionally partitioned, so any single region sees a fraction of this). Ride requests: 20M rides/day -> 20M / 86,400 is about 230 requests/sec average, with strong regional and time-of-day peaks (e.g. 5-10x average at rush hour in a major city). Matching computation: each match considers drivers within a few kilometers, typically a few hundred candidates per request after a geo-index query, which is cheap compared to the location-ingestion volume - meaning location ingestion, not matching, is usually the harder scaling problem.",
+        codeExample: "5M drivers reporting every 4s -> ~1.25M location updates/sec globally (regionally partitioned)\\nRide requests: 20M/day -> ~230/sec avg, 5-10x at rush hour in a city\\nMatching: ~100s of candidates per request from geo-index - cheap vs. location ingestion volume"
+      },
+      {
+        title: "APIs",
+        content: "Drivers stream location over a lightweight, high-frequency channel; riders request a match through a request/response API that returns a matched driver or a retry signal.",
+        codeExample:
+          "POST /api/v1/drivers/{id}/location (or WebSocket stream)\\nRequest: { \"lat\": 37.77, \"lng\": -122.41, \"timestamp\": \"...\" } -> 204\\n\\nPOST /api/v1/rides\\nRequest: { \"riderId\": \"r1\", \"pickup\": {lat,lng}, \"dropoff\": {lat,lng} }\\nResponse 200: { \"rideId\": \"ride1\", \"driverId\": \"d1\", \"etaSeconds\": 240, \"fareEstimate\": 18.50 }\\nErrors: 409 no drivers available (retry), 422 invalid pickup/dropoff"
+      },
+      {
+        title: "Requirement-driven architecture",
+        content: "Because location ingestion is the dominant load, driver locations are written to a fast, in-memory geo-index (not the primary durable database) on every update, since only the latest position matters for matching. Because matching must happen in a few seconds, the matching engine queries the geo-index directly rather than the database, filters by availability and constraints, and ranks candidates by ETA. The trip lifecycle (accept, start, complete, payment) is handled by a separate, durable service since correctness matters more than speed for that part.",
+        codeExample: "Driver App --location every 4s--> [Location Ingestion Service] --write--> [Geo-Index (in-memory, e.g. geohash/quad-tree in Redis)]\\nRider App --request ride--> [Matching Service] --query nearby--> [Geo-Index] --candidates--> rank by ETA/availability --> offer\\nAccepted match --> [Trip Service] --persist trip state + fare--> [Trip DB]"
+      },
+      {
+        title: "Component responsibilities",
+        content: "Location ingestion service: receives frequent driver location pings and writes them into the geo-index, discarding stale entries after a short TTL if a driver goes offline unexpectedly. Geo-index: an in-memory structure (geohash buckets or a quad-tree) supporting fast 'drivers within radius X' queries. Matching service: queries the geo-index, filters by availability/vehicle type, ranks by ETA and acceptance likelihood, and manages the offer/retry loop if a driver declines. Trip service: owns the durable trip record from acceptance through completion, including state transitions and fare calculation. Payment service: settles the fare at trip completion, independent of the real-time matching path so a payment provider slowdown never blocks matching.",
+        codeExample: "Location Ingestion -> write to Geo-Index, TTL stale entries\\nGeo-Index -> in-memory geohash/quad-tree, radius queries\\nMatching Service -> query + filter + rank + offer/retry loop\\nTrip Service -> durable trip state machine + fare calc\\nPayment Service -> settle fare, decoupled from matching path"
+      },
+      {
+        title: "Data model and schema",
+        content: "Driver location itself lives only in the fast geo-index (it is transient by nature), while the durable database stores driver profile/availability flags and the full trip lifecycle, which does need durability and auditability.",
+        codeExample: "GeoIndex: driverId -> {lat, lng, updatedAt}  -- in-memory, TTL-expired, not the source of truth for anything but position\\nDriver{id, vehicleType, rating, isAvailable}  -- durable\\nTrip{id, riderId, driverId, pickup, dropoff, state, fare, createdAt, completedAt}  -- durable, state machine: requested->matched->in_progress->completed/cancelled"
+      },
+      {
+        title: "Bottlenecks and scaling",
+        content: "The primary bottleneck is location-update volume, addressed by partitioning the geo-index regionally (a driver in Tokyo never needs to be in the same index as one in Denver) and by writing to an in-memory store rather than a durable database on every ping. A secondary bottleneck is a sudden demand spike (surge) where many riders request rides in the same small area at once; this is addressed by widening the search radius and increasing price (surge pricing) to pull in more available drivers rather than letting the matching engine simply fail to find candidates.",
+        codeExample: "Location volume -> regional geo-index partitioning + in-memory writes, not per-ping DB writes\\nDemand spikes -> widen search radius + surge pricing to attract supply, rather than failing to match"
+      },
+      {
+        title: "Consistency, reliability, security, and observability",
+        content: "Consistency: driver location is eventually consistent by nature (a driver could have moved slightly since their last ping); this is acceptable because ETA is always an estimate. Reliability: trip state transitions are the correctness-critical part and use a durable state machine with idempotent transitions (e.g. accepting an already-accepted trip is a no-op, not an error) to survive retries and partial failures. Security: verify driver identity and vehicle registration before allowing them online, and encrypt in-trip location sharing between rider and driver apps. Observability: monitor match latency (request to offer), geo-index query latency, driver location staleness, and surge-pricing trigger frequency per region.",
+        codeExample: "Consistency: location eventually consistent, acceptable since ETA is always an estimate\\nReliability: trip state machine with idempotent transitions\\nSecurity: verified driver identity/vehicle, encrypted in-trip location sharing\\nObservability: match latency, geo-index query latency, location staleness, surge trigger frequency"
+      },
+      {
+        title: "Trade-offs",
+        content: "Writing every location ping straight to a durable database would give perfect durability of location history but would not scale to millions of pings per second and is unnecessary since only the latest position matters for matching; the in-memory geo-index trades some durability (a brief gap in history if the index restarts) for the throughput the system actually needs. Nearest-driver-only matching is simple and fast but can produce a poor match (e.g. an inexperienced driver or wrong vehicle type); ranking by ETA plus acceptance probability adds computation but produces materially better matches, which is why production systems go beyond pure distance.",
+        codeExample: "Durable per-ping writes -> perfect history, doesn't scale to millions/sec\\nIn-memory geo-index -> scales, small durability trade-off, acceptable since only latest position matters\\nNearest-only matching -> simple, fast, sometimes poor match\\nETA+acceptance-probability ranking -> more compute, materially better match quality"
       }
     ],
     examples: [
@@ -356,17 +581,47 @@ Client -> [Redirect Svc] -> [Cache] MISS       Client -> [Redirect Svc] -> [Cach
         title: "Rider request matching",
         input: "A rider in downtown requests a ride; 50 drivers are nearby but several are already on trip or unavailable",
         output: "The system filters by availability, ranks candidates by ETA, and returns the best suitable driver or retries quickly",
-        explanation: "Step 1: Query the geo-index for drivers within a radius. Step 2: Exclude drivers who are not available or have low acceptance probability. Step 3: Estimate ETA and sort by best match. Step 4: Offer the rider the top result. Step 5: If declined or if the driver cancels, the system retries with the next candidate. This is the actual operational complexity hidden behind a simple 'match a nearby driver' summary."
+        explanation: "Step 1: The matching service queries the geo-index for drivers within a radius of the pickup point. Step 2: It excludes drivers who are not available or have low acceptance probability. Step 3: It estimates ETA for each remaining candidate and sorts by best match. Step 4: It offers the rider the top result. Step 5: If the offer is declined or the driver cancels, the system retries with the next candidate from the already-fetched list, avoiding a full re-query. This is the operational complexity hidden behind a simple 'match a nearby driver' summary.",
+        diagram: asciiDiagram(
+`Interview drawing order: 1) rider 2) matching service 3) geo-index 4) rank/filter 5) offer 6) driver
+
+Rider --request ride--> [Matching Service] --radius query--> [Geo-Index]
+                               |                                   |
+                               |<---- candidate drivers -----------+
+                               |
+                        filter (availability) + rank (ETA, acceptance prob.)
+                               |
+                               +--offer--> [Driver #1]
+                                              |
+                                    decline/timeout -> next candidate (no re-query)
+                                              |
+                                           accept -> [Trip Service]`
+        )
       },
       {
         title: "Surge pricing under heavy demand",
-        input: "A large event ends and 4x demand hits the market instantly",
-        output: "Price increases and the system prioritizes driver incentives while keeping a stable waiting experience",
-        explanation: "Step 1: A demand-and-supply monitor detects a spike. Step 2: Surge pricing raises the price to attract idle drivers. Step 3: The engine keeps offering rides to the nearest drivers while filtering out those who are too far. Step 4: Riders can accept or reject the surge price. This shows that matching and pricing are coupled in real systems."
+        input: "A large event ends and 4x demand hits the market instantly in a small area",
+        output: "Price increases and the system widens the search radius to attract idle drivers while keeping matching latency stable",
+        explanation: "Step 1: A demand-and-supply monitor watches the ratio of open ride requests to available drivers per region in near-real-time. Step 2: When the ratio crosses a threshold, surge pricing is applied to new fare estimates in that region, and the matching service widens its search radius to consider drivers slightly further away who might otherwise be idle. Step 3: Riders see the surge price before confirming and can accept or cancel. Step 4: As more drivers reposition toward the surge area (attracted by the price), the ratio normalizes and surge multiplier decreases. This shows that matching and pricing are coupled control loops in a real system, not independent features.",
+        diagram: asciiDiagram(
+`Interview drawing order: 1) demand/supply monitor 2) surge trigger 3) widened matching 4) rider confirmation
+
+[Demand/Supply Monitor] --ratio > threshold--> [Surge Pricing Engine]
+                                                        |
+                                          apply surge multiplier + widen radius
+                                                        |
+                                                        v
+                                          [Matching Service] --offer w/ surge price--> Rider
+                                                                                          |
+                                                                                accept/cancel`
+        )
       }
     ],
-    tips: ["Geo-spatial indexes are critical for performance", "driver locations change frequently, so eventual consistency is acceptable", "Queue matching requests to handle spikes", "Multi-attempt matching is essential when drivers reject offers"],
-    references: [{ source: "interview-experience", attribution: "Uber System Design", insight: "Geo-spatial matching and real-time availability is the heart of the system." }],
+    tips: ["Geo-spatial indexes are critical for performance; keep them in-memory, not in the primary durable DB", "driver locations change frequently, so eventual consistency is acceptable", "Queue/retry matching requests to handle spikes without failing outright", "Rank by ETA + acceptance probability, not just nearest distance", "Surge pricing and matching radius are coupled control loops, not separate features"],
+    references: [
+      { source: "interview-experience", attribution: "Uber System Design", insight: "Geo-spatial matching and real-time availability is the heart of the system." },
+      { source: "note", attribution: "AlgoMaster - System Design: Ride Sharing structural framing (requirements -> estimates -> architecture -> flows -> trade-offs)", insight: "Used only as a structural template; all prose and diagrams here are original." }
+    ],
     practiceProblems: []
   },
 
