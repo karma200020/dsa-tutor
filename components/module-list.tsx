@@ -185,6 +185,7 @@ function TopicRow({
       </button>
       <select
         value={status}
+        aria-label={`Update mastery status for ${topic.title}`}
         onChange={(e) =>
           onStatusChange(e.target.value as "not-started" | "learning" | "practiced" | "interview-ready")
         }

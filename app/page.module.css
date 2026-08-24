@@ -14,6 +14,19 @@
   text-align: center;
 }
 
+.heroEyebrow {
+  display: inline-block;
+  margin: 0 0 16px;
+  padding: 6px 14px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.16);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
 .hero h1 {
   margin: 0 0 20px;
   font-size: 42px;
@@ -48,6 +61,8 @@
   cursor: pointer;
   font-size: 16px;
   transition: all 0.3s;
+  text-decoration: none;
+  display: inline-block;
 }
 
 .ctaPrimary:hover {
@@ -65,6 +80,8 @@
   cursor: pointer;
   font-size: 16px;
   transition: all 0.3s;
+  text-decoration: none;
+  display: inline-block;
 }
 
 .ctaSecondary:hover {
@@ -213,6 +230,73 @@
   line-height: 1.5;
 }
 
+/* Google cheat sheet callout */
+.googleCheatSheet {
+  max-width: 1300px;
+  margin: 40px auto;
+  padding: 32px;
+  background: linear-gradient(135deg, #1e3a8a 0%, #1e293b 100%);
+  border: 1px solid #334155;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  gap: 24px;
+}
+
+.googleCheatSheetCopy {
+  flex: 1;
+  min-width: 0;
+}
+
+.badge {
+  display: inline-block;
+  margin-bottom: 10px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: rgba(96, 165, 250, 0.16);
+  border: 1px solid rgba(96, 165, 250, 0.4);
+  color: #93c5fd;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.googleCheatSheetCopy h2 {
+  margin: 0 0 10px;
+  color: #e2e8f0;
+  font-size: 26px;
+}
+
+.googleCheatSheetCopy p {
+  margin: 0 0 18px;
+  color: #cbd5e1;
+  line-height: 1.6;
+  font-size: 15px;
+}
+
+.googleCheatSheetCta {
+  display: inline-block;
+  padding: 10px 24px;
+  background: #3b82f6;
+  color: #ffffff;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 600;
+  text-decoration: none;
+  transition: background 0.2s, transform 0.2s;
+}
+
+.googleCheatSheetCta:hover {
+  background: #2563eb;
+  transform: translateY(-1px);
+}
+
+.googleCheatSheetIcon {
+  font-size: 56px;
+  flex-shrink: 0;
+}
+
 /* Stats Section */
 .stats {
   background: linear-gradient(90deg, #0f172a 0%, #1e293b 50%, #0f172a 100%);
@@ -249,14 +333,20 @@
 }
 
 .backButton {
-  background: none;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: #0f172a;
   border: none;
+  border-bottom: 1px solid #334155;
   color: #6366f1;
   font-size: 16px;
   font-weight: 600;
   cursor: pointer;
   padding: 20px 40px;
   transition: color 0.2s;
+  width: 100%;
+  text-align: left;
 }
 
 .backButton:hover {
@@ -264,6 +354,10 @@
 }
 
 @media (max-width: 768px) {
+  .backButton {
+    padding: 16px 20px;
+  }
+
   .hero {
     padding: 40px 20px;
   }
@@ -304,5 +398,16 @@
 
   .trackCardClickable {
     padding: 20px;
+  }
+
+  .googleCheatSheet {
+    flex-direction: column;
+    align-items: flex-start;
+    margin: 24px 20px;
+    padding: 24px;
+  }
+
+  .googleCheatSheetIcon {
+    font-size: 40px;
   }
 }

@@ -20,7 +20,7 @@ export function TopicViewer({ topic, masteryMap, onMasteryChange, onBackClick }:
 
   return (
     <div className={styles.container}>
-      <button className={styles.backBtn} onClick={onBackClick}>
+      <button type="button" className={styles.backBtn} onClick={onBackClick}>
         ← Back to Modules
       </button>
 
@@ -41,6 +41,7 @@ export function TopicViewer({ topic, masteryMap, onMasteryChange, onBackClick }:
           </div>
           <select
             value={currentStatus}
+            aria-label="Update mastery status"
             onChange={(e) =>
               onMasteryChange(e.target.value as "not-started" | "learning" | "practiced" | "interview-ready")
             }
@@ -276,9 +277,9 @@ export function TopicViewer({ topic, masteryMap, onMasteryChange, onBackClick }:
         </button>
       </section>
 
-      <div className={styles.footer} onClick={onBackClick}>
+      <button type="button" className={styles.footer} onClick={onBackClick}>
         ← Back to Modules
-      </div>
+      </button>
     </div>
   );
 }
