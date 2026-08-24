@@ -1,24 +1,98 @@
 "use client";
 
-import { useState } from "react";
+import { Suspense, useCallback, useMemo, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { syllabus, durationByTrack } from "@/data/syllabus";
 import { allTopics, allDsaTopics, allLldTopics, allHldTopics } from "@/data/all-topics";
 import styles from "./page.module.css";
 import { ModuleList } from "@/components/module-list";
 import { MasteryTracker } from "@/components/mastery-tracker";
 import { TopicViewer } from "@/components/topic-viewer";
-import { Topic } from "@/data/syllabus";
 
+const VALID_TRACKS = ["DSA", "LLD", "HLD"] as const;
+type TrackParam = (typeof VALID_TRACKS)[number];
+
+function isValidTrack(value: string | null): value is TrackParam {
+  return value !== null && (VALID_TRACKS as readonly string[]).includes(value);
+}
+
+// The whole app's navigation (home -> track -> topic) is URL-driven via
+// `?track=` and `?topic=` query params instead of local-only React state, so
+// that opening a track/module/topic creates a browser history entry, and
+// Back/Forward move between those views (and deep links / refresh resolve
+// correctly). Mastery progress stays in local component state since it is
+// session/interaction state, not a navigable "view".
 export default function HomePage() {
-  const [selectedTrack, setSelectedTrack] = useState<"DSA" | "LLD" | "HLD" | null>(null);
-  const [selectedTopic, setSelectedTopic] = useState<Topic | null>(null);
+  return (
+    <Suspense fallback={<div className={styles.loadingState} role="status">Loading…</div>}>
+      <HomePageContent />
+    </Suspense>
+  );
+}
+
+function HomePageContent() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const [masteryMap, setMasteryMap] = useState<Record<string, "not-started" | "learning" | "practiced" | "interview-ready">>({});
+
+  const trackParam = searchParams.get("track");
+  const topicParam = searchParams.get("topic");
+  const selectedTrack = isValidTrack(trackParam) ? trackParam : null;
+  const selectedTopic = useMemo(
+    () => (topicParam ? allTopics.find((t) => t.id === topicParam) || null : null),
+    [topicParam]
+  );
+  // A topic id was supplied but doesn't match any known topic (bad/stale deep link).
+  const topicNotFound = Boolean(topicParam) && !selectedTopic;
 
   const updateMastery = (topicId: string, status: "not-started" | "learning" | "practiced" | "interview-ready") => {
     setMasteryMap((prev) => ({ ...prev, [topicId]: status }));
   };
 
+  const goToTrack = useCallback(
+    (track: TrackParam) => {
+      router.push(`/?track=${track}`);
+    },
+    [router]
+  );
+
+  const goToTopic = useCallback(
+    (topic: { id: string; moduleId: string }) => {
+      const topicModule = syllabus.find((m) => m.id === topic.moduleId);
+      const track = topicModule?.track || selectedTrack || "DSA";
+      router.push(`/?track=${track}&topic=${encodeURIComponent(topic.id)}`);
+    },
+    [router, selectedTrack]
+  );
+
+  const goToHome = useCallback(() => {
+    router.push("/");
+  }, [router]);
+
+  const goBackToTrack = useCallback(() => {
+    const topicModule = selectedTopic ? syllabus.find((m) => m.id === selectedTopic.moduleId) : null;
+    const track = topicModule?.track || selectedTrack;
+    if (track) {
+      router.push(`/?track=${track}`);
+    } else {
+      router.push("/");
+    }
+  }, [router, selectedTopic, selectedTrack]);
+
   const totalHours = syllabus.reduce((sum, m) => sum + m.estimatedHours, 0);
+
+  // Deep link points at a topic id that no longer exists / never existed.
+  if (topicNotFound) {
+    return (
+      <div className={styles.notFoundState} role="alert">
+        <h1>Topic not found</h1>
+        <p>The topic you&apos;re looking for doesn&apos;t exist or may have moved.</p>
+        <button type="button" className={styles.backButton} onClick={goToHome}>
+          ← Back to Home
+        </button>
+      </div>
+    );
+  }
 
   // If viewing a topic, show the viewer
   if (selectedTopic) {
@@ -27,7 +101,7 @@ export default function HomePage() {
         topic={selectedTopic}
         masteryMap={masteryMap}
         onMasteryChange={(status) => updateMastery(selectedTopic.id, status)}
-        onBackClick={() => setSelectedTopic(null)}
+        onBackClick={goBackToTrack}
       />
     );
   }
@@ -39,7 +113,7 @@ export default function HomePage() {
         <button 
           type="button"
           className={styles.backButton}
-          onClick={() => setSelectedTrack(null)}
+          onClick={goToHome}
         >
           ← Back to Home
         </button>
@@ -47,7 +121,7 @@ export default function HomePage() {
           track={selectedTrack}
           masteryMap={masteryMap}
           onMasteryUpdate={updateMastery}
-          onTopicClick={setSelectedTopic}
+          onTopicClick={goToTopic}
           allTopics={allTopics}
         />
       </div>
@@ -88,7 +162,7 @@ export default function HomePage() {
             topics={allDsaTopics.length}
             hours={durationByTrack.DSA}
             modules={syllabus.filter(m => m.track === "DSA").length}
-            onClick={() => setSelectedTrack("DSA")}
+            onClick={() => goToTrack("DSA")}
             color="#6d5bff"
             index={0}
             featured
@@ -101,7 +175,7 @@ export default function HomePage() {
             topics={allLldTopics.length}
             hours={durationByTrack.LLD}
             modules={syllabus.filter(m => m.track === "LLD").length}
-            onClick={() => setSelectedTrack("LLD")}
+            onClick={() => goToTrack("LLD")}
             color="#22d3ee"
             index={1}
           />
@@ -113,7 +187,7 @@ export default function HomePage() {
             topics={allHldTopics.length}
             hours={durationByTrack.HLD}
             modules={syllabus.filter(m => m.track === "HLD").length}
-            onClick={() => setSelectedTrack("HLD")}
+            onClick={() => goToTrack("HLD")}
             color="#f6ad55"
             index={2}
           />
