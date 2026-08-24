@@ -969,5 +969,689 @@ remove B: only the arc between A and C (previously B's) remaps to C`
       systemDesignPrimerRef
     ],
     practiceProblems: ["hld-consensus-db-failover-splitbrain", "hld-consensus-scheduler-leader-election"]
+  },
+
+  // ---- Deep-dive replacements for previously shallow expanded-coverage HLD
+  // topics. IDs intentionally match the shallow versions in
+  // expanded-coverage.ts; all-topics.ts's collect() keeps the first topic
+  // seen for a given id and hldTopics is collected before coverageTopics, so
+  // these authored versions take precedence.
+  {
+    id: "topic-hld-load-balancer",
+    moduleId: "mod-hld-foundations",
+    title: "Load Balancing",
+    intuition: "A single server cannot absorb all traffic or all failure risk; a load balancer spreads requests across a fleet and hides individual server failures from clients.",
+    lesson: [
+      {
+        title: "Definition & clarifying questions",
+        content: "A load balancer (LB) sits between clients and a fleet of application servers, distributing incoming requests so no single server is overwhelmed and so a failed server is transparently routed around. Clarifying questions before designing one: is traffic HTTP/L7 (needs to inspect paths/headers) or raw TCP/L4 (faster, protocol-agnostic)? Do backend requests need to stick to the same server (session affinity) or are they stateless? Is the LB itself allowed to be a single point of failure?",
+        codeExample: "Clarify: L4 or L7? stateless or sticky sessions? LB HA requirement (active-passive vs anycast)?"
+      },
+      {
+        title: "Functional & non-functional requirements",
+        content: "Functional: accept client connections, select a healthy backend using a load-balancing algorithm, forward the request, and return the response. Detect and stop routing to unhealthy backends via health checks. Non-functional: the LB itself must not be a single point of failure (run at least 2 in active-passive or use DNS/anycast for multiple active LBs); added latency should be low single-digit milliseconds; it must handle failover within seconds of a backend or LB instance failing.",
+        codeExample: "Functional: route(request) -> healthy backend\\nNon-functional: LB HA, <5ms added latency, failover in seconds"
+      },
+      {
+        title: "Back-of-envelope estimates",
+        content: "10,000 requests/sec average, 3x burst at peak = 30,000 requests/sec. If each backend instance safely handles 1,000 requests/sec, peak load requires at least 30 backend instances, plus headroom for one instance's traffic to be absorbed by the rest during a rolling deploy or failure, so provision ~35-40 instances. The LB itself, at L4, can typically handle hundreds of thousands of connections/sec on modest hardware, so the backend fleet size is the real constraint, not the LB.",
+        codeExample: "peak 30k req/sec / 1k req/sec per instance = 30 instances minimum, +~20% headroom = ~36 instances"
+      },
+      {
+        title: "Requirement-driven architecture",
+        content: "Client -> DNS (or anycast IP) -> Load Balancer tier (2+ instances for HA, or a managed LB service) -> health-checked pool of stateless application servers. The LB tier itself is made highly available either by running an active-passive pair with a floating IP (keepalived/VRRP-style), or by using DNS/anycast to route to multiple LB instances directly, avoiding a single LB as a SPOF.",
+        diagram: asciiDiagram(
+`Interview drawing order:
+1) client 2) DNS/anycast 3) LB pair (active + standby) 4) backend pool 5) health-check loop
+
+Client --> DNS/Anycast --> [ LB (active) ] --> Backend 1
+                                |  \\ health checks --> Backend 2
+                          [ LB (standby) ]              Backend 3 (unhealthy, excluded)
+                          takes over via floating IP
+                          if active LB fails`
+        )
+      },
+      {
+        title: "Component responsibilities",
+        content: "LB: connection handling/termination (and TLS termination if L7), algorithm-based backend selection, health checking, and failover of its own HA pair. Health check subsystem: periodic HTTP/TCP probes per backend with a failure threshold before marking a backend unhealthy, and a success threshold before re-including it, to avoid flapping. Backend pool: stateless application servers registered/deregistered dynamically (e.g., via service discovery) so scaling out or in doesn't require manual LB reconfiguration.",
+        codeExample: "healthCheck(backend): GET /healthz every 5s; 3 consecutive failures -> mark unhealthy; 2 consecutive successes -> mark healthy again"
+      },
+      {
+        title: "Algorithms and bottlenecks",
+        content: "Round-robin is simplest and fine when backends are homogeneous and requests are roughly equal cost. Least-connections is better when request cost varies, routing to whichever backend currently has the fewest in-flight requests. Weighted variants of either handle heterogeneous instance sizes. Consistent-hash-based routing (hash of client IP or session key) supports session affinity without a shared session store, at the cost of uneven load if key distribution is skewed. The main bottleneck is usually backend capacity, not the LB itself; a second-order bottleneck is health-check flapping if the failure threshold is too aggressive, which can cause needless traffic shifting under transient blips.",
+        codeExample: "round-robin: next = (last + 1) % n\\nleast-connections: pick backend with min(activeConnections)\\nconsistent-hash: hash(sessionKey) -> ring position -> nearest backend"
+      },
+      {
+        title: "Reliability, security, and observability",
+        content: "Reliability: LB HA pair with automatic failover, health checks with hysteresis (different thresholds for marking down vs up) to avoid flapping, and connection draining so in-flight requests complete before a backend is removed during a deploy. Security: TLS termination at the LB (or pass-through for L4), rate limiting at the edge to blunt abusive clients before they reach backends, and restricting direct backend access so only the LB can reach them. Observability: per-backend request rate, error rate, and latency (so a single slow backend is visible), health-check pass/fail history, and LB failover events.",
+        codeExample: "Metrics: per-backend p50/p95/p99 latency, error rate, active connections, health-check state transitions"
+      },
+      {
+        title: "Trade-offs",
+        content: "L4 load balancing is faster and protocol-agnostic but cannot make routing decisions based on HTTP path/headers (no path-based routing to different services). L7 load balancing enables smarter routing (path/header-based, retries, circuit breaking) at the cost of more CPU per connection and needing to terminate/inspect the request. Sticky sessions (consistent-hash routing) simplify stateful backends but risk uneven load and complicate scaling the backend pool; the generally preferred approach is to keep backends stateless and put session state in a shared store instead.",
+        codeExample: "L4: fast, protocol-agnostic, no path-based routing\\nL7: smarter routing, more CPU, enables retries/circuit-breaking\\nSticky sessions: simple statefulness, but uneven load risk"
+      }
+    ],
+    examples: [
+      {
+        title: "Rolling deploy without dropping requests",
+        input: "A fleet of 36 backend instances behind an L7 LB needs a rolling deploy of a new version, one instance at a time",
+        output: "Zero dropped requests: each instance is drained, deployed, health-checked, and re-added before the next one starts",
+        explanation: "Step 1: The deploy tool marks one backend instance for removal; the LB stops sending it new requests but lets in-flight requests finish (connection draining). Step 2: Once drained, the instance is upgraded and restarted with the new version. Step 3: The LB's health check begins probing it; only after it passes the success threshold is it re-added to the active pool. Step 4: The deploy tool repeats this one instance at a time, so at most one instance's capacity (1/36th) is ever missing, well within the fleet's headroom.",
+        diagram: asciiDiagram(
+`LB pool: [1][2][3]...[36]
+Deploy step: drain(3) -> remove from pool -> upgrade -> health-check -> re-add
+At any time: 35/36 capacity available, client requests unaffected`
+        )
+      }
+    ],
+    complexity: { time: "O(1) per routing decision", space: "O(n) for n tracked backends" },
+    tips: ["Health checks need separate up/down thresholds (hysteresis) to avoid flapping", "The LB tier itself must be made HA (active-passive or anycast), not just the backends", "Prefer stateless backends over sticky sessions where possible"],
+    tricks: ["If asked 'what happens when the LB itself fails?', answer with the HA mechanism (floating IP/anycast), not just backend failover", "Quantify backend fleet size from real request-rate math instead of guessing"],
+    memoryAids: ["LB hides individual server failure from the client", "Round-robin = simple/equal cost, least-connections = uneven cost, consistent-hash = session affinity"],
+    interviewPatterns: ["Comes up in almost every HLD design as the entry point after DNS/CDN", "Follow-up: 'how do you scale to 10x traffic?' -> add backend instances behind the same LB, verify LB tier itself is not now the bottleneck"],
+    references: [
+      { source: "note", attribution: "NGINX/HAProxy load-balancing algorithm documentation (concept reference)", insight: "Round-robin, least-connections, and consistent-hash routing are the standard algorithm choices, each with a distinct trade-off." },
+      systemDesignPrimerRef
+    ],
+    practiceProblems: ["hld-load-balancer-rolling-deploy", "hld-load-balancer-ha-failover"]
+  },
+
+  {
+    id: "topic-hld-cdn",
+    moduleId: "mod-hld-foundations",
+    title: "CDN and Edge Caching",
+    intuition: "Serving every request from one origin region means every user, no matter where they are, pays the round-trip latency to that region; a CDN caches content at edge locations near users instead.",
+    lesson: [
+      {
+        title: "Definition & clarifying questions",
+        content: "A CDN (content delivery network) is a globally distributed set of edge servers that cache content close to end users, so requests are served from a nearby edge node instead of a distant origin. Clarifying questions: is the content static (images, video, JS/CSS bundles) or dynamic/personalized (a user's own feed)? What is the acceptable staleness window if content changes? Do assets need signed/expiring URLs (paid content, private media)?",
+        codeExample: "Clarify: static or dynamic content? staleness tolerance? private/signed URL requirement?"
+      },
+      {
+        title: "Functional & non-functional requirements",
+        content: "Functional: serve cached content from the nearest edge location on a cache hit; on a miss, fetch from origin, cache it at the edge, and return it; support cache invalidation/purge when origin content changes. Non-functional: edge cache hit latency in the low tens of milliseconds; origin load should drop substantially (a well-tuned CDN handles 90%+ of requests at the edge for cacheable content); purges should propagate globally within seconds to a few minutes.",
+        codeExample: "Functional: GET asset -> edge cache hit/miss -> (miss) fetch origin, cache, return\\nNon-functional: edge hit latency ~10-30ms, purge propagation seconds-to-minutes"
+      },
+      {
+        title: "Back-of-envelope estimates",
+        content: "A media site serves 500M image requests/day globally (~5,800 requests/sec average, higher at peak). With a 95% CDN cache hit ratio, only ~5% (~290 requests/sec average) reach the origin, letting the origin fleet be sized for a fraction of total traffic. Each cached image averaging 200KB, edge storage for the hot working set (say the top 1M frequently requested images) needs roughly 200GB per edge location, well within typical edge cache capacity.",
+        codeExample: "500M req/day = ~5,800 req/sec avg; 95% cache hit -> only ~290 req/sec reaches origin\\nhot set: 1M images * 200KB = ~200GB per edge node"
+      },
+      {
+        title: "Requirement-driven architecture",
+        content: "Client -> DNS resolves to the nearest edge PoP (point of presence, via anycast or geo-DNS) -> edge cache. On a cache hit, the edge responds directly. On a miss, the edge server fetches from the origin (or a regional mid-tier cache first, for very large deployments), stores the response according to its TTL/cache-control headers, and returns it to the client.",
+        diagram: asciiDiagram(
+`Interview drawing order:
+1) client 2) DNS/anycast to nearest PoP 3) edge cache 4) (on miss) origin
+
+Client --> nearest Edge PoP --cache hit--> response (10-30ms)
+                |
+           cache miss
+                v
+           Origin Server --> response cached at edge with TTL --> client`
+        )
+      },
+      {
+        title: "Component responsibilities and data model",
+        content: "Edge cache: keyed by request URL (plus vary headers like Accept-Encoding), stores the response body plus cache-control metadata (TTL, must-revalidate). Origin: the source of truth; sets Cache-Control/ETag headers to communicate freshness rules to the CDN. Purge/invalidation API: allows explicitly evicting a URL or a tag/prefix from all edge locations when origin content changes before its TTL expires.",
+        codeExample: "CacheEntry{url, varyKey, body, etag, ttl, cachedAt}; purge(url|prefix) -> propagate eviction to all PoPs"
+      },
+      {
+        title: "Bottlenecks, reliability, security, and observability",
+        content: "Bottlenecks: a very low cache hit ratio (highly personalized content) means the CDN adds an extra hop with little benefit; a thundering herd on a popular but just-expired URL can cause many simultaneous origin fetches (mitigated by request collapsing at the edge, where only one fetch is issued and others wait on it). Reliability: if an edge node is unhealthy, DNS/anycast routes around it to the next-nearest PoP. Security: signed/expiring URLs for private content, and origin access restricted so only the CDN's edge servers (not end users) can hit it directly. Observability: cache hit ratio per content type, origin request rate, purge propagation latency, and edge error rate.",
+        codeExample: "Request collapsing: if 1,000 clients request the same just-expired URL simultaneously, only 1 origin fetch happens; the other 999 wait on that result"
+      },
+      {
+        title: "Trade-offs",
+        content: "Longer TTLs improve cache hit ratio and reduce origin load but increase staleness risk after content changes (mitigated with purge APIs or cache-busting URLs with a version/hash in the path). CDNs are excellent for static/cacheable content but add limited value for highly personalized, per-user dynamic content, where the origin (or an application-layer cache like Redis) is a better fit than edge caching.",
+        codeExample: "Long TTL: fewer origin hits, more staleness risk\\nShort TTL: fresher content, more origin load\\nVersioned/hashed URLs (asset.v3.js) sidestep the trade-off for static assets entirely"
+      }
+    ],
+    examples: [
+      {
+        title: "Thundering herd on a viral image",
+        input: "A product image's cache TTL just expired at the exact moment it goes viral, and 50,000 concurrent requests hit the same edge PoP",
+        output: "Only 1 request reaches the origin; the other 49,999 are held and served the same response once it returns (request collapsing)",
+        explanation: "Step 1: The first request for the expired URL at this edge node triggers an origin fetch and marks the URL as 'revalidating'. Step 2: All subsequent concurrent requests for the same URL at this edge are collapsed into waiters on that single in-flight fetch instead of each triggering their own origin request. Step 3: When the origin responds, the edge caches the fresh response and releases it to all 50,000 waiting requests at once. Step 4: Without request collapsing, this scenario would send 50,000 simultaneous requests to the origin, likely overloading it."
+      }
+    ],
+    complexity: { time: "O(1) per cache lookup", space: "O(hot content size) per edge node" },
+    tips: ["Cache hit ratio, not raw traffic volume, is the metric that determines origin load reduction", "Use versioned/hashed URLs for static assets to sidestep the TTL staleness trade-off entirely", "Request collapsing at the edge prevents thundering-herd origin overload on popular content"],
+    tricks: ["When asked about CDN staleness, propose a purge API plus short TTL for mutable content, and versioned URLs plus long TTL for immutable assets", "Distinguish clearly between static-content CDN use and (usually weaker) fit for personalized dynamic content"],
+    memoryAids: ["CDN = cache close to the user, not just a bigger cache", "Versioned URL = cache forever; dynamic content = cache rarely or not at all"],
+    interviewPatterns: ["Comes up whenever global users and static/media assets are mentioned", "Follow-up: 'what if the content changes before the TTL expires?' -> purge API or versioned URLs"],
+    references: [
+      { source: "note", attribution: "CDN edge-caching and cache-control header concepts (general web architecture reference)", insight: "Cache hit ratio and TTL strategy, not the number of edge locations alone, determine how effective a CDN is at protecting the origin." },
+      systemDesignPrimerRef
+    ],
+    practiceProblems: ["hld-cdn-thundering-herd", "hld-cdn-ttl-staleness-tradeoff"]
+  },
+
+  {
+    id: "topic-hld-replication",
+    moduleId: "mod-hld-foundations",
+    title: "Replication and Failover",
+    intuition: "A single database instance is both a durability risk (disk failure loses data) and an availability risk (instance failure takes down all reads/writes); replication keeps copies elsewhere and failover promotes one when the primary dies.",
+    lesson: [
+      {
+        title: "Definition & clarifying questions",
+        content: "Replication keeps additional copies (replicas) of a primary database's data, either for read scaling, geographic locality, or disaster recovery. Clarifying questions: is the goal read scaling, high availability, or both? Can reads tolerate a small replication lag (eventual consistency) or must every read see the latest write (strong consistency)? Is cross-region replication needed for disaster recovery against a full region outage?",
+        codeExample: "Clarify: read scaling vs HA vs disaster recovery? read staleness tolerance? cross-region requirement?"
+      },
+      {
+        title: "Functional & non-functional requirements",
+        content: "Functional: the primary accepts writes and streams a change log (WAL/binlog) to replicas; replicas apply changes and can serve reads; on primary failure, a replica is promoted to primary and clients are redirected. Non-functional: replication lag should stay in the low milliseconds to low seconds under normal load; failover should complete within a bounded window (commonly seconds to tens of seconds) and must not silently lose acknowledged writes.",
+        codeExample: "Functional: primary -> WAL stream -> replicas apply -> promote replica on failure\\nNon-functional: lag <1s typical, failover <30s, no silent data loss on acknowledged writes"
+      },
+      {
+        title: "Back-of-envelope estimates",
+        content: "A primary handling 5,000 writes/sec streams roughly that many WAL entries/sec to each replica; at ~500 bytes per entry, that is ~2.5MB/sec of replication traffic per replica, easily handled by a single network link. With 3 replicas across 2 regions, the system tolerates the loss of the primary plus one additional replica before running out of up-to-date copies, and cross-region replication adds one-way network latency (commonly 50-150ms) to synchronous replication if used for that link.",
+        codeExample: "5,000 writes/sec * 500 bytes/entry = ~2.5MB/sec replication stream per replica"
+      },
+      {
+        title: "Requirement-driven architecture",
+        content: "Client writes -> Primary -> WAL/binlog stream -> N replicas (same region for low-latency sync replication, other regions for disaster recovery, typically async). A failover controller (or the database's built-in consensus mechanism) monitors primary health and, on failure, promotes the most up-to-date replica to primary and repoints client connections (via DNS, a proxy, or service discovery).",
+        diagram: asciiDiagram(
+`Interview drawing order:
+1) client writes 2) primary 3) WAL stream 4) replicas 5) failover controller 6) promotion
+
+Client --writes--> Primary --WAL stream--> Replica A (sync, same region)
+                       |                --> Replica B (async, other region)
+                       v
+              Failover Controller (health-checks primary)
+              on primary failure: promote most-caught-up replica -> new Primary
+              repoint clients via DNS/proxy`
+        )
+      },
+      {
+        title: "Component responsibilities and consistency",
+        content: "Primary: single writer, generates the ordered change stream. Replicas: apply the stream in order, can serve reads (with a documented staleness bound), and are candidates for promotion. Failover controller: distinct from the replicas themselves (often a quorum-based coordination service) to avoid a single node unilaterally deciding it should be primary, which risks split-brain. Consistency: synchronous replication to at least one replica gives zero data loss on failover at the cost of write latency; asynchronous replication is faster but risks losing the last few unacknowledged writes if the primary fails before they replicate.",
+        codeExample: "sync replica ack required before commit -> zero data loss, higher write latency\\nasync replica ack not required -> lower latency, risk losing last N ms of writes on primary crash"
+      },
+      {
+        title: "Reliability, security, and observability",
+        content: "Reliability: quorum-based failover (not a single node self-promoting) prevents split-brain where two nodes both believe they are primary; a promoted replica must be the most caught-up candidate to minimize lost writes. Security: replication traffic between nodes is encrypted in transit; only the primary accepts writes, replicas are read-only to prevent accidental divergent writes. Observability: replication lag per replica (critical metric - if it grows, reads may serve very stale data or failover may promote a badly lagging replica), failover event history, and WAL/binlog throughput.",
+        codeExample: "Alert if: replication lag > threshold (e.g. 5s), or a replica falls too far behind to be a safe failover candidate"
+      },
+      {
+        title: "Trade-offs",
+        content: "Synchronous replication guarantees no data loss on failover but adds write latency (worse across regions); asynchronous replication is faster but risks losing the last unacknowledged writes. More replicas improve read capacity and durability but increase write-side coordination cost (for sync replication) and storage cost. Cross-region replication protects against a full regional outage but is almost always asynchronous due to speed-of-light latency, so it accepts some data-loss risk in exchange for disaster-recovery capability.",
+        codeExample: "same-region sync replica: low latency, strong durability\\ncross-region async replica: disaster recovery, some data-loss risk on primary crash"
+      }
+    ],
+    examples: [
+      {
+        title: "Primary fails mid-write-burst",
+        input: "The primary crashes with 40 writes acknowledged synchronously to Replica A but not yet applied to async Replica B in another region",
+        output: "Replica A (fully caught up) is promoted to new primary with zero data loss; Replica B catches up afterward via the new primary's stream",
+        explanation: "Step 1: The failover controller detects the primary is unreachable via repeated failed health checks (avoiding a false trigger from a single blip). Step 2: It queries replicas for their last applied WAL position; Replica A, having synchronously acknowledged all 40 writes, is fully caught up while Replica B lags. Step 3: Replica A is promoted to primary since it is the safe choice for zero data loss. Step 4: Clients are repointed to the new primary via DNS/proxy update. Step 5: Replica B resumes streaming from the new primary and catches up to the current state."
+      }
+    ],
+    complexity: { time: "O(1) per replicated write (streamed asynchronously)", space: "O(n) per additional replica" },
+    tips: ["Replication lag is the key metric: too much lag means stale reads or an unsafe failover candidate", "Quorum-based failover, not single-node self-promotion, prevents split-brain", "Sync replication = safety at latency cost; async = speed at data-loss-risk cost"],
+    tricks: ["When asked 'can you lose data on failover?', the honest answer depends entirely on sync vs async replication mode - state that trade-off explicitly", "Name a concrete failover mechanism (quorum-based controller or the DB's built-in consensus) rather than 'it just switches over'"],
+    memoryAids: ["Sync replica = zero data loss, higher latency; async replica = lower latency, some loss risk", "Promote the most caught-up replica, not just any replica"],
+    interviewPatterns: ["Comes up whenever database high-availability or disaster recovery is discussed", "Follow-up: 'what if the primary and its sync replica both go down at once?' -> discuss the async cross-region replica as the disaster-recovery fallback, with its data-loss trade-off named explicitly"],
+    references: [
+      { source: "note", attribution: "PostgreSQL/MySQL replication and failover documentation (concept reference)", insight: "Synchronous vs asynchronous replication is the central trade-off between write latency and failover data-loss risk." },
+      systemDesignPrimerRef
+    ],
+    practiceProblems: ["hld-replication-primary-failover", "hld-replication-sync-vs-async"]
+  },
+
+  {
+    id: "topic-hld-estimation-read-write",
+    moduleId: "mod-hld-estimation-tradeoffs",
+    title: "Read/Write Estimation",
+    intuition: "Every capacity, storage, and bottleneck decision in a system design interview flows from one skill: turning vague user counts into concrete requests/sec, bytes/sec, and storage-over-time numbers.",
+    lesson: [
+      {
+        title: "Definition & clarifying questions",
+        content: "Back-of-envelope estimation converts business-level numbers (daily active users, actions per user) into engineering-level numbers (requests/sec, bytes/sec, storage growth) that drive every subsequent design decision: how many servers, what read/write ratio the datastore must handle, whether a cache is needed, and how much storage to provision. Clarifying questions: what is DAU (daily active users)? How many actions of each type does an average user perform per day? What is the peak-to-average traffic ratio? What is the data retention period?",
+        codeExample: "Clarify: DAU? actions/user/day per type? peak:average ratio? retention period?"
+      },
+      {
+        title: "The core estimation method",
+        content: "The standard method: (1) DAU * actions/user/day = total daily actions. (2) total daily actions / 86,400 seconds = average requests/sec. (3) average * peak-to-average ratio (commonly 2-10x depending on traffic pattern) = peak requests/sec, which is what you provision for. (4) payload size * total daily actions = daily storage growth; multiply by retention period for total storage needed.",
+        codeExample: "avg req/sec = (DAU * actions/user/day) / 86,400\\npeak req/sec = avg req/sec * peak_ratio\\ndaily storage = actions/day * avg payload size\\ntotal storage = daily storage * retention_days"
+      },
+      {
+        title: "Worked estimate: a photo-sharing app",
+        content: "10M DAU, each user uploads 0.5 photos/day and views 50 photos/day. Uploads: 10M * 0.5 = 5M photos/day = ~58 uploads/sec average, ~230/sec at 4x peak. Views: 10M * 50 = 500M views/day = ~5,800 views/sec average, ~23,000/sec at 4x peak - views dominate writes by roughly 100x, which is the single most important finding: this system needs a strong read path (cache/CDN), not just write-scalable storage. Storage: 5M photos/day * 2MB average = 10TB/day; over a 3-year retention period, roughly 11PB total, driving the choice of cheap object storage (like S3) over a traditional database for the photo bytes themselves.",
+        codeExample: "uploads: 10M*0.5/86,400 = ~58/sec avg, ~230/sec peak\\nviews: 10M*50/86,400 = ~5,800/sec avg, ~23,000/sec peak (100x more than writes)\\nstorage: 5M*2MB/day = 10TB/day -> ~11PB over 3 years"
+      },
+      {
+        title: "Requirement-driven architecture implication",
+        content: "The estimate directly determines architecture: a 100:1 read:write ratio means the design should prioritize a cache-first read path and possibly a CDN for the hottest content, while writes can go through a simpler, less-optimized path since they are a small fraction of total load. A write-heavy system (e.g., 1:1 or write-dominant like a logging pipeline) instead prioritizes ingestion throughput (partitioned queues, bulk writes) over read caching.",
+        diagram: asciiDiagram(
+`Interview drawing order:
+1) DAU + actions/user 2) daily totals 3) avg req/sec 4) peak req/sec 5) storage/day 6) total storage
+
+DAU=10M, uploads=0.5/day, views=50/day
+   |
+   v
+uploads/day=5M (58/sec avg, 230/sec peak)      views/day=500M (5,800/sec avg, 23,000/sec peak)
+   |                                                |
+   v                                                v
+storage: 10TB/day, ~11PB over 3yr           read:write ratio ~100:1 -> cache-first read path`
+        )
+      },
+      {
+        title: "Common estimation mistakes and how to avoid them",
+        content: "Mistake 1: using average traffic to provision capacity instead of peak, which under-provisions for real-world bursty traffic. Mistake 2: forgetting retention period when estimating storage, which drastically understates total storage needed. Mistake 3: not separating read and write estimates, which hides read:write imbalance that should drive the caching/architecture decision. Mistake 4: over-precision - round numbers aggressively (58 uploads/sec, not 57.87) since the goal is order-of-magnitude reasoning, not exact arithmetic.",
+        codeExample: "Provision for peak, not average. Always multiply storage-per-day by retention period. Keep read and write numbers separate."
+      }
+    ],
+    examples: [
+      {
+        title: "Estimating a URL shortener's storage need",
+        input: "100M new short URLs created per month, each mapping stored as ~500 bytes (short code, long URL, metadata), with a 5-year retention policy",
+        output: "~600GB total storage after 5 years - small enough that a single well-indexed database (not a distributed store) is sufficient purely on storage grounds",
+        explanation: "Step 1: 100M/month * 12 months * 5 years = 6B total mappings created over the retention window. Step 2: 6B * 500 bytes = 3TB raw... but wait, only 5 years of the *ongoing* rate matters if older links are pruned; assuming no pruning, cumulative storage is 6B mappings * 500 bytes = 3TB. Step 3: This modest total (a few TB) is well within a single scaled-up database instance's capacity, meaning the storage-size argument alone does not force sharding - sharding here would instead be justified by the read/write request rate, not the byte volume."
+      }
+    ],
+    complexity: { time: "O(1) arithmetic per estimate", space: "N/A (an estimation technique, not a running system)" },
+    tips: ["Always provision for peak traffic, not average", "Separate read and write estimates - the ratio drives the caching/architecture decision", "Round aggressively; the goal is order-of-magnitude reasoning, not precise arithmetic", "Always multiply per-day storage by the retention period"],
+    tricks: ["State the method out loud (DAU -> daily actions -> avg req/sec -> peak req/sec) before plugging in numbers, so the interviewer can follow and correct any wrong assumption early", "When the read:write ratio comes out lopsided (like 100:1), immediately connect that number to an architecture decision (cache/CDN) rather than leaving it as an isolated fact"],
+    memoryAids: ["DAU -> actions/day -> /86,400 for avg/sec -> * peak ratio for peak/sec", "Storage = bytes/action * actions/day * retention days"],
+    interviewPatterns: ["This is the near-universal first step of any HLD interview after requirements gathering", "Follow-up: 'so what does that number mean for your design?' - always connect the estimate back to an architecture decision, not just state it"],
+    references: [
+      { source: "note", attribution: "Back-of-envelope estimation technique (standard system-design-interview practice)", insight: "The read:write ratio derived from estimation, more than the absolute traffic numbers, is what should drive the architecture's caching and storage decisions." },
+      systemDesignPrimerRef
+    ],
+    practiceProblems: ["hld-estimation-photo-app-readwrite", "hld-estimation-url-shortener-storage"]
+  },
+
+  {
+    id: "topic-hld-caching-strategy",
+    moduleId: "mod-hld-design-exercises",
+    title: "Caching Strategy",
+    intuition: "Caching only helps if the strategy matches the read/write pattern; the wrong strategy (e.g. write-through for rarely-read data) adds latency without earning back a benefit.",
+    lesson: [
+      {
+        title: "Definition & clarifying questions",
+        content: "A cache is a fast, usually smaller, storage layer that sits in front of a slower source of truth (typically a database), holding a subset of hot data to serve reads without hitting the slower store. Clarifying questions: is the access pattern read-heavy or write-heavy? Can the application tolerate briefly stale reads, or must every read see the latest write? Is the data naturally hot/skewed (a small set of keys gets most traffic) or uniformly accessed?",
+        codeExample: "Clarify: read-heavy or write-heavy? staleness tolerance? hot-key skew or uniform access?"
+      },
+      {
+        title: "The four core caching strategies",
+        content: "Cache-aside (lazy loading): application checks the cache first; on a miss, reads from the database and populates the cache. Simple and only caches what is actually requested, but the first request for any key always misses. Read-through: similar to cache-aside but the cache library itself handles the miss-then-populate logic, transparent to the application. Write-through: every write goes to the cache and the database synchronously, keeping them always in sync at the cost of write latency. Write-back (write-behind): writes go to the cache first and are asynchronously flushed to the database later, giving very fast writes at the risk of data loss if the cache fails before flushing.",
+        codeExample: "cache-aside: on read, check cache -> miss -> read DB -> populate cache -> return\\nwrite-through: on write, write cache AND DB synchronously\\nwrite-back: on write, write cache only, flush to DB async later"
+      },
+      {
+        title: "Matching strategy to access pattern",
+        content: "Read-heavy, rarely-changing data (a user's profile, a product catalog page): cache-aside with a moderate TTL is the standard choice - simple, and only pays the cache-population cost for keys actually requested. Write-heavy data where reads must always be fresh (an inventory counter used for both display and decrementing): write-through keeps cache and database in lockstep, avoiding stale reads, accepting the extra write latency. Very write-heavy, latency-critical, and tolerant of rare data loss (view counters, activity logs): write-back trades some durability for very low write latency.",
+        codeExample: "profile page -> cache-aside + TTL\\ninventory counter (must stay fresh) -> write-through\\nview counter (latency-critical, loss-tolerant) -> write-back"
+      },
+      {
+        title: "Requirement-driven architecture",
+        content: "Client -> Application service -> Cache (Redis/Memcached) -> on miss -> Database. Cache invalidation on writes: for cache-aside, either invalidate the key on write (forcing the next read to repopulate) or update it directly; for write-through, the cache is updated as part of the write path itself, so no separate invalidation step is needed.",
+        diagram: asciiDiagram(
+`Interview drawing order:
+1) client 2) app service 3) cache 4) database (on miss)
+
+Read: Client -> App -> Cache --hit--> response
+                          |
+                        miss
+                          v
+                       Database --> populate cache --> response
+
+Write (write-through): Client -> App -> Cache AND Database (synchronous, both updated)`
+        )
+      },
+      {
+        title: "Bottlenecks, reliability, and observability",
+        content: "Bottlenecks: a low cache hit ratio (uniform access with no hot keys) means the cache adds an extra network hop with little benefit - measure hit ratio before assuming caching helps. A hot key (one item vastly more popular than others) can overload a single cache shard even though overall cache capacity is fine; mitigated by key-level replication or local in-process caching for the very hottest few keys. Reliability: a cache-aside design degrades gracefully on cache failure (falls back to the database, just slower); write-back risks losing unflushed writes if the cache node crashes, so it should only be used where that risk is explicitly acceptable. Observability: cache hit ratio, per-key request rate (to detect hot keys), and cache eviction rate (frequent evictions under memory pressure signal the cache is undersized for the working set).",
+        codeExample: "Alert if: cache hit ratio drops below target, or eviction rate spikes (undersized cache), or a single key exceeds X% of total cache traffic (hot key)"
+      },
+      {
+        title: "Trade-offs",
+        content: "Cache-aside is simple and resilient to cache failure but has a cold-start miss penalty and a window of staleness until TTL expiry or invalidation. Write-through keeps data fresh but adds latency to every write and does no good for keys that are never read. Write-back has the best write latency but the worst durability guarantee. TTL length itself is a trade-off: longer TTLs raise hit ratio and lower database load, but increase the staleness window.",
+        codeExample: "cache-aside: simple, resilient, cold-start miss, staleness until TTL/invalidation\\nwrite-through: fresh, write-latency cost\\nwrite-back: fastest writes, weakest durability"
+      }
+    ],
+    examples: [
+      {
+        title: "Choosing a strategy for a flash-sale inventory counter",
+        input: "An inventory count is both displayed to shoppers and decremented on every purchase during a flash sale with heavy concurrent traffic",
+        output: "Write-through is chosen: every purchase decrements both cache and database synchronously, so the displayed count is never stale and never oversells",
+        explanation: "Step 1: Because the inventory count is used to make a business-critical decision (whether to allow a purchase), staleness is unacceptable, ruling out plain cache-aside with a TTL. Step 2: Write-through keeps the cache and database in lockstep on every write, so a read immediately after a decrement always sees the correct value. Step 3: The extra write latency from writing to two stores synchronously is an acceptable cost given the correctness requirement, and write volume (purchases) is far lower than read volume (page views), so the added cost applies to a small fraction of total traffic."
+      }
+    ],
+    complexity: { time: "O(1) per cache read/write", space: "O(hot key set size)" },
+    tips: ["Measure cache hit ratio before assuming caching helps - uniform access patterns don't benefit much", "Match the strategy (cache-aside/read-through/write-through/write-back) to the read/write pattern and staleness tolerance, don't default to one", "Watch for hot keys separately from overall cache capacity"],
+    tricks: ["When asked to justify a caching strategy, name the specific staleness tolerance and write frequency that led to the choice, not just 'to make it faster'", "If write-back comes up, immediately name its data-loss risk and when that risk is acceptable"],
+    memoryAids: ["cache-aside = app manages the miss, write-through = always in sync, write-back = fast but risky"],
+    interviewPatterns: ["Follow-up after any 'add a cache' suggestion: 'which strategy, and why?' - always tie the answer to the specific access pattern", "'What happens if the cache goes down?' -> cache-aside degrades gracefully to DB, write-back risks losing unflushed writes"],
+    references: [
+      { source: "note", attribution: "Redis/Memcached caching pattern documentation (concept reference)", insight: "Cache-aside, read-through, write-through, and write-back each fit a distinct read/write and staleness-tolerance profile; there is no universally correct default." },
+      systemDesignPrimerRef
+    ],
+    practiceProblems: ["hld-caching-strategy-inventory-counter", "hld-caching-strategy-hot-key"]
+  },
+
+  {
+    id: "topic-hld-db-sharding",
+    moduleId: "mod-hld-design-exercises",
+    title: "Sharding",
+    intuition: "A single database server has a ceiling on both storage and throughput; sharding splits data across multiple independent database servers so the system can scale past that ceiling.",
+    lesson: [
+      {
+        title: "Definition & clarifying questions",
+        content: "Sharding partitions a dataset across multiple independent database instances (shards), each holding a subset of the data, so total storage and throughput scale with the number of shards rather than being capped by one machine. Clarifying questions: what is the natural partition key (user ID, tenant ID, geographic region)? Are cross-shard queries/joins required, or does each query naturally target a single shard? Is resharding (adding shards later) a requirement from day one?",
+        codeExample: "Clarify: partition key? cross-shard query need? resharding requirement?"
+      },
+      {
+        title: "Sharding strategies",
+        content: "Hash-based sharding: hash(key) % N (or, better, consistent hashing) determines the shard; gives even distribution for high-cardinality keys but makes range queries across keys expensive (they hit every shard). Range-based sharding: contiguous key ranges live on the same shard (e.g., user IDs 1-1M on shard 1); supports efficient range queries but risks hotspots if certain ranges are much more active (e.g., newest users, who are often the most active, all landing on the newest shard). Directory-based sharding: a lookup service maps each key to its shard explicitly, offering maximum flexibility for rebalancing at the cost of an extra lookup hop and the lookup service itself becoming a critical dependency.",
+        codeExample: "hash-based: shard = consistentHash(key) -> even distribution, poor range queries\\nrange-based: shard = rangeOf(key) -> good range queries, hotspot risk\\ndirectory-based: shard = lookup(key) -> flexible, extra hop + lookup service dependency"
+      },
+      {
+        title: "Choosing the partition key",
+        content: "The partition key should match the dominant query pattern: if nearly all queries filter by user ID, shard by user ID so those queries hit exactly one shard. A poorly chosen partition key forces most queries to scatter-gather across all shards (query every shard, merge results), which multiplies load and defeats much of sharding's benefit. Multi-tenant systems commonly shard by tenant ID so each tenant's data (and load) stays fully contained within one shard.",
+        codeExample: "queries filter by user_id 95% of the time -> shard by user_id, most queries hit exactly 1 shard\\nwrong key choice -> most queries become scatter-gather across all shards"
+      },
+      {
+        title: "Requirement-driven architecture",
+        content: "Client -> Application/routing layer computes shard(key) -> connects to the correct shard's database instance. A shard map (which key ranges/hashes map to which physical shard) is maintained either in application config, a directory service, or derived algorithmically (consistent hashing) so it does not need a central lookup on every request.",
+        diagram: asciiDiagram(
+`Interview drawing order:
+1) client 2) app/routing layer 3) shard() function 4) target shard DB
+
+Client --> App/Routing Layer --shard(user_id)--> Shard 1 DB (users 1-1M)
+                                              --> Shard 2 DB (users 1M-2M)
+                                              --> Shard 3 DB (users 2M-3M)`
+        )
+      },
+      {
+        title: "Bottlenecks, reliability, and observability",
+        content: "Bottlenecks: cross-shard joins/aggregations require scatter-gather across all shards and merging results in the application layer, which is slow and complex - designs should minimize how often this is needed. A hot shard (one shard receiving disproportionate traffic, e.g. from a viral user) needs either finer-grained partitioning or per-shard read replicas to absorb the extra load. Reliability: each shard should be independently replicated (see replication/failover), since losing a shard loses that portion of the dataset entirely, not just some capacity. Observability: per-shard request rate, storage size, and latency, specifically to detect shard imbalance (skew) early, before it becomes a hot-shard incident.",
+        codeExample: "Alert if: any single shard's request rate or storage exceeds N% of total, indicating skew that may require resharding or splitting that shard"
+      },
+      {
+        title: "Trade-offs",
+        content: "Sharding unlocks storage and throughput scale well beyond a single machine, but complicates cross-shard transactions (often requiring a distributed transaction protocol or accepting eventual consistency across shards), rebalancing (moving data when adding/removing shards), and operational complexity (N databases to manage instead of 1). It should be adopted when a single instance's storage or throughput ceiling is the actual bottleneck, not preemptively, since it is one of the harder-to-reverse architectural decisions.",
+        codeExample: "Sharding gains: storage/throughput scale beyond one machine\\nSharding costs: cross-shard query complexity, rebalancing effort, N-database operational overhead"
+      }
+    ],
+    examples: [
+      {
+        title: "A poorly chosen shard key causing scatter-gather",
+        input: "A multi-tenant analytics platform shards by event_id (random UUID) instead of tenant_id, but 90% of queries filter by tenant_id for a single tenant's dashboard",
+        output: "Nearly every dashboard query must scatter-gather across all shards and merge results, even though each query only needs one tenant's data",
+        explanation: "Step 1: Because event_id is unrelated to tenant_id, a single tenant's events are scattered randomly across every shard. Step 2: A query for 'show tenant X's last 100 events' must query all N shards, since any of them might hold a matching event, then merge and re-sort the combined results in the application layer. Step 3: Fixing this means resharding by tenant_id instead, so each tenant's data lives on one (or a small, known, set of) shard(s), and the dashboard query becomes a single-shard query - the resharding effort here is the direct cost of the original wrong key choice."
+      }
+    ],
+    complexity: { time: "O(1) to route to a shard, O(shards) for cross-shard scatter-gather", space: "O(n) total across all shards" },
+    tips: ["Choose the partition key to match the dominant query pattern, not an arbitrary unique ID", "A wrong shard key forces scatter-gather queries across every shard, which multiplies load", "Adopt sharding when storage/throughput ceiling is the real bottleneck, not preemptively"],
+    tricks: ["When proposing sharding, immediately state the chosen partition key and justify it against the dominant query pattern", "If cross-shard joins are unavoidable, name the mitigation explicitly (denormalize, scatter-gather with merge, or a separate analytical store) rather than ignoring the problem"],
+    memoryAids: ["Shard key should match your most common query filter", "Hash-based = even but no ranges, range-based = ranges but hotspots, directory-based = flexible but extra hop"],
+    interviewPatterns: ["Comes up whenever a single database's storage or throughput is clearly insufficient for the estimated load", "Follow-up: 'how do you handle a query that needs data from multiple tenants/shards?' - discuss scatter-gather cost or a separate analytical/aggregation store"],
+    references: [
+      { source: "note", attribution: "Distributed database sharding strategy documentation (concept reference, e.g. Vitess/Citus patterns)", insight: "The partition key choice, matched to the dominant query pattern, determines whether sharding helps or forces expensive scatter-gather queries." },
+      systemDesignPrimerRef
+    ],
+    practiceProblems: ["hld-sharding-key-choice", "hld-sharding-scatter-gather-fix"]
+  },
+
+  {
+    id: "topic-hld-message-queue",
+    moduleId: "mod-hld-design-exercises",
+    title: "Message Queues",
+    intuition: "Handling every task synchronously ties the caller's latency and availability to the slowest downstream step; a queue decouples producers from consumers so bursts are absorbed and slow consumers don't block callers.",
+    lesson: [
+      {
+        title: "Definition & clarifying questions",
+        content: "A message queue decouples producers (that enqueue work) from consumers (that process it asynchronously), smoothing traffic spikes and letting each side scale and fail independently. Clarifying questions: does processing order matter (strict per-key ordering vs any order)? Is at-least-once delivery (with consumer-side dedup) acceptable, or is exactly-once required (harder, usually approximated via idempotency)? What is the acceptable processing delay (seconds vs minutes)?",
+        codeExample: "Clarify: ordering requirement? at-least-once + dedup, or exactly-once? acceptable processing delay?"
+      },
+      {
+        title: "Functional & non-functional requirements",
+        content: "Functional: producers enqueue messages durably; consumers dequeue, process, and acknowledge (ack) messages; unacknowledged messages are redelivered after a visibility timeout; a dead-letter queue captures messages that repeatedly fail processing. Non-functional: the queue should absorb bursts well above steady-state throughput without dropping messages; consumer failure should not lose messages (they become visible again for redelivery); processing should scale horizontally by adding more consumers.",
+        codeExample: "Functional: enqueue(msg) -> durable store -> consumer dequeues -> processes -> ack (or nack/timeout -> redeliver)\\nNon-functional: absorb bursts, no message loss on consumer failure, horizontally scalable consumers"
+      },
+      {
+        title: "Back-of-envelope estimates",
+        content: "An email-sending pipeline enqueues 2M jobs/day (~23 jobs/sec average, ~230/sec at a 10x campaign-send burst). If each consumer processes 50 jobs/sec, roughly 5 consumer instances handle peak load; provisioning ~8 gives headroom for one instance's failure. Queue storage for a 2KB average message with a 24-hour retention window: 2M * 2KB = 4GB/day, trivial for the queue's durable storage.",
+        codeExample: "peak 230 jobs/sec / 50 jobs/sec per consumer = ~5 consumers minimum, ~8 with headroom"
+      },
+      {
+        title: "Requirement-driven architecture",
+        content: "Producer (application service) -> durable queue (partitioned by a key if ordering matters) -> pool of consumers that pull/receive messages, process them, and ack. Failed processing results in the message becoming visible again after a timeout (retry) or, after N failed attempts, being routed to a dead-letter queue for manual inspection instead of retrying forever.",
+        diagram: asciiDiagram(
+`Interview drawing order:
+1) producer 2) queue (partitioned) 3) consumer pool 4) ack/nack 5) dead-letter queue
+
+Producer --enqueue--> Queue (partition by key if ordering matters) --> Consumer 1
+                                                                    --> Consumer 2
+                                                                    --> Consumer 3
+failed after N retries --> Dead-Letter Queue (for manual inspection)`
+        )
+      },
+      {
+        title: "Component responsibilities and ordering",
+        content: "Queue/broker: durably stores messages until acknowledged, tracks per-message delivery attempts, and manages the visibility timeout for redelivery. Consumer: processes a message idempotently (safe to reprocess, since at-least-once delivery means duplicates are possible) and explicitly acks only after successful processing, never before. Ordering: if strict per-key ordering is required (e.g. all events for one user must be processed in order), partition the queue by that key and ensure only one consumer processes a given partition at a time; global ordering across all messages is rarely required and would force a single consumer, defeating the purpose of horizontal scaling.",
+        codeExample: "process(msg): if alreadyProcessed(msg.idempotencyKey) return; doWork(msg); markProcessed(msg.idempotencyKey); ack(msg)"
+      },
+      {
+        title: "Reliability, security, and observability",
+        content: "Reliability: at-least-once delivery (the practical default) means consumers must be idempotent to handle duplicate delivery safely; a dead-letter queue prevents a single poison message from blocking a partition forever by retrying indefinitely. Security: producers and consumers authenticate to the queue; message payloads containing sensitive data should be encrypted or reference a separate secure store rather than embedding secrets directly. Observability: queue depth/backlog (growing backlog signals consumers can't keep up), consumer processing latency, redelivery/retry rate, and dead-letter queue volume (a rising DLQ count signals a systemic processing bug, not just occasional bad messages).",
+        codeExample: "Alert if: queue depth grows sustained over time (consumers falling behind), or DLQ volume spikes (systemic processing failure)"
+      },
+      {
+        title: "Trade-offs",
+        content: "Queues improve resilience (a slow/failed consumer doesn't block the producer) and let load be smoothed over time, but they add end-to-end latency (work is no longer synchronous) and complexity (idempotency, redelivery, ordering, dead-letter handling all need explicit design). Strict per-key ordering constrains scaling (only one consumer per ordered partition at a time), so it should only be required where genuinely necessary, not applied broadly by default.",
+        codeExample: "Queue gains: resilience, burst absorption, decoupling\\nQueue costs: added latency, idempotency/dedup complexity, ordering constrains parallelism"
+      }
+    ],
+    examples: [
+      {
+        title: "A poison message blocking a partition",
+        input: "A malformed message (missing a required field) causes its consumer to throw an exception every time it's processed, and it keeps getting redelivered to the front of its ordered partition",
+        output: "After 5 failed attempts, the message is routed to the dead-letter queue instead of retrying forever, unblocking the rest of that partition's messages",
+        explanation: "Step 1: The consumer picks up the malformed message, fails to process it, and does not ack it, so after the visibility timeout it becomes available for redelivery. Step 2: Because this partition preserves ordering, this same message is redelivered before any later message in the partition can be processed, risking indefinitely blocking that partition. Step 3: A max-retry count (e.g., 5) is tracked per message; once exceeded, the queue routes the message to a dead-letter queue instead of redelivering it again. Step 4: The partition then proceeds to the next message, and the dead-lettered message is available for manual inspection and reprocessing after a fix."
+      }
+    ],
+    complexity: { time: "O(1) enqueue/dequeue", space: "O(backlog size)" },
+    tips: ["Consumers must be idempotent because at-least-once delivery means duplicates will happen", "A dead-letter queue prevents one bad message from blocking an ordered partition forever", "Only require strict ordering where genuinely necessary - it constrains consumer parallelism"],
+    tricks: ["When asked 'what if a consumer crashes mid-processing?', answer with the visibility-timeout redelivery mechanism plus why idempotency is required as a result", "If ordering comes up, immediately connect it to the partitioning scheme and its parallelism cost"],
+    memoryAids: ["Queue = decouple producer speed from consumer speed", "At-least-once + idempotent consumer = practical default; exactly-once is hard and rarely truly needed"],
+    interviewPatterns: ["Comes up whenever a slow/unreliable downstream step (email, notifications, image processing) shouldn't block the user-facing request", "Follow-up: 'how do you guarantee no message is lost?' -> durable queue + ack-after-success + redelivery on timeout"],
+    references: [
+      { source: "note", attribution: "Kafka/SQS message-queue delivery-semantics documentation (concept reference)", insight: "At-least-once delivery with idempotent consumers is the practical default; true exactly-once delivery is rarely necessary and much harder to guarantee." },
+      systemDesignPrimerRef
+    ],
+    practiceProblems: ["hld-message-queue-poison-message", "hld-message-queue-ordering-partition"]
+  },
+
+  {
+    id: "topic-hld-consistency",
+    moduleId: "mod-hld-design-exercises",
+    title: "Consistency Trade-offs",
+    intuition: "Consistency is not a single global setting for a system, it is a per-operation decision: some writes must be seen immediately and correctly everywhere, others can lag behind for the sake of speed and availability.",
+    lesson: [
+      {
+        title: "Definition & clarifying questions",
+        content: "Consistency describes what guarantee a read gives about seeing the most recent write. Strong consistency means every read sees the latest acknowledged write, everywhere, immediately. Eventual consistency means reads may see a stale value for some window after a write, but all replicas converge to the same value eventually. Clarifying questions: what is the actual cost of a stale read for this specific operation (a business risk like overselling, or a cosmetic issue like a slightly outdated like-count)? Is the operation a financial/inventory transaction or a social/content read?",
+        codeExample: "Clarify: cost of a stale read for THIS operation - business risk (financial/inventory) or cosmetic (social feed)?"
+      },
+      {
+        title: "Deciding per operation, not per system",
+        content: "A bank transfer write needs strong consistency: a read immediately after the transfer must reflect the new balance, or a user could see stale data and make a decision based on wrong information (e.g., attempt to spend money that was already moved). A social media like-count read can be eventually consistent: showing a like-count that is a few seconds stale has no real business cost, and enforcing strong consistency there would add unnecessary latency and reduce availability during partitions for no benefit. Most large systems mix strategies: strongly consistent for the specific operations where correctness has real business cost, eventually consistent everywhere else for latency and availability.",
+        codeExample: "bank transfer write/read -> strong consistency (quorum write, majority read)\\nlike-count/view-count read -> eventual consistency (any replica, no quorum needed)"
+      },
+      {
+        title: "Mechanisms for each",
+        content: "Strong consistency is typically achieved via quorum writes/reads (a write must be acknowledged by a majority of replicas before being considered committed, and a read queries a majority to ensure it sees the latest committed value) or by routing all reads/writes for a given key to a single primary. Eventual consistency is achieved by allowing any replica to serve reads and letting asynchronous replication catch replicas up over time, with conflict resolution (last-write-wins, vector clocks, or CRDTs) for the rare case of concurrent writes to the same key on different replicas.",
+        codeExample: "Strong: write needs ack from majority(N/2+1) replicas; read queries majority, takes highest version\\nEventual: write acked by primary immediately, propagates async; any replica can serve reads"
+      },
+      {
+        title: "Requirement-driven architecture",
+        content: "Client -> Application service -> routing decision per operation type: correctness-critical operations (payments, inventory decrements, account state changes) go through a strongly-consistent path (single primary or quorum-based store); everything else (feeds, counters, recommendations, search results) goes through an eventually-consistent path (cache, read replicas, or an eventually-consistent store) for lower latency and higher availability.",
+        diagram: asciiDiagram(
+`Interview drawing order:
+1) client 2) app service 3) classify operation 4) route to consistency-appropriate path
+
+Client --> App Service --classify op-->
+   correctness-critical (payment, inventory) --> Strong path: primary/quorum store
+   cosmetic/high-volume (likes, views, feed)  --> Eventual path: replicas/cache, async propagation`
+        )
+      },
+      {
+        title: "Reliability and observability",
+        content: "Reliability: strongly consistent paths must handle the case where a quorum cannot be reached (during a partition) by rejecting the operation rather than guessing - correctness takes priority over availability there. Eventually consistent paths should have a documented maximum staleness bound and should surface that bound if it grows unexpectedly (e.g., a lagging replica). Observability: for strongly consistent paths, track quorum-write latency and quorum-failure rate (partition indicator); for eventually consistent paths, track replication lag as the primary signal of how stale reads might currently be.",
+        codeExample: "Alert if: quorum-write failure rate rises (partition/network issue), or eventual-path replication lag exceeds the documented staleness bound"
+      },
+      {
+        title: "Trade-offs",
+        content: "Strong consistency guarantees correctness but costs latency (must coordinate with a quorum or a single primary) and can reduce availability during a network partition (better to reject a write than risk an incorrect one). Eventual consistency maximizes latency and availability but accepts a staleness window and, in rare concurrent-write scenarios, requires an explicit conflict-resolution policy. The skill being tested in interviews is correctly classifying which operations need which guarantee, not defaulting the whole system to one extreme.",
+        codeExample: "Strong: correctness first, costs latency + availability during partition\\nEventual: latency/availability first, costs staleness window + conflict resolution need"
+      }
+    ],
+    examples: [
+      {
+        title: "Bank transfer vs social feed in the same platform",
+        input: "A social app with an in-app wallet feature needs both a balance-transfer operation and a friend-activity feed",
+        output: "Balance transfers route through a strongly consistent quorum-based store; the activity feed is served from eventually consistent read replicas with a cache",
+        explanation: "Step 1: The balance transfer is classified as correctness-critical (a wrong balance read could let a user act on stale information), so its write requires quorum acknowledgment and its read queries a majority of replicas. Step 2: The activity feed is classified as cosmetic-tolerant: a few seconds of staleness in a friend's post appearing has no real cost, so it is served from any nearby read replica or cache for much lower latency and higher availability. Step 3: This is a single platform intentionally using two different consistency models for two different operations, which is the correct real-world pattern rather than picking one model for the whole system."
+      }
+    ],
+    complexity: { time: "O(quorum size) per strongly consistent operation, O(1) per eventually consistent operation", space: "O(replicas)" },
+    tips: ["Classify by operation, not by system: most large systems mix strong and eventual consistency", "Ask 'what is the real business cost of a stale read here?' before choosing a consistency model", "Strongly consistent operations should reject during a partition rather than guess"],
+    tricks: ["When asked 'is your system consistent?', answer per operation type rather than declaring the whole system one model", "Name the concrete mechanism (quorum write/read, or async replication + conflict resolution) rather than only the label (strong/eventual)"],
+    memoryAids: ["Money/inventory = strong (correctness matters); likes/views/feeds = eventual (speed matters)", "Strong = coordinate with quorum/primary; eventual = any replica, converge later"],
+    interviewPatterns: ["Interviewers often probe with 'is that read guaranteed to be up to date?' - answer with the specific consistency model chosen for that specific operation and why", "Follow-up: 'what happens during a network partition?' -> strong path rejects/queues; eventual path keeps serving possibly-stale data"],
+    references: [
+      { source: "note", attribution: "CAP theorem and PACELC consistency-model documentation (concept reference)", insight: "Consistency is most usefully modeled per-operation rather than as a single global property of a system." },
+      systemDesignPrimerRef
+    ],
+    practiceProblems: ["hld-consistency-wallet-vs-feed", "hld-consistency-partition-behavior"]
+  },
+
+  {
+    id: "topic-hld-idempotent-design",
+    moduleId: "mod-hld-design-exercises",
+    title: "Idempotent APIs",
+    intuition: "Networks drop responses, not just requests; a client that retries a payment after a timeout must not risk charging the customer twice, which means the operation itself must be safe to repeat.",
+    lesson: [
+      {
+        title: "Definition & clarifying questions",
+        content: "An idempotent operation produces the same end result no matter how many times it is applied with the same input, so a client retry after a timeout or dropped response is always safe. Clarifying questions: which operations are naturally idempotent already (e.g. 'set balance to $100' is idempotent, 'add $100 to balance' is not) and which need explicit idempotency support (payments, order creation, notification sends)? Does the client control the idempotency key, or must the server generate one?",
+        codeExample: "Clarify: which operations are naturally idempotent vs need explicit support? client-supplied or server-generated idempotency key?"
+      },
+      {
+        title: "The core mechanism: idempotency keys",
+        content: "The client generates a unique idempotency key (typically a UUID) per logical operation attempt (not per HTTP retry - the same key is reused across retries of the same logical request) and sends it with the request. The server checks if it has already processed that key: if so, it returns the previously computed result without repeating the side effect (charging, creating, sending); if not, it processes the request and durably records the key with its result before responding.",
+        codeExample: "POST /payments {idempotencyKey: 'req-abc123', amount: 100}\\nserver: if seen(idempotencyKey) return storedResult(idempotencyKey)\\nelse: process(); store(idempotencyKey, result); return result"
+      },
+      {
+        title: "Requirement-driven architecture",
+        content: "Client -> API gateway/service, with an idempotency-key lookup table (keyed by the client-supplied key, storing the request hash and the response) consulted before executing the underlying operation. The lookup and the underlying operation's write must be atomic (in the same transaction, or via a compare-and-set on the key) to avoid a race where two concurrent retries both pass the 'not yet processed' check and both execute the side effect.",
+        diagram: asciiDiagram(
+`Interview drawing order:
+1) client (idempotency key) 2) service 3) key lookup table 4) underlying operation (atomic with key insert)
+
+Client --POST {idempotencyKey}--> Service
+                                     |
+                          key seen in lookup table?
+                          yes -> return stored result (no side effect repeated)
+                          no  -> atomically: insert key + execute operation -> store result -> return`
+        )
+      },
+      {
+        title: "Component responsibilities and concurrency",
+        content: "Idempotency key store: a fast, durable key-value store (often the same database, in a dedicated table, or Redis with a TTL matching how long retries are expected) mapping key -> {status: in-progress|completed, result}. Concurrency handling: if two retries with the same key race, the first to insert the key (via a unique constraint or compare-and-set) proceeds with the operation; the second sees the key already exists in 'in-progress' state and either waits briefly for the result or returns a 'still processing' response rather than executing the operation a second time.",
+        codeExample: "INSERT INTO idempotency_keys(key, status) VALUES (?, 'in-progress') ON CONFLICT DO NOTHING;\\nif inserted: proceed with operation, then UPDATE status='completed', result=...\\nif not inserted (conflict): read existing status/result, return it (or 'processing, retry shortly')"
+      },
+      {
+        title: "Reliability, security, and observability",
+        content: "Reliability: idempotency keys should have a bounded retention/TTL (e.g., 24 hours) matching realistic client retry windows, not kept forever, to bound storage growth. Security: the idempotency key should be scoped to the authenticated client/account (a key from one user should not let them read another user's stored result), and keys should be treated as sensitive-adjacent (unguessable, e.g. UUIDs) so they cannot be used to probe other users' operations. Observability: track the rate of idempotency-key hits (repeated requests with an already-seen key) as a signal of client-side retry behavior or network instability, and track in-progress keys that never complete (stuck operations).",
+        codeExample: "Alert if: a meaningful fraction of requests are idempotency-key hits (indicates client retries or network issues upstream), or keys stay 'in-progress' past an expected completion window"
+      },
+      {
+        title: "Trade-offs",
+        content: "Idempotency adds a lookup-and-store step to every request (extra latency and storage), and requires careful atomicity to avoid a race where duplicate side effects still occur. The alternative - trusting clients not to double-submit, or relying on manual reconciliation after the fact - is fragile and unacceptable for financial or otherwise consequential operations. The cost of idempotency support is well justified specifically for operations where a duplicate side effect (double charge, duplicate order, duplicate notification) is costly; it may be unnecessary overhead for naturally idempotent or low-consequence operations.",
+        codeExample: "Idempotency gains: safe client retries, no duplicate side effects\\nIdempotency costs: extra lookup/store step, atomicity complexity for the race case"
+      }
+    ],
+    examples: [
+      {
+        title: "A payment retried after a network timeout",
+        input: "A client sends a $50 payment request with idempotencyKey='pay-9f21', the server processes it and charges the card, but the response is lost in transit; the client, seeing a timeout, retries the exact same request with the same key",
+        output: "The customer is charged exactly once; the retry returns the same success result as the original request without a second charge",
+        explanation: "Step 1: The original request is processed: the payment provider is charged, and the result (success, transaction ID) is stored against key 'pay-9f21' before the response is sent - the response is lost afterward due to the network issue, but the side effect and its record are already durably committed. Step 2: The client's retry arrives with the same key. Step 3: The server looks up 'pay-9f21', finds it already completed, and returns the stored result directly without charging the payment provider again. Step 4: The customer sees a successful payment exactly once, and the client's retry-after-timeout behavior is safe by design rather than by luck."
+      }
+    ],
+    complexity: { time: "O(1) key lookup per request", space: "O(active keys within the retention window)" },
+    tips: ["The idempotency key must be reused across retries of the same logical request, not regenerated per HTTP attempt", "Key insertion and the underlying operation must be atomic to prevent a race where two concurrent retries both execute the side effect", "Scope idempotency keys to the authenticated caller so they can't be used to probe other users' results"],
+    tricks: ["When asked how to prevent duplicate charges/orders on retry, describe the atomic insert-then-execute mechanism explicitly, not just 'use an idempotency key' as a label", "Name the concurrency race case (two simultaneous retries) and how the atomic key insert resolves it"],
+    memoryAids: ["Idempotency key = same input, same result, no matter how many times it's sent", "Insert the key and do the work atomically, or a race can still cause duplicates"],
+    interviewPatterns: ["Comes up whenever payments, order creation, or any consequential write is discussed under a 'what if the client retries?' follow-up", "Follow-up: 'what if two retries with the same key arrive at the exact same time?' -> atomic insert (unique constraint/CAS) ensures only one executes the operation"],
+    references: [
+      { source: "note", attribution: "Stripe API idempotency-key documentation (concept reference)", insight: "An idempotency key reused across retries, combined with an atomic insert-then-execute check, is the standard mechanism for making consequential operations safely retryable." },
+      systemDesignPrimerRef
+    ],
+    practiceProblems: ["hld-idempotency-payment-retry", "hld-idempotency-concurrent-race"]
+  },
+
+  {
+    id: "topic-hld-chat-system",
+    moduleId: "mod-hld-design-exercises",
+    title: "Chat System Design",
+    intuition: "This is the same core problem as the Messaging/Chat System deep-dive: combining low-latency delivery for online users with durable, replayable storage for offline users and message history.",
+    lesson: [
+      {
+        title: "Definition & clarifying questions",
+        content: "This topic is the introductory framing for real-time chat system design, covered in full AlgoMaster-style depth (requirements, capacity estimates, APIs, architecture, data model, flows, scaling, consistency, reliability, security, observability, and trade-offs, with two dedicated flow diagrams) under 'Messaging / Chat System' in the HLD design-exercises module. Clarifying questions before designing one: 1:1 only or also group chat? What is the acceptable online-delivery latency? Must offline users receive full history on reconnect, and how far back?",
+        codeExample: "See the full deep-dive: 'Messaging / Chat System' (topic-hld-messaging-chat) for the complete requirements-through-trade-offs treatment"
+      },
+      {
+        title: "Why real-time delivery and durable storage must coexist",
+        content: "A chat system cannot be purely real-time (an in-memory pub/sub) because offline users would lose messages sent while disconnected, and cannot be purely storage-based (poll the database) because that adds unacceptable latency for online users expecting near-instant delivery. The standard solution is a durable, ordered write path (so no message is ever lost and history can be replayed) combined with a low-latency push path (WebSocket) for currently-connected recipients.",
+        codeExample: "message arrives -> durably written with a sequence number (never lost) -> pushed over WebSocket if recipient online (low latency) -> sits in offline inbox if not (delivered on reconnect)"
+      },
+      {
+        title: "Core architecture at a glance",
+        content: "Client maintains a persistent WebSocket connection to a stateless chat-service gateway. On send, the service durably writes the message (partitioned by conversation ID for ordering) and either pushes it immediately to online recipients (via a presence registry that tracks which gateway node holds each user's connection) or leaves it in an offline inbox for delivery on reconnect.",
+        diagram: asciiDiagram(
+`Interview drawing order:
+1) client(s) 2) gateway/LB 3) chat service 4) message store 5) presence cache 6) offline inbox
+
+Client(s) --WS--> Gateway/LB --> Chat Service (stateless)
+                                    |            |
+                                    v            v
+                          Message Store    Presence Cache
+                        (partitioned by      (who's online,
+                         conversationId)      which gateway node)
+                                    |
+                          online -> push via WS
+                          offline -> sits in inbox, delivered on reconnect`
+        )
+      },
+      {
+        title: "Where to go for the full depth",
+        content: "For back-of-envelope capacity math, the full API contract, database schema, requirement-driven component breakdown, the create/delivery and offline-reconnect flow diagrams, scaling and partitioning strategy, consistency model (strong per-conversation ordering, eventually consistent presence/receipts), reliability (idempotent sends, dead-letter handling), security, observability, and the explicit trade-offs discussion, see the 'Messaging / Chat System' topic in this same HLD track, which covers this exact problem end-to-end.",
+        codeExample: "This entry: framing + why real-time + durable storage coexist. Full spec: 'Messaging / Chat System' (topic-hld-messaging-chat)"
+      }
+    ],
+    examples: [
+      {
+        title: "Why a purely real-time (no storage) design fails",
+        input: "A design uses only an in-memory pub/sub (like a plain WebSocket broadcast) with no durable message store, to minimize latency",
+        output: "Any message sent while a recipient is offline or briefly disconnected is permanently lost, which is unacceptable for a chat product",
+        explanation: "Step 1: An in-memory-only pub/sub delivers a message only to currently-subscribed (online) connections; there is nothing to replay from once the message has been broadcast. Step 2: If the recipient's app was closed, their phone was off, or their connection briefly dropped during a network handoff, the message is gone. Step 3: The fix is the durable-write-then-push architecture: every message is first written to durable, ordered storage (never lost) and pushing to online recipients is a secondary, best-effort delivery path layered on top of that durable write - not a substitute for it."
+      }
+    ],
+    complexity: { time: "Depends on request path and storage strategy", space: "Depends on retained data and replication" },
+    tips: ["Real-time push and durable storage are not alternatives, they are complementary layers of the same design", "See 'Messaging / Chat System' in this track for the complete requirements-through-trade-offs treatment", "Always clarify 1:1-only vs group chat scope before designing, since group fan-out changes the architecture"],
+    tricks: ["If asked to design a chat system, start by naming both layers (durable ordered write path + low-latency push path) before diving into either one", "Reference the presence registry explicitly as the mechanism that lets the system know which gateway node holds a given user's live connection"],
+    memoryAids: ["Durable write first (never lose a message), push second (deliver it fast if you can)"],
+    interviewPatterns: ["A very common HLD interview prompt on its own; see the full deep-dive topic in this track for the complete answer structure", "Follow-up: 'what if the recipient is offline?' -> offline inbox + push notification + full history fetch on reconnect"],
+    references: [
+      { source: "note", attribution: "See 'Messaging / Chat System' (topic-hld-messaging-chat) in this track for the complete AlgoMaster-style treatment with full API/data-model/flow detail", insight: "Durable, partition-ordered storage combined with a presence-aware push layer is the standard architecture for real-time chat with offline support." },
+      systemDesignPrimerRef
+    ],
+    practiceProblems: ["hld-chat-system-realtime-vs-durable", "hld-chat-system-offline-delivery"]
   }
 ];
