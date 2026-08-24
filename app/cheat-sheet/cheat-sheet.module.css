@@ -1,0 +1,67 @@
+.page {
+  min-height: 100vh;
+  background: var(--color-bg);
+}
+
+.header {
+  padding: 20px 24px;
+  background: var(--color-bg-raised);
+  border-bottom: 1px solid var(--color-border);
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  padding-top: max(20px, env(safe-area-inset-top));
+}
+
+.backButton {
+  padding: 8px 14px;
+  min-height: 44px;
+  margin-bottom: 10px;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: var(--color-surface);
+  color: var(--color-text);
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 600;
+  transition: border-color var(--dur-fast) ease, background var(--dur-fast) ease;
+}
+
+.backButton:hover {
+  border-color: var(--color-border-strong);
+  background: var(--color-border);
+}
+
+.header h1 {
+  margin: 10px 0 0;
+  color: var(--color-text);
+  font-size: 26px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+}
+
+.header p {
+  margin: 6px 0 0;
+  color: var(--color-text-muted);
+  font-size: 14px;
+}
+
+.content {
+  padding: 20px 24px;
+  max-width: 1400px;
+  margin: 0 auto;
+}
+
+@media (max-width: 768px) {
+  .header {
+    padding: 16px;
+  }
+
+  .header h1 {
+    font-size: 20px;
+  }
+
+  .content {
+    padding: 16px;
+  }
+}

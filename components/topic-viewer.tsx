@@ -63,6 +63,7 @@ export function TopicViewer({ topic, masteryMap, onMasteryChange, onBackClick }:
         <a href="#tricks">Tricks</a>
         {topic.complexity && <a href="#complexity">Complexity</a>}
         <a href="#patterns">Patterns</a>
+        {topic.faq && topic.faq.length > 0 && <a href="#faq">FAQ</a>}
         <a href="#practice">Practice</a>
       </nav>
 
@@ -247,6 +248,26 @@ export function TopicViewer({ topic, masteryMap, onMasteryChange, onBackClick }:
           </div>
         )}
       </section>
+
+      {topic.faq && topic.faq.length > 0 && (
+        <section id="faq" className={styles.section}>
+          <h2>❓ Frequently Asked Questions</h2>
+          <div className={styles.faqList}>
+            {topic.faq.map((item, i) => (
+              <details key={i} className={styles.faqItem}>
+                <summary className={styles.faqQuestion}>
+                  <span>{item.question}</span>
+                  <span className={styles.faqIcon} aria-hidden="true">+</span>
+                </summary>
+                <div className={styles.faqAnswer}>
+                  {item.answer}
+                  {item.source && <div className={styles.faqSource}>Source: {item.source}</div>}
+                </div>
+              </details>
+            ))}
+          </div>
+        </section>
+      )}
 
       <section id="practice" className={styles.practice}>
         <h2>🚀 Practice Problems</h2>

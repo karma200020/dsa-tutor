@@ -571,6 +571,25 @@ function enrichTopic(topic: Topic): Topic {
   const practiceProblems = topic.practiceProblems && topic.practiceProblems.length > 0
     ? topic.practiceProblems
     : [`practice-${topic.id}-core`, `practice-${topic.id}-edge-case`];
+  const faq = topic.faq && topic.faq.length > 0
+    ? topic.faq
+    : [
+        {
+          question: `When should I reach for ${title} in an interview?`,
+          answer: `Pick ${title} when the interviewer's constraints match the trade-off it is built for: ${complexity.time} time and ${complexity.space} space. State the constraint out loud, then justify the choice instead of jumping straight to code.`,
+          source: `${track} interview practice notes`
+        },
+        {
+          question: `What is the most common mistake candidates make with ${title}?`,
+          answer: `Candidates often skip stating the invariant and jump to implementation. Walk through a concrete trace first, confirm the boundary case, and only then write code so the interviewer can follow your reasoning.`,
+          source: `${track} interview practice notes`
+        },
+        {
+          question: `How do I defend the complexity of ${title} if challenged?`,
+          answer: `Explain what operation dominates the cost and why no cheaper representation satisfies the same constraints. Reference the concrete trace to show where the ${complexity.time} bound comes from.`,
+          source: `${track} interview practice notes`
+        }
+      ];
 
   return {
     ...topic,
@@ -582,6 +601,7 @@ function enrichTopic(topic: Topic): Topic {
     interviewPatterns,
     references,
     practiceProblems,
+    faq,
     complexity
   };
   /*

@@ -594,3 +594,45 @@
     font-size: 40px;
   }
 }
+
+@media (max-width: 420px) {
+  .hero {
+    padding: 32px 16px;
+  }
+
+  .hero h1 {
+    font-size: 24px;
+  }
+
+  .tracksSection,
+  .features {
+    padding: 32px 16px;
+  }
+
+  .stats {
+    padding: 32px 16px;
+  }
+
+  .trackCardFeatured,
+  .trackCardClickable {
+    padding: 18px;
+  }
+
+  .googleCheatSheet {
+    margin: 20px 16px;
+    padding: 18px;
+  }
+
+  .ctaButtons {
+    flex-direction: column;
+    width: 100%;
+  }
+
+  .ctaPrimary,
+  .ctaSecondary {
+    width: 100%;
+    text-align: center;
+    display: flex;
+    justify-content: center;
+  }
+}

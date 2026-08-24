@@ -14,6 +14,9 @@
   font-size: 16px;
   cursor: pointer;
   padding: 8px 0;
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
   font-weight: 600;
   margin-bottom: 16px;
   text-decoration: underline;
@@ -73,6 +76,9 @@
   font-size: 13px;
   font-weight: 600;
   text-decoration: none;
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
   transition: color var(--dur-fast) ease, border-color var(--dur-fast) ease, background var(--dur-fast) ease;
 }
 
@@ -120,6 +126,7 @@
   font-weight: 600;
   cursor: pointer;
   white-space: nowrap;
+  min-height: 44px;
 }
 
 .statusSelect:hover {
@@ -279,6 +286,7 @@
   font-size: 14px;
   font-weight: 700;
   cursor: pointer;
+  min-height: 44px;
   transition: transform var(--dur-fast) ease, box-shadow var(--dur-fast) ease, filter var(--dur-fast) ease;
 }
 
@@ -372,6 +380,36 @@
 
   .codeBlock {
     font-size: 12px;
+  }
+}
+
+@media (max-width: 480px) {
+  .container {
+    padding: 16px;
+    padding-left: max(16px, env(safe-area-inset-left));
+    padding-right: max(16px, env(safe-area-inset-right));
+  }
+
+  .header {
+    padding: 16px;
+  }
+
+  .header h1 {
+    font-size: 22px;
+  }
+
+  .toc {
+    gap: 6px;
+    padding: 10px 2px;
+  }
+
+  .toc a {
+    padding: 6px 10px;
+    font-size: 12px;
+  }
+
+  .actions {
+    grid-template-columns: 1fr;
   }
 }
 
@@ -497,4 +535,66 @@
   .exampleRow {
     grid-template-columns: 1fr;
   }
+}
+
+/* FAQ Section */
+.faqList {
+  display: grid;
+  gap: 12px;
+}
+
+.faqItem {
+  background: #1e293b;
+  border: 1px solid #334155;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.faqQuestion {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  background: none;
+  border: none;
+  padding: 14px 16px;
+  min-height: 44px;
+  text-align: left;
+  cursor: pointer;
+  list-style: none;
+  font-size: 14px;
+  font-weight: 700;
+  color: #e2e8f0;
+  transition: background var(--dur-fast) ease;
+}
+
+.faqQuestion::-webkit-details-marker {
+  display: none;
+}
+
+.faqQuestion:hover {
+  background: rgba(109, 91, 255, 0.08);
+}
+
+.faqIcon {
+  flex-shrink: 0;
+  color: var(--color-cyan-soft);
+  font-weight: 800;
+}
+
+.faqAnswer {
+  padding: 0 16px 16px;
+  color: #cbd5e1;
+  font-size: 14px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.faqSource {
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--color-text-subtle);
+  font-style: italic;
 }

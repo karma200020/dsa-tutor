@@ -29,6 +29,12 @@ export interface Example {
   diagram?: string; // Visual representation of the example
 }
 
+export interface FaqItem {
+  question: string;
+  answer: string;
+  source?: string; // Attribution / citation for the answer
+}
+
 export interface Topic {
   id: string;
   moduleId: string;
@@ -46,6 +52,7 @@ export interface Topic {
   interviewPatterns?: string[]; // How interviewers ask this
   references?: Reference[];
   practiceProblems?: string[]; // Problem IDs
+  faq?: FaqItem[]; // Frequently asked interview questions with concise answers
   
   // Legacy fields (still supported)
   methodology?: string; // Step-by-step approach/algorithm explanation

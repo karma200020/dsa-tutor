@@ -158,3 +158,18 @@
     text-align: center;
   }
 }
+
+@media (max-width: 480px) {
+  .container {
+    padding: 20px 16px;
+  }
+
+  .gaugeCircle {
+    width: 140px;
+    height: 140px;
+  }
+
+  .statGrid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
