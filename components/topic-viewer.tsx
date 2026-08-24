@@ -55,14 +55,25 @@ export function TopicViewer({ topic, masteryMap, onMasteryChange, onBackClick }:
         </div>
       </header>
 
-      <section className={styles.intuition}>
+      <nav className={styles.toc} aria-label="Topic sections">
+        <a href="#intuition">Intuition</a>
+        {topic.lesson && topic.lesson.length > 0 && <a href="#lesson">Lesson</a>}
+        {topic.examples && topic.examples.length > 0 && <a href="#examples">Examples</a>}
+        <a href="#tips">Tips</a>
+        <a href="#tricks">Tricks</a>
+        {topic.complexity && <a href="#complexity">Complexity</a>}
+        <a href="#patterns">Patterns</a>
+        <a href="#practice">Practice</a>
+      </nav>
+
+      <section id="intuition" className={styles.intuition}>
         <h2>💡 Intuition</h2>
         <p>{topic.intuition}</p>
       </section>
 
       {/* New: Full Lesson Content */}
       {topic.lesson && topic.lesson.length > 0 && (
-        <section className={styles.section}>
+        <section id="lesson" className={styles.section}>
           <h2>📚 Lesson</h2>
           <div className={styles.lessonContent}>
             {topic.lesson.map((section, idx) => (
@@ -88,7 +99,7 @@ export function TopicViewer({ topic, masteryMap, onMasteryChange, onBackClick }:
 
       {/* New: Detailed Examples */}
       {topic.examples && topic.examples.length > 0 && (
-        <section className={styles.section}>
+        <section id="examples" className={styles.section}>
           <h2>🎯 Detailed Examples</h2>
           <div className={styles.examplesContent}>
             {topic.examples.map((example, idx) => (
@@ -127,7 +138,7 @@ export function TopicViewer({ topic, masteryMap, onMasteryChange, onBackClick }:
         </section>
       )}
 
-      <section className={styles.section}>
+      <section id="tips" className={styles.section}>
         <h2>✅ Tips (What to Do)</h2>
         {(!topic.tips || topic.tips.length === 0) ? (
           <p className={styles.emptyState}>No tips yet.</p>
@@ -140,7 +151,7 @@ export function TopicViewer({ topic, masteryMap, onMasteryChange, onBackClick }:
         )}
       </section>
 
-      <section className={styles.section}>
+      <section id="tricks" className={styles.section}>
         <h2>🎯 Tricks (Interview Edge)</h2>
         {(!topic.tricks || topic.tricks.length === 0) ? (
           <p className={styles.emptyState}>No tricks yet.</p>
@@ -178,7 +189,7 @@ export function TopicViewer({ topic, masteryMap, onMasteryChange, onBackClick }:
       )}
 
       {topic.complexity && (
-        <section className={styles.section}>
+        <section id="complexity" className={styles.section}>
           <h2>⏱️ Complexity Analysis</h2>
           <div className={styles.complexityBox}>
             <div className={styles.complexityItem}>
@@ -211,7 +222,7 @@ export function TopicViewer({ topic, masteryMap, onMasteryChange, onBackClick }:
         </section>
       )}
 
-      <section className={styles.section}>
+      <section id="patterns" className={styles.section}>
         <h2>🎬 Interview Patterns (How Interviewers Ask)</h2>
         {(!topic.interviewPatterns || topic.interviewPatterns.length === 0) ? (
           <p className={styles.emptyState}>No interview patterns yet.</p>
@@ -237,7 +248,7 @@ export function TopicViewer({ topic, masteryMap, onMasteryChange, onBackClick }:
         )}
       </section>
 
-      <section className={styles.practice}>
+      <section id="practice" className={styles.practice}>
         <h2>🚀 Practice Problems</h2>
         {(!topic.practiceProblems || topic.practiceProblems.length === 0) ? (
           <p className={styles.emptyState}>No practice problems linked yet. Coming soon!</p>

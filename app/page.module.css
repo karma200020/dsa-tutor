@@ -4,17 +4,18 @@
   padding: 0;
   display: grid;
   gap: 0;
+  background: var(--color-bg);
 }
 
 /* Hero Section */
 .hero {
   position: relative;
   background:
-    radial-gradient(1200px 600px at 15% -10%, rgba(255, 255, 255, 0.16), transparent 60%),
-    radial-gradient(900px 500px at 100% 0%, rgba(16, 185, 129, 0.18), transparent 55%),
-    linear-gradient(135deg, #6366f1 0%, #7c3aed 55%, #8b5cf6 100%);
-  color: #ffffff;
-  padding: 80px 40px 72px;
+    radial-gradient(1100px 560px at 12% -12%, rgba(109, 91, 255, 0.35), transparent 60%),
+    radial-gradient(900px 520px at 100% 0%, rgba(34, 211, 238, 0.22), transparent 55%),
+    linear-gradient(160deg, #070a16 0%, #0d1230 45%, #0a0e1c 100%);
+  color: #f4f6ff;
+  padding: 88px 40px 76px;
   text-align: center;
   overflow: hidden;
   isolation: isolate;
@@ -26,11 +27,11 @@
   inset: 0;
   z-index: -1;
   background-image:
-    linear-gradient(rgba(255, 255, 255, 0.06) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255, 255, 255, 0.06) 1px, transparent 1px);
+    linear-gradient(rgba(148, 163, 255, 0.07) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(148, 163, 255, 0.07) 1px, transparent 1px);
   background-size: 48px 48px;
   mask-image: radial-gradient(ellipse 80% 60% at 50% 0%, black, transparent 75%);
-  opacity: 0.5;
+  opacity: 0.6;
 }
 
 .heroEyebrow {
@@ -38,21 +39,29 @@
   margin: 0 0 20px;
   padding: 6px 14px;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.16);
-  border: 1px solid rgba(255, 255, 255, 0.3);
+  background: rgba(109, 91, 255, 0.18);
+  border: 1px solid rgba(155, 140, 255, 0.4);
+  color: #c7c1ff;
   font-size: 13px;
   font-weight: 600;
   letter-spacing: 0.04em;
   text-transform: uppercase;
   backdrop-filter: blur(6px);
+  animation: fadeSlideUp var(--dur-slow) var(--ease-out) both;
 }
 
 .hero h1 {
   margin: 0 0 20px;
-  font-size: clamp(32px, 5vw, 48px);
+  font-size: clamp(32px, 5vw, 50px);
   font-weight: 800;
   letter-spacing: -0.02em;
   line-height: 1.1;
+  background: linear-gradient(135deg, #ffffff 30%, #c7c1ff 70%, #67e8f9 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: fadeSlideUp var(--dur-slow) var(--ease-out) both;
+  animation-delay: 0.06s;
 }
 
 .hero p {
@@ -62,7 +71,9 @@
   line-height: 1.65;
   margin-left: auto;
   margin-right: auto;
-  opacity: 0.95;
+  color: #b9c0e6;
+  animation: fadeSlideUp var(--dur-slow) var(--ease-out) both;
+  animation-delay: 0.12s;
 }
 
 .ctaButtons {
@@ -70,49 +81,52 @@
   gap: 14px;
   justify-content: center;
   flex-wrap: wrap;
+  animation: fadeSlideUp var(--dur-slow) var(--ease-out) both;
+  animation-delay: 0.18s;
 }
 
 .ctaPrimary {
-  background: #ffffff;
-  color: #6366f1;
+  background: linear-gradient(135deg, #6d5bff, #22d3ee);
+  color: #05070f;
   border: none;
   padding: 13px 30px;
   border-radius: 10px;
   font-weight: 700;
   cursor: pointer;
   font-size: 16px;
-  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  transition: transform var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out);
   text-decoration: none;
   display: inline-block;
-  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.25);
+  box-shadow: 0 10px 28px rgba(109, 91, 255, 0.35);
 }
 
 .ctaPrimary:hover {
   transform: translateY(-2px);
-  box-shadow: 0 14px 28px rgba(15, 23, 42, 0.32);
+  box-shadow: 0 16px 36px rgba(109, 91, 255, 0.45);
 }
 
 .ctaPrimary:active {
   transform: translateY(0);
-  box-shadow: 0 6px 14px rgba(15, 23, 42, 0.25);
+  box-shadow: 0 6px 16px rgba(109, 91, 255, 0.35);
 }
 
 .ctaSecondary {
-  background: rgba(255, 255, 255, 0.06);
-  color: #ffffff;
-  border: 2px solid rgba(255, 255, 255, 0.75);
+  background: rgba(255, 255, 255, 0.04);
+  color: #f4f6ff;
+  border: 2px solid rgba(155, 140, 255, 0.5);
   padding: 11px 26px;
   border-radius: 10px;
   font-weight: 700;
   cursor: pointer;
   font-size: 16px;
-  transition: background 0.2s ease, transform 0.2s ease;
+  transition: background var(--dur-fast) ease, transform var(--dur-fast) ease, border-color var(--dur-fast) ease;
   text-decoration: none;
   display: inline-block;
 }
 
 .ctaSecondary:hover {
-  background: rgba(255, 255, 255, 0.16);
+  background: rgba(109, 91, 255, 0.16);
+  border-color: rgba(155, 140, 255, 0.8);
   transform: translateY(-2px);
 }
 
@@ -122,7 +136,7 @@
 
 /* Tracks Section */
 .tracksSection {
-  background: #0f172a;
+  background: var(--color-bg-raised);
   padding: 72px 40px;
 }
 
@@ -138,7 +152,7 @@
 .sectionSubtitle {
   margin: 0 0 44px;
   text-align: center;
-  color: #94a3b8;
+  color: var(--color-text-muted);
   font-size: 15px;
   max-width: 560px;
   margin-left: auto;
@@ -148,26 +162,40 @@
 
 .tracksGrid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+  grid-template-columns: repeat(6, 1fr);
   gap: 24px;
   max-width: 1300px;
   margin: 0 auto;
 }
 
 .trackCardClickable {
-  background: linear-gradient(160deg, #1e293b 0%, #0f172a 78%);
-  border: 1px solid #334155;
-  border-radius: 14px;
+  background: linear-gradient(160deg, var(--color-surface) 0%, var(--color-bg-raised) 78%);
+  border: 1px solid var(--color-border);
+  border-radius: 16px;
   padding: 32px;
   text-align: left;
   cursor: pointer;
-  transition: transform 0.25s ease, border-color 0.25s ease, box-shadow 0.25s ease;
+  transition: transform var(--dur-med) var(--ease-out), border-color var(--dur-med) var(--ease-out), box-shadow var(--dur-med) var(--ease-out);
   display: flex;
   flex-direction: column;
   gap: 16px;
   border-left: 4px solid;
   position: relative;
   overflow: hidden;
+  grid-column: span 3;
+  animation: fadeSlideUp var(--dur-slow) var(--ease-out) both;
+}
+
+.trackCardFeatured {
+  grid-column: span 6;
+  flex-direction: row;
+  align-items: center;
+  gap: 32px;
+  padding: 36px 40px;
+}
+
+.trackCardFeatured .trackCardDescription {
+  max-width: 60ch;
 }
 
 .trackCardClickable::before {
@@ -180,8 +208,8 @@
 
 .trackCardClickable:hover {
   transform: translateY(-6px);
-  border-color: #475569;
-  box-shadow: 0 16px 36px rgba(99, 102, 241, 0.18);
+  border-color: var(--color-border-strong);
+  box-shadow: var(--shadow-glow);
 }
 
 .trackCardClickable:active {
@@ -192,12 +220,18 @@
   font-size: 38px;
   width: 64px;
   height: 64px;
+  flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: center;
   background: rgba(255, 255, 255, 0.05);
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 14px;
+  transition: transform var(--dur-med) var(--ease-out);
+}
+
+.trackCardClickable:hover .trackCardIcon {
+  transform: scale(1.08) rotate(-3deg);
 }
 
 .trackCardClickable h3 {
@@ -211,7 +245,7 @@
 .trackCardSubtitle {
   margin: 0;
   font-size: 13px;
-  color: #94a3b8;
+  color: var(--color-text-muted);
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.05em;
@@ -242,20 +276,20 @@
 }
 
 .trackCardCTA {
-  color: #818cf8;
+  color: var(--color-cyan-soft);
   font-weight: 700;
   font-size: 14px;
   transition: color 0.2s, transform 0.2s;
 }
 
 .trackCardClickable:hover .trackCardCTA {
-  color: #a5b4fc;
+  color: var(--color-cyan);
   transform: translateX(2px);
 }
 
 /* Features Section */
 .features {
-  background: #1e293b;
+  background: var(--color-surface);
   padding: 72px 40px;
 }
 
@@ -277,18 +311,19 @@
 }
 
 .featureCard {
-  background: #0f172a;
-  border: 1px solid #334155;
+  background: var(--color-bg-raised);
+  border: 1px solid var(--color-border);
   border-radius: 12px;
   padding: 28px;
   text-align: center;
-  transition: transform 0.25s ease, border-color 0.25s ease, box-shadow 0.25s ease;
+  transition: transform var(--dur-med) var(--ease-out), border-color var(--dur-med) var(--ease-out), box-shadow var(--dur-med) var(--ease-out);
+  animation: fadeSlideUp var(--dur-slow) var(--ease-out) both;
 }
 
 .featureCard:hover {
-  border-color: #6366f1;
+  border-color: var(--color-accent);
   transform: translateY(-3px);
-  box-shadow: 0 12px 28px rgba(2, 6, 23, 0.35);
+  box-shadow: 0 12px 28px rgba(109, 91, 255, 0.2);
 }
 
 .featureIcon {
@@ -299,8 +334,13 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(99, 102, 241, 0.12);
+  background: rgba(109, 91, 255, 0.14);
   border-radius: 14px;
+  transition: transform var(--dur-med) var(--ease-out);
+}
+
+.featureCard:hover .featureIcon {
+  transform: scale(1.08);
 }
 
 .featureCard h4 {
@@ -322,12 +362,18 @@
   max-width: 1300px;
   margin: 40px auto;
   padding: 32px;
-  background: linear-gradient(135deg, #1e3a8a 0%, #1e293b 100%);
-  border: 1px solid #334155;
-  border-radius: 12px;
+  background: linear-gradient(135deg, rgba(34, 211, 238, 0.14) 0%, var(--color-surface) 100%);
+  border: 1px solid var(--color-border);
+  border-radius: 14px;
   display: flex;
   align-items: center;
   gap: 24px;
+  transition: border-color var(--dur-med) ease, box-shadow var(--dur-med) ease;
+}
+
+.googleCheatSheet:hover {
+  border-color: rgba(34, 211, 238, 0.5);
+  box-shadow: 0 16px 40px rgba(34, 211, 238, 0.12);
 }
 
 .googleCheatSheetCopy {
@@ -340,9 +386,9 @@
   margin-bottom: 10px;
   padding: 4px 10px;
   border-radius: 999px;
-  background: rgba(96, 165, 250, 0.16);
-  border: 1px solid rgba(96, 165, 250, 0.4);
-  color: #93c5fd;
+  background: rgba(34, 211, 238, 0.16);
+  border: 1px solid rgba(34, 211, 238, 0.4);
+  color: var(--color-cyan-soft);
   font-size: 12px;
   font-weight: 700;
   letter-spacing: 0.04em;
@@ -351,7 +397,7 @@
 
 .googleCheatSheetCopy h2 {
   margin: 0 0 10px;
-  color: #e2e8f0;
+  color: #f1f5f9;
   font-size: 26px;
 }
 
@@ -365,18 +411,18 @@
 .googleCheatSheetCta {
   display: inline-block;
   padding: 10px 24px;
-  background: #3b82f6;
-  color: #ffffff;
-  border-radius: 6px;
+  background: linear-gradient(135deg, #22d3ee, #6d5bff);
+  color: #05070f;
+  border-radius: 8px;
   font-size: 14px;
-  font-weight: 600;
+  font-weight: 700;
   text-decoration: none;
-  transition: background 0.2s, transform 0.2s;
+  transition: transform var(--dur-fast) ease, box-shadow var(--dur-fast) ease;
 }
 
 .googleCheatSheetCta:hover {
-  background: #2563eb;
   transform: translateY(-1px);
+  box-shadow: 0 8px 20px rgba(34, 211, 238, 0.35);
 }
 
 .googleCheatSheetIcon {
@@ -386,7 +432,7 @@
 
 /* Stats Section */
 .stats {
-  background: linear-gradient(90deg, #0f172a 0%, #1e293b 50%, #0f172a 100%);
+  background: linear-gradient(90deg, var(--color-bg-raised) 0%, var(--color-surface) 50%, var(--color-bg-raised) 100%);
   padding: 72px 40px;
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
@@ -398,16 +444,23 @@
 .statBox {
   text-align: center;
   padding: 24px 20px;
-  border: 1px solid #334155;
+  border: 1px solid var(--color-border);
   border-radius: 14px;
   background: rgba(255, 255, 255, 0.02);
+  transition: transform var(--dur-med) var(--ease-out), border-color var(--dur-med) var(--ease-out);
+  animation: fadeSlideUp var(--dur-slow) var(--ease-out) both;
+}
+
+.statBox:hover {
+  transform: translateY(-3px);
+  border-color: var(--color-border-strong);
 }
 
 .statNumber {
   font-size: clamp(36px, 4.5vw, 48px);
   font-weight: 800;
   letter-spacing: -0.02em;
-  background: linear-gradient(135deg, #818cf8, #34d399);
+  background: linear-gradient(135deg, var(--color-accent-soft), var(--color-cyan));
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
@@ -416,7 +469,7 @@
 
 .statLabel {
   font-size: 15px;
-  color: #94a3b8;
+  color: var(--color-text-muted);
   font-weight: 600;
 }
 
@@ -430,21 +483,21 @@
   position: sticky;
   top: 0;
   z-index: 10;
-  background: #0f172a;
+  background: var(--color-bg-raised);
   border: none;
-  border-bottom: 1px solid #334155;
-  color: #6366f1;
+  border-bottom: 1px solid var(--color-border);
+  color: var(--color-accent-soft);
   font-size: 16px;
   font-weight: 600;
   cursor: pointer;
   padding: 20px 40px;
-  transition: color 0.2s;
+  transition: color var(--dur-fast) ease;
   width: 100%;
   text-align: left;
 }
 
 .backButton:hover {
-  color: #818cf8;
+  color: var(--color-cyan-soft);
 }
 
 @media (max-width: 768px) {
@@ -481,6 +534,17 @@
   .tracksGrid,
   .featuresGrid {
     grid-template-columns: 1fr;
+  }
+
+  .trackCardClickable,
+  .trackCardFeatured {
+    grid-column: span 1;
+  }
+
+  .trackCardFeatured {
+    flex-direction: column;
+    align-items: flex-start;
+    padding: 32px;
   }
 
   .stats {

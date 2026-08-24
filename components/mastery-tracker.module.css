@@ -1,10 +1,11 @@
 .container {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: linear-gradient(135deg, #4c3ce0 0%, #6d5bff 45%, #22d3ee 130%);
   border-radius: 16px;
   padding: 28px;
   color: #ffffff;
   margin-bottom: 24px;
-  box-shadow: 0 16px 40px rgba(76, 29, 149, 0.25);
+  box-shadow: 0 16px 40px rgba(76, 45, 224, 0.3);
+  animation: fadeSlideUp var(--dur-slow) var(--ease-out) both;
 }
 
 .container h2 {
@@ -46,10 +47,10 @@
 
 .progressFill {
   fill: none;
-  stroke: #fbbf24;
+  stroke: #67e8f9;
   stroke-width: 8;
   stroke-linecap: round;
-  transition: stroke-dasharray 0.5s ease;
+  transition: stroke-dasharray var(--dur-slow) var(--ease-out);
 }
 
 .gaugeText {
@@ -120,7 +121,7 @@
   background: rgba(255, 255, 255, 0.1);
   padding: 12px;
   border-radius: 8px;
-  border-left: 3px solid #fbbf24;
+  border-left: 3px solid #67e8f9;
 }
 
 .stats p {
@@ -139,7 +140,7 @@
 
 .stats strong {
   font-weight: 700;
-  color: #fbbf24;
+  color: #67e8f9;
 }
 
 @media (max-width: 768px) {

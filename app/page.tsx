@@ -89,7 +89,9 @@ export default function HomePage() {
             hours={durationByTrack.DSA}
             modules={syllabus.filter(m => m.track === "DSA").length}
             onClick={() => setSelectedTrack("DSA")}
-            color="#3b82f6"
+            color="#6d5bff"
+            index={0}
+            featured
           />
           <TrackCardClickable
             emoji="🏗️"
@@ -100,7 +102,8 @@ export default function HomePage() {
             hours={durationByTrack.LLD}
             modules={syllabus.filter(m => m.track === "LLD").length}
             onClick={() => setSelectedTrack("LLD")}
-            color="#8b5cf6"
+            color="#22d3ee"
+            index={1}
           />
           <TrackCardClickable
             emoji="🌍"
@@ -111,7 +114,8 @@ export default function HomePage() {
             hours={durationByTrack.HLD}
             modules={syllabus.filter(m => m.track === "HLD").length}
             onClick={() => setSelectedTrack("HLD")}
-            color="#10b981"
+            color="#f6ad55"
+            index={2}
           />
         </div>
       </section>
@@ -123,31 +127,37 @@ export default function HomePage() {
             icon="📚"
             title="Comprehensive Content"
             description="15+ modules covering every FAANG interview topic with code examples and worked problems"
+            index={0}
           />
           <FeatureCard
             icon="💡"
             title="Intuitive Explanations"
             description="Complex concepts broken down step-by-step with visual examples"
+            index={1}
           />
           <FeatureCard
             icon="⚡"
             title="Interview-Focused"
             description="Learn patterns interviewers actually ask about, not just theory"
+            index={2}
           />
           <FeatureCard
             icon="🎯"
             title="Progress Tracking"
             description="Track your mastery level for each topic with visual progress indicator"
+            index={3}
           />
           <FeatureCard
             icon="💻"
             title="Code Examples"
             description="Production-ready C++ implementations for every algorithm"
+            index={4}
           />
           <FeatureCard
             icon="🔄"
             title="Spaced Repetition"
             description="Mark topics as learned, practiced, and interview-ready"
+            index={5}
           />
         </div>
       </section>
@@ -195,7 +205,9 @@ function TrackCardClickable({
   hours,
   modules,
   onClick,
-  color
+  color,
+  index,
+  featured
 }: {
   emoji: string;
   title: string;
@@ -206,14 +218,16 @@ function TrackCardClickable({
   modules: number;
   onClick: () => void;
   color: string;
+  index: number;
+  featured?: boolean;
 }) {
   return (
-    <button 
-      className={styles.trackCardClickable} 
+    <button
+      className={`${styles.trackCardClickable} ${featured ? styles.trackCardFeatured : ""}`}
       onClick={onClick}
-      style={{ borderLeftColor: color }}
+      style={{ borderLeftColor: color, animationDelay: `${index * 90}ms` }}
     >
-      <div className={styles.trackCardIcon}>{emoji}</div>
+      <div className={styles.trackCardIcon} style={{ color }}>{emoji}</div>
       <h3>{title}</h3>
       <p className={styles.trackCardSubtitle}>{subtitle}</p>
       <p className={styles.trackCardDescription}>{description}</p>
@@ -230,14 +244,16 @@ function TrackCardClickable({
 function FeatureCard({
   icon,
   title,
-  description
+  description,
+  index
 }: {
   icon: string;
   title: string;
   description: string;
+  index: number;
 }) {
   return (
-    <div className={styles.featureCard}>
+    <div className={styles.featureCard} style={{ animationDelay: `${index * 70}ms` }}>
       <div className={styles.featureIcon}>{icon}</div>
       <h4>{title}</h4>
       <p>{description}</p>
