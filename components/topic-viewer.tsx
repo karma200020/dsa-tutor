@@ -106,9 +106,13 @@ export function TopicViewer({ topic, masteryMap, onMasteryChange, onBackClick }:
                 <div>
                   <strong>Step-by-Step Explanation:</strong>
                   <div className={styles.explanation}>
-                    {example.explanation.split('\n').map((line, i) => (
-                      <div key={i}>{line}</div>
-                    ))}
+                    {example.explanation
+                      .split(/\n+|(?=Step \d+:)/)
+                      .map((line) => line.trim())
+                      .filter(Boolean)
+                      .map((line, i) => (
+                        <div key={i}>{line}</div>
+                      ))}
                   </div>
                 </div>
                 {example.diagram && (

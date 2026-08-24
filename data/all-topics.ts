@@ -71,14 +71,14 @@ function buildHldSolution(title: string, intuition: string): { lesson: LessonSec
     lesson: {
       title: `${title}: complete system design`,
       content:
-        `Requirements: define the user-facing operation, latency target, durability, availability, and consistency boundary for ${title}. ` +
-        `Capacity: estimate peak requests/sec from active users, average payload size, read/write ratio, and retention; provision headroom for burst traffic. ` +
-        `APIs: expose versioned endpoints for the primary read and write operations, require an idempotency key for retried writes, and return request IDs. ` +
-        `Data model: store the durable entity keyed by a stable ID, index the query fields, and retain an event or audit record when replay is needed. ` +
-        `Architecture and flow: route clients through DNS/CDN and a load balancer to stateless services; read cache first, then the database; send non-critical work to a durable queue and workers. ` +
-        `Scaling: partition by the access key, add read replicas, bound cache entries with TTL/LRU, and apply queue backpressure when consumers lag. ` +
-        `Consistency and reliability: choose strong writes for correctness-critical state, eventual reads where acceptable, use timeouts, retries with backoff, circuit breakers, health checks, failover, and a dead-letter queue. ` +
-        `Security and observability: authenticate and authorize every API, encrypt data in transit and at rest, rate-limit abuse, and monitor latency, saturation, error rate, queue lag, cache hit rate, replication lag, and audit events. ` +
+        `Requirements: define the user-facing operation, latency target, durability, availability, and consistency boundary for ${title}.\n\n` +
+        `Capacity: estimate peak requests/sec from active users, average payload size, read/write ratio, and retention; provision headroom for burst traffic.\n\n` +
+        `APIs: expose versioned endpoints for the primary read and write operations, require an idempotency key for retried writes, and return request IDs.\n\n` +
+        `Data model: store the durable entity keyed by a stable ID, index the query fields, and retain an event or audit record when replay is needed.\n\n` +
+        `Architecture and flow: route clients through DNS/CDN and a load balancer to stateless services; read cache first, then the database; send non-critical work to a durable queue and workers.\n\n` +
+        `Scaling: partition by the access key, add read replicas, bound cache entries with TTL/LRU, and apply queue backpressure when consumers lag.\n\n` +
+        `Consistency and reliability: choose strong writes for correctness-critical state, eventual reads where acceptable, use timeouts, retries with backoff, circuit breakers, health checks, failover, and a dead-letter queue.\n\n` +
+        `Security and observability: authenticate and authorize every API, encrypt data in transit and at rest, rate-limit abuse, and monitor latency, saturation, error rate, queue lag, cache hit rate, replication lag, and audit events.\n\n` +
         `Trade-offs: ${intuition} The design favors horizontal scale and graceful degradation over the lowest operational complexity.`
     },
     example: {
@@ -86,11 +86,11 @@ function buildHldSolution(title: string, intuition: string): { lesson: LessonSec
       input: `1M daily users, 10% active at peak, 20 requests per active user per minute, 2KB payloads, 99.99% availability target`,
       output: `~33,334 peak requests/sec with a cache-first read path, partitioned durable storage, and replayable asynchronous work`,
       explanation:
-        `Step 1: Estimate peak traffic as 100,000 active users * 20 / 60 = ~33,334 requests/sec; provision multiple stateless service instances with headroom. ` +
-        `Step 2: Keep the primary entity in partitioned storage, route by entity/user ID, and add indexes for the read API. ` +
-        `Step 3: Serve hot reads from a regional cache; on a miss, read the database and populate the cache with a bounded TTL. ` +
-        `Step 4: Write the durable record before publishing an event to a replicated queue; workers handle notifications, indexing, and analytics with deduplication. ` +
-        `Step 5: On cache, replica, or worker failure, use bounded retries, circuit breakers, a dead-letter queue, and a degraded read path; monitor p95/p99 latency, error rate, queue lag, cache hit rate, and replication lag. ` +
+        `Step 1: Estimate peak traffic as 100,000 active users * 20 / 60 = ~33,334 requests/sec; provision multiple stateless service instances with headroom.\n` +
+        `Step 2: Keep the primary entity in partitioned storage, route by entity/user ID, and add indexes for the read API.\n` +
+        `Step 3: Serve hot reads from a regional cache; on a miss, read the database and populate the cache with a bounded TTL.\n` +
+        `Step 4: Write the durable record before publishing an event to a replicated queue; workers handle notifications, indexing, and analytics with deduplication.\n` +
+        `Step 5: On cache, replica, or worker failure, use bounded retries, circuit breakers, a dead-letter queue, and a degraded read path; monitor p95/p99 latency, error rate, queue lag, cache hit rate, and replication lag.\n` +
         `Step 6: Explain the trade-off: asynchronous secondary work improves availability and throughput, while the primary write remains strongly consistent where the business invariant requires it.`
     }
   };

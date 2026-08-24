@@ -4,6 +4,7 @@
   padding: 24px;
   background: #0f172a;
   min-height: 100vh;
+  overflow-x: hidden;
 }
 
 .backBtn {
@@ -268,6 +269,10 @@
   line-height: 1.6;
   margin: 8px 0;
   border: 1px solid #334155;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  max-width: 100%;
 }
 
 .codeBlock code {
@@ -354,6 +359,8 @@
   border-left: 4px solid #8b5cf6;
   padding: 20px;
   border-radius: 8px;
+  max-width: 100%;
+  overflow: hidden;
 }
 
 .exampleBox h3 {
@@ -364,7 +371,7 @@
 
 .exampleRow {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 16px;
   margin-bottom: 16px;
 }
@@ -374,6 +381,8 @@
   padding: 12px;
   border-radius: 6px;
   border: 1px solid #334155;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .exampleRow strong {
@@ -393,7 +402,18 @@
   font-size: 13px;
   line-height: 1.6;
   white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  max-width: 100%;
   margin-bottom: 12px;
+}
+
+.explanation div {
+  margin-bottom: 6px;
+}
+
+.explanation div:last-child {
+  margin-bottom: 0;
 }
 
 .diagram {
@@ -406,6 +426,8 @@
   justify-content: center;
   align-items: center;
   min-height: 200px;
+  max-width: 100%;
+  overflow-x: auto;
 }
 
 .diagram svg {
