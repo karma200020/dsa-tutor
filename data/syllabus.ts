@@ -239,24 +239,24 @@ export const syllabus: Module[] = [
     id: "mod-hld-foundations",
     title: "HLD: System Design Foundations",
     description:
-      "Understand scale, load balancing, caching, databases, queues, CDN, and consistency basics.",
+      "Understand scale, load balancing, caching, databases, queues, CDN, consistency basics, CAP theorem, consistent hashing, fault tolerance, networking, and API design.",
     track: "HLD",
     level: "Beginner",
-    estimatedHours: 6,
+    estimatedHours: 8,
     dependencies: [],
-    topicCount: 7
+    topicCount: 12
   },
 
   {
     id: "mod-hld-estimation-tradeoffs",
     title: "HLD: Estimation & Tradeoffs",
     description:
-      "Learn capacity estimation, read/write ratio analysis, and bottleneck identification workflows.",
+      "Learn capacity estimation, read/write ratio analysis, bottleneck identification workflows, and distributed consensus/leader election.",
     track: "HLD",
     level: "Intermediate",
-    estimatedHours: 5,
+    estimatedHours: 6,
     dependencies: ["mod-hld-foundations"],
-    topicCount: 3
+    topicCount: 4
   },
 
   {
