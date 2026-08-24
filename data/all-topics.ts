@@ -66,6 +66,52 @@ function ensureModuleCoverage(topics: Topic[], moduleIds: string[]): Topic[] {
   return topics;
 }
 
+function diagramBlock(ascii: string): string {
+  return `<pre style="margin:0;padding:0;font-family:'Courier New',monospace;font-size:12px;line-height:1.5;color:#a5f3fc;white-space:pre;text-align:left;overflow-x:auto;">${ascii}</pre>`;
+}
+
+// Native SVG diagram for the generic HLD fallback (applies to every non-mock
+// HLD topic). Renders labeled boxes with arrows for the standard
+// client -> gateway/LB -> services -> cache/queue -> DB flow, with the topic
+// name in the title so each diagram is visibly tied to its topic. Static,
+// authored markup only (no user input interpolated unescaped) so it is safe
+// to render via dangerouslySetInnerHTML.
+function escapeSvgText(text: string): string {
+  return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+
+function buildHldArchitectureDiagram(title: string): string {
+  const label = escapeSvgText(title.length > 40 ? `${title.slice(0, 37)}...` : title);
+  const box = (x: number, y: number, w: number, h: number, text: string, fill: string) =>
+    `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="8" fill="${fill}" stroke="#38bdf8" stroke-width="1.5" />` +
+    `<text x="${x + w / 2}" y="${y + h / 2 + 4}" text-anchor="middle" font-family="Segoe UI, sans-serif" font-size="12" fill="#e2e8f0">${text}</text>`;
+  const arrow = (x1: number, y1: number, x2: number, y2: number) =>
+    `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="#67e8f9" stroke-width="2" marker-end="url(#hldArrow)" />`;
+  return (
+    `<svg viewBox="0 0 760 260" width="100%" height="auto" role="img" aria-label="Architecture diagram for ${label}: client through gateway, services, cache and queue, to database">` +
+    `<title>${label}: request and data flow architecture</title>` +
+    `<defs><marker id="hldArrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth"><path d="M0,0 L0,6 L9,3 z" fill="#67e8f9" /></marker></defs>` +
+    `<rect x="0" y="0" width="760" height="260" fill="transparent" />` +
+    box(20, 110, 100, 44, "Client", "#0f172a") +
+    box(160, 110, 120, 44, "CDN / DNS", "#111827") +
+    box(320, 110, 130, 44, "Load Balancer", "#111827") +
+    box(490, 30, 130, 44, `${label.length > 18 ? "Service" : label} Service`, "#0e2a3f") +
+    box(490, 110, 130, 44, "Cache", "#0e2a3f") +
+    box(490, 190, 130, 44, "Queue / Workers", "#0e2a3f") +
+    box(660, 110, 90, 44, "Database", "#1e1b4b") +
+    arrow(120, 132, 158, 132) +
+    arrow(280, 132, 318, 132) +
+    arrow(450, 122, 488, 60) +
+    arrow(450, 132, 488, 132) +
+    arrow(450, 142, 488, 205) +
+    arrow(620, 60, 658, 130) +
+    arrow(620, 132, 658, 132) +
+    arrow(620, 205, 658, 145) +
+    `<text x="20" y="250" font-family="Segoe UI, sans-serif" font-size="11" fill="#94a3b8">Drawing order: 1) client 2) CDN/DNS 3) load balancer 4) service 5) cache 6) queue/workers 7) database</text>` +
+    `</svg>`
+  );
+}
+
 function buildHldSolution(title: string, intuition: string): { lesson: LessonSection; example: Example } {
   return {
     lesson: {
@@ -79,7 +125,8 @@ function buildHldSolution(title: string, intuition: string): { lesson: LessonSec
         `Scaling: partition by the access key, add read replicas, bound cache entries with TTL/LRU, and apply queue backpressure when consumers lag.\n\n` +
         `Consistency and reliability: choose strong writes for correctness-critical state, eventual reads where acceptable, use timeouts, retries with backoff, circuit breakers, health checks, failover, and a dead-letter queue.\n\n` +
         `Security and observability: authenticate and authorize every API, encrypt data in transit and at rest, rate-limit abuse, and monitor latency, saturation, error rate, queue lag, cache hit rate, replication lag, and audit events.\n\n` +
-        `Trade-offs: ${intuition} The design favors horizontal scale and graceful degradation over the lowest operational complexity.`
+        `Trade-offs: ${intuition} The design favors horizontal scale and graceful degradation over the lowest operational complexity.`,
+      diagram: buildHldArchitectureDiagram(title)
     },
     example: {
       title: `${title}: capacity and failure walkthrough`,
@@ -113,10 +160,6 @@ type HldMockSpec = {
   diagram: string;
   example: { input: string; output: string; steps: string };
 };
-
-function diagramBlock(ascii: string): string {
-  return `<pre style="margin:0;padding:0;font-family:'Courier New',monospace;font-size:12px;line-height:1.5;color:#a5f3fc;white-space:pre;text-align:left;overflow-x:auto;">${ascii}</pre>`;
-}
 
 const hldMockSolutions: Record<string, HldMockSpec> = {
   "topic-hld-mock-chat": {
@@ -195,7 +238,9 @@ const hldMockSolutions: Record<string, HldMockSpec> = {
                                      |                  |
                                      |  (miss)          | (hit: redirect now)
                                      v
-                              DB (sharded by shortCode) --async--> Click Analytics Queue`
+                              DB (sharded by shortCode) --async--> Click Analytics Queue
+
+Interview drawing order: 1) client/CDN/LB 2) redirect service 3) cache 4) sharded DB 5) async analytics queue`
     ),
     example: {
       input: "A user requests GET /abc123 for a link created 2 minutes ago",

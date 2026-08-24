@@ -106,37 +106,103 @@ export const hldTopics: Topic[] = [
     intuition: "Convert long URLs to short codes, redirect on access. Heavy reads (redirects), few writes (new URLs).",
     lesson: [
       {
-        title: "Core requirements",
-        content: "The essential requirement is a short code that maps to a long URL, and a redirect path that resolves it quickly. The real design challenge is not just generating codes; it is handling billions of redirect requests with low latency and enough durability.",
-        codeExample: "POST /shorten -> { longUrl }\\nGET /abc123 -> 301 redirect to target url\\nDB stores: shortCode -> longUrl\\nCache stores hot shortCode -> longUrl"
+        title: "Definition & clarifying questions",
+        content: "A URL shortener takes a long URL and returns a short alias that redirects to it when visited. Before designing, clarify the ambiguous requirements out loud: Can a user pick a custom alias? Do links expire? Do we need click analytics? Is there an authenticated owner per link, or are links anonymous? These answers change the data model and the write path, so an interviewer expects you to ask before assuming.",
+        codeExample: "Clarify: custom alias allowed? expiration/TTL? analytics needed? auth required? max URL length?"
       },
       {
-        title: "Architecture choice",
-        content: "Use a hash or base62 encoding service for code generation. Since reads dominate, put the hot redirect path behind Redis or CDN caching. Keep writes in the database and enable a queue for analytics or invalidation jobs.",
-        codeExample: "Shorten service -> assign unique ID -> base62 encode -> persist mapping\\nRedirect service -> cache lookup -> DB fallback -> return 301"
+        title: "Functional & non-functional requirements",
+        content: "Functional: given a long URL, generate a unique short code and store the mapping; given a short code, redirect to the original URL; optionally support custom aliases, expiration, and click analytics. Non-functional: the redirect path must be very low latency (well under 100ms) and highly available, since it sits on the read-hot path; the system must be able to generate unique codes without collisions at high write volume; storage must scale to billions of mappings; the service should degrade gracefully rather than fail outright under load.",
+        codeExample: "Functional: shorten(url) -> code; redirect(code) -> url; optional custom alias, TTL, analytics\\nNon-functional: low redirect latency, high availability, no collisions at scale, horizontal scalability"
       },
       {
-        title: "Interview framing",
-        content: "A strong answer starts by saying: 'This is a read-heavy system with few writes, so I will optimize the redirect path and accept more complexity in the write path.' That is exactly the kind of signal FAANG interviewers want.",
-        codeExample: "Read-heavy optimization -> caching + shallow query path\\nWrite-heavy complexity -> unique ID generation + dedupe + TTL"
+        title: "Back-of-envelope estimates",
+        content: "Assume 100M new URLs shortened per month and a 100:1 read/write ratio typical of link-sharing products. Writes: 100M / (30 * 24 * 3600) is about 39 URLs/sec average; provision for 5-10x burst, so roughly 200-400 writes/sec at peak. Reads: 100:1 ratio gives about 3,900 redirects/sec average, with peak bursts into the tens of thousands/sec for viral links. Storage: 100M new rows/month * 500 bytes/row (URL text + metadata + indexes) is about 50GB/month, or roughly 3TB over 5 years, which comfortably fits on standard relational or NoSQL storage with room to spare. These numbers justify a cache-first, read-optimized design rather than a write-optimized one.",
+        codeExample: "Writes: 100M/mo -> ~39/sec avg -> ~200-400/sec peak\\nReads: 100:1 ratio -> ~3,900/sec avg -> tens of thousands/sec peak (viral link)\\nStorage: ~50GB/month -> ~3TB over 5 years"
+      },
+      {
+        title: "APIs",
+        content: "Two primary endpoints cover the core functionality, with clear request/response contracts and explicit error cases so a client knows exactly how to behave on failure.",
+        codeExample:
+          "POST /api/v1/urls\\nRequest: { \"longUrl\": \"https://example.com/very/long/path\", \"customAlias\": \"optional\", \"expiresAt\": \"optional-ISO8601\" }\\nResponse 201: { \"shortUrl\": \"https://short.ly/abc123\", \"longUrl\": \"...\", \"expiresAt\": null }\\nErrors: 400 invalid URL, 409 alias already taken, 422 URL exceeds max length\\n\\nGET /{code}\\nResponse: 301/302 redirect with Location header set to the long URL\\nErrors: 404 code not found or expired, 410 Gone if explicitly deactivated"
+      },
+      {
+        title: "Requirement-driven architecture",
+        content: "Because reads dominate by roughly 100:1, the architecture optimizes the redirect path first: a CDN/edge layer and an in-memory cache absorb the vast majority of redirect traffic before it ever reaches the database. The write path (shortening a URL) is comparatively rare, so it can afford slightly more work per request: unique ID generation, collision checking for custom aliases, and a durable write. A message queue decouples non-critical side effects (click analytics, link-preview generation) from the hot redirect path so they never add latency to a user's redirect.",
+        codeExample: "Client -> CDN/Edge cache -> Load Balancer -> Redirect Service -> Cache (Redis) -> DB (on miss)\\n                                              |\\n                                        Shorten Service -> ID Generator -> DB (write)\\n                                              |\\n                                        Queue -> Analytics/Link-preview workers (async)"
+      },
+      {
+        title: "Component responsibilities",
+        content: "Load balancer: distributes traffic across stateless service instances and performs health checks. Shorten service: validates the input URL, generates or accepts a custom code, checks for collisions, and persists the mapping. ID/code generator: produces a unique numeric ID (via a counter service, a range allocator, or a distributed ID scheme) that is base62-encoded into a short, URL-safe code. Redirect service: looks up a code, preferring cache, and issues the HTTP redirect. Cache (Redis): stores hot code -> URL mappings with a bounded TTL/LRU policy. Database: the durable system of record for all mappings, indexed by code for O(1) lookups. Queue and workers: process analytics events and any expensive post-processing without blocking the redirect response.",
+        codeExample: "LB -> health checks + routing\\nShorten service -> validate + generate code + persist\\nID generator -> unique ID -> base62 encode\\nRedirect service -> cache lookup -> DB fallback -> redirect\\nCache -> hot code->URL, TTL/LRU\\nDB -> durable mapping, indexed by code\\nQueue/workers -> async analytics, link previews"
+      },
+      {
+        title: "Database choice and schema",
+        content: "A relational database (e.g. Postgres/MySQL) is a reasonable default: the data model is simple (one row per mapping), the volume is moderate (a few TB over years, not petabytes), and a unique index on the short code gives fast point lookups. If write volume or storage need to scale far beyond what a single relational primary can hold, a key-value or wide-column NoSQL store (e.g. DynamoDB, Cassandra) partitioned by short code is a natural alternative, since the access pattern is single-key lookups with no joins. Either way, the code column needs a unique index, and expiration can be enforced with a TTL column plus either background cleanup or a native TTL feature.",
+        codeExample: "Table urls (or partitioned key-value store):\\n  code        VARCHAR(10) PRIMARY KEY / partition key\\n  long_url    TEXT\\n  created_at  TIMESTAMP\\n  expires_at  TIMESTAMP NULL\\n  owner_id    BIGINT NULL\\n  click_count BIGINT DEFAULT 0  -- updated async via queue, not on the hot path"
+      },
+      {
+        title: "Bottlenecks and how they are resolved",
+        content: "The two realistic bottlenecks are: (1) a single hot short code receiving a disproportionate share of traffic (a viral link), which is resolved by keeping hot entries pinned in cache with a longer TTL and letting cold entries fall out under LRU pressure; and (2) ID generation becoming a serialization point under high write concurrency, which is resolved by using a distributed ID scheme (pre-allocated ID ranges per service instance, or a Snowflake-style generator) instead of a single global auto-increment counter, so no single component has to serialize every write.",
+        codeExample: "Hot link -> pin in cache with longer TTL, evict cold entries first\\nID generation contention -> pre-allocate ID ranges per instance or use a Snowflake-style generator, not one global counter"
+      },
+      {
+        title: "Reliability, security, and analytics",
+        content: "Reliability: the redirect service should serve a degraded but correct response (e.g. from a stale cache entry) rather than a hard failure if the database is briefly unavailable, since redirects tolerate a little staleness far better than an outage. Security: validate and sanitize submitted URLs to prevent open-redirect abuse or malicious link injection, rate-limit the shorten endpoint per user/IP to prevent spam, and consider a malicious-URL blocklist check before accepting a new mapping. Analytics: click counts and referrer data are updated asynchronously via the queue so they never add latency to the redirect itself; an eventually-consistent counter is an acceptable trade-off here.",
+        codeExample: "Reliability: cache-stale-ok on DB miss > hard failure\\nSecurity: validate/sanitize URL, rate-limit shorten endpoint, blocklist check\\nAnalytics: click events -> queue -> async counter update (eventual consistency is fine)"
+      },
+      {
+        title: "Trade-offs",
+        content: "301 (permanent) redirects let browsers cache the redirect, reducing repeat load on the service, but they make it impossible to change the destination or track every click; 302 (temporary) redirects always hit the server, costing more load but preserving full click tracking and the ability to change the destination later. Base62 encoding of a sequential ID is simple and compact but leaks the creation order and total link count; a randomized code (with a collision check) hides that information at the cost of an extra lookup on write. The interview answer should name the choice explicitly and justify it against the stated requirements rather than picking one silently.",
+        codeExample: "301 -> browser-cached, less server load, no click tracking\\n302 -> always hits server, full click tracking, easy to repoint\\nSequential+base62 -> simple, but leaks volume/order\\nRandom code+collision check -> hides volume, small extra write cost"
       }
     ],
     examples: [
       {
-        title: "Generating unique short codes",
-        input: "Need 6-character short links for 1B URLs",
-        output: "Base62 encoding provides enough space and keeps IDs compact while preserving a simple mapping layer",
-        explanation: "Step 1: Allocate a numeric ID like 1, 2, 3. Step 2: Convert it to a base-62 string using digits + lowercase + uppercase. Step 3: Store the mapping shortCode -> longUrl in the database. Step 4: Redirect service looks up the code in cache; if missing, hits the database and then refreshes the cache. This keeps the path fast while still storing a durable mapping."
+        title: "Create flow: shortening a new URL",
+        input: "POST /api/v1/urls with { longUrl: \"https://example.com/a/very/long/path?x=1\" }",
+        output: "201 Created with { shortUrl: \"https://short.ly/8kQ2p1\" }, mapping persisted durably",
+        explanation: "Step 1: The shorten service validates the URL format and length. Step 2: It requests a unique ID from the ID generator (a pre-allocated range or Snowflake-style generator, not a single global counter). Step 3: The ID is base62-encoded into a short code (or a custom alias is checked for uniqueness instead). Step 4: The mapping (code -> longUrl) is written durably to the database. Step 5: The response returns the short URL to the client; a link-preview/analytics event is optionally published to the queue for async processing, but the client does not wait on that.",
+        diagram: asciiDiagram(
+`Interview drawing order: 1) client 2) shorten service 3) ID generator 4) DB 5) queue (async, dotted)
+
+Client --POST /urls--> [Shorten Service] --alloc ID--> [ID Generator]
+                              |                              |
+                              |<---- unique ID (base62) ------
+                              |
+                              +--write code->longUrl-------> [Database]
+                              |
+                              +- - (async) - -> [Queue] -> [Analytics/Preview Workers]
+                              |
+Client <--201 {shortUrl}-----+`
+        )
       },
       {
-        title: "Popular URL spike",
-        input: "One URL becomes trending and receives 10x traffic in a few minutes",
-        output: "The URL is pinned in cache and handled by the read path rather than the database",
-        explanation: "Step 1: Detect the spike in redirect traffic. Step 2: Keep the hot mapping in Redis with a longer TTL or a pinned entry. Step 3: Prevent cache churn by evicting cold links first. Step 4: Explain the trade-off: a small amount of stale data is acceptable for redirect URLs but not for a critical financial or access-control system."
+        title: "Redirect flow: cache hit vs cache miss",
+        input: "GET /8kQ2p1 arrives at the redirect service twice: once when the entry is not yet cached, once after it is",
+        output: "First request costs one DB read plus a cache write (~10-20ms); every subsequent request is served from cache (~1-2ms) until the TTL expires",
+        explanation: "Step 1 (cache miss, first request): the redirect service checks Redis for the code, finds nothing, and reads the mapping from the database. Step 2: it writes the mapping into Redis with a bounded TTL before responding, so the next lookup is fast. Step 3: it returns a 301/302 redirect to the long URL. Step 4 (cache hit, subsequent requests): the redirect service finds the code in Redis directly and responds immediately without touching the database at all. Step 5: this is why the system's read-heavy 100:1 ratio is handled almost entirely by the cache layer, and the database only sees a small fraction of total redirect traffic.",
+        diagram: asciiDiagram(
+`Interview drawing order: 1) client 2) redirect service 3) cache 4) DB (only on miss)
+
+CACHE MISS (first time):                       CACHE HIT (subsequent):
+Client -> [Redirect Svc] -> [Cache] MISS       Client -> [Redirect Svc] -> [Cache] HIT
+                 |               |                            |               |
+                 |<--- miss -----+                             |<-- longUrl ---+
+                 v                                             v
+             [Database] --longUrl-->                    301/302 redirect
+                 |                                       (DB never touched)
+                 +--populate cache (TTL)-->[Cache]
+                 v
+          301/302 redirect`
+        )
       }
     ],
-    tips: ["Read-heavy design = cache aggressively", "Use 301 for permanent redirects or 302 for temporary redirects", "Handle code collisions and deduplication", "Consider vanity URLs only if the business case requires it"],
-    references: [{ source: "interview-experience", attribution: "System Design Interview", insight: "Cache strategy and QPS estimation are key." }],
+    tips: ["Read-heavy design = cache aggressively", "Use 301 for permanent redirects or 302 for temporary redirects, and state the trade-off explicitly", "Handle code collisions and deduplication with a distributed ID scheme, not one global counter", "Consider vanity/custom aliases only if the business case requires the extra uniqueness check"],
+    references: [
+      { source: "interview-experience", attribution: "System Design Interview", insight: "Cache strategy and QPS estimation are key." },
+      { source: "note", attribution: "AlgoMaster - System Design: URL Shortener (https://algomaster.io/practice/system-design-url-shortener)", insight: "Used as the structural reference for the requirements -> estimates -> APIs -> architecture -> flows -> trade-offs framing; prose and diagrams here are original." }
+    ],
     practiceProblems: []
   },
 
