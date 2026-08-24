@@ -145,7 +145,7 @@ function HomePageContent() {
         </div>
       </section>
 
-      <div id="progress">
+      <div id="progress" className={styles.readinessSection}>
         <MasteryTracker masteryMap={masteryMap} allTopics={allTopics} />
       </div>
 
