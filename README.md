@@ -75,8 +75,8 @@ Each includes: capacity estimation, architecture diagram, data model, scalabilit
 - Code execution: Docker sandboxed (future)
 
 **Deployment:**
-- Vercel (production)
-- GitHub (repository)
+- GitHub Pages static export
+- GitHub Actions (`.github/workflows/deploy-pages.yml`)
 
 ---
 
@@ -176,7 +176,7 @@ npm run dev
 # Build for production
 npm run build
 
-# Start production server
+# Start production server for non-static deployments
 npm start
 
 # Run tests
@@ -188,6 +188,19 @@ npm run format
 # Lint code
 npm run lint
 ```
+
+### Deploying to GitHub Pages
+
+This app is configured for static GitHub Pages hosting with `output: "export"` in `next.config.js`. The Pages workflow:
+
+1. Installs dependencies with `npm ci`.
+2. Builds the static site with `npm run build`.
+3. Uploads the generated `out/` directory.
+4. Deploys through `actions/deploy-pages`.
+
+For project pages, the workflow automatically sets `NEXT_PUBLIC_BASE_PATH` to `/<repository-name>` so static assets and internal links work under the GitHub Pages subpath. For user or organization pages repositories named `<owner>.github.io`, no base path is applied.
+
+Manual GitHub setting required: in the repository, open **Settings → Pages → Build and deployment** and set **Source** to **GitHub Actions**. No secrets are required.
 
 ---
 

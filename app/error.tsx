@@ -15,6 +15,8 @@ export default function Error({
   error: Error & { digest?: string };
   reset: () => void;
 }) {
+  const dashboardHref = `${process.env.NEXT_PUBLIC_BASE_PATH || ""}/`;
+
   useEffect(() => {
     // Surface the real error in the console so the underlying cause is
     // diagnosable instead of only showing a generic recovery screen.
@@ -41,7 +43,7 @@ export default function Error({
             type="button"
             className={`${styles.button} ${styles.buttonSecondary}`}
             onClick={() => {
-              window.location.href = "/";
+              window.location.href = dashboardHref;
             }}
           >
             Back to dashboard

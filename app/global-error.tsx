@@ -14,6 +14,8 @@ export default function GlobalError({
   error: Error & { digest?: string };
   reset: () => void;
 }) {
+  const dashboardHref = `${process.env.NEXT_PUBLIC_BASE_PATH || ""}/`;
+
   useEffect(() => {
     console.error("Global error boundary caught:", error);
   }, [error]);
@@ -40,7 +42,7 @@ export default function GlobalError({
                 type="button"
                 className={`${styles.button} ${styles.buttonSecondary}`}
                 onClick={() => {
-                  window.location.href = "/";
+                  window.location.href = dashboardHref;
                 }}
               >
                 Reload dashboard

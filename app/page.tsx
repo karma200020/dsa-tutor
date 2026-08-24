@@ -1,6 +1,7 @@
 "use client";
 
 import { Suspense, useCallback, useMemo, useState } from "react";
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { syllabus, durationByTrack } from "@/data/syllabus";
 import { allTopics, allDsaTopics, allLldTopics, allHldTopics } from "@/data/all-topics";
@@ -245,9 +246,9 @@ function HomePageContent() {
             pattern analysis, common mistakes, and interview tips. Master the patterns that
             appear in 95% of FAANG coding rounds.
           </p>
-          <a href="/cheat-sheet" className={styles.googleCheatSheetCta}>
+          <Link href="/cheat-sheet" className={styles.googleCheatSheetCta}>
             View Cheat Sheet →
-          </a>
+          </Link>
         </div>
         <div className={styles.googleCheatSheetIcon} aria-hidden="true">📋</div>
       </section>
