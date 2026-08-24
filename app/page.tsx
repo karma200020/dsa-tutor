@@ -76,6 +76,9 @@ export default function HomePage() {
 
       <section className={styles.tracksSection} id="tracks">
         <h2>Choose Your Learning Path</h2>
+        <p className={styles.sectionSubtitle}>
+          Pick a track to see its modules, topics, and mastery progress. You can switch tracks anytime.
+        </p>
         <div className={styles.tracksGrid}>
           <TrackCardClickable
             emoji="💻"

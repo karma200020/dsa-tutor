@@ -15,10 +15,16 @@
 .module {
   background: #1e293b;
   border: 1px solid #334155;
-  border-radius: 12px;
-  padding: 20px;
+  border-radius: 14px;
+  padding: 22px;
   display: grid;
   gap: 16px;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.module:hover {
+  border-color: #475569;
+  box-shadow: 0 10px 28px rgba(2, 6, 23, 0.3);
 }
 
 .moduleHeader {
@@ -30,8 +36,10 @@
 
 .moduleHeader h3 {
   margin: 0 0 8px;
-  font-size: 18px;
-  color: #e2e8f0;
+  font-size: 19px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: #f1f5f9;
 }
 
 .description {
