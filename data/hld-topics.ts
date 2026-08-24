@@ -12,7 +12,7 @@ function asciiDiagram(art: string): string {
 // category checklist and general topic framing were informed by the source.
 const systemDesignPrimerRef: Reference = {
   source: "note",
-  attribution: "donnemartin/system-design-primer (GitHub) - used as an inspiration/category checklist only",
+  attribution: "ashishps1/awesome-system-design-resources (GitHub: https://github.com/ashishps1/awesome-system-design-resources) - used as an inspiration/category checklist only",
   insight: "The repo's curriculum structure (core concepts, networking, APIs, databases, caching, async messaging, distributed systems, trade-offs, tiered practice problems) guided which topics to add here; all explanations below are original."
 };
 
