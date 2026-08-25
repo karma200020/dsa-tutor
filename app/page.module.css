@@ -86,11 +86,16 @@
 }
 
 .readinessSection {
-  max-width: 1180px;
-  margin: -28px auto 0;
-  padding: 0 40px;
   position: relative;
   z-index: 2;
+  background: var(--color-bg-raised);
+  padding: 36px 40px 44px;
+}
+
+.readinessInner {
+  max-width: 1300px;
+  margin: 0 auto;
+  transform: translateY(-64px);
 }
 
 .ctaPrimary {
@@ -548,8 +553,11 @@
   }
 
   .readinessSection {
-    margin-top: -20px;
-    padding: 0 20px;
+    padding: 28px 20px 36px;
+  }
+
+  .readinessInner {
+    transform: translateY(-40px);
   }
 
   .tracksSection,
@@ -624,7 +632,11 @@
   }
 
   .readinessSection {
-    padding: 0 14px;
+    padding: 22px 14px 30px;
+  }
+
+  .readinessInner {
+    transform: translateY(-28px);
   }
 
   .tracksSection,
