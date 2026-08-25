@@ -33,6 +33,8 @@ export interface FaqItem {
   question: string;
   answer: string;
   source?: string; // Attribution / citation for the answer
+  category?: string; // e.g. "Trade-offs", "Concurrency", "Capacity", "Patterns"
+  sourceLinks?: { label: string; url: string }[]; // Optional external references
 }
 
 export interface Topic {

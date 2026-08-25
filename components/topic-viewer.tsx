@@ -256,12 +256,28 @@ export function TopicViewer({ topic, masteryMap, onMasteryChange, onBackClick }:
             {topic.faq.map((item, i) => (
               <details key={i} className={styles.faqItem}>
                 <summary className={styles.faqQuestion}>
-                  <span>{item.question}</span>
+                  <span>
+                    {item.category && <span className={styles.faqCategory}>{item.category}</span>}
+                    {item.question}
+                  </span>
                   <span className={styles.faqIcon} aria-hidden="true">+</span>
                 </summary>
                 <div className={styles.faqAnswer}>
                   {item.answer}
-                  {item.source && <div className={styles.faqSource}>Source: {item.source}</div>}
+                  {(item.source || (item.sourceLinks && item.sourceLinks.length > 0)) && (
+                    <div className={styles.faqSource}>
+                      {item.source && <span>Source: {item.source}</span>}
+                      {item.sourceLinks && item.sourceLinks.length > 0 && (
+                        <span className={styles.faqSourceLinks}>
+                          {item.sourceLinks.map((link, li) => (
+                            <a key={li} href={link.url} target="_blank" rel="noopener noreferrer">
+                              {link.label}
+                            </a>
+                          ))}
+                        </span>
+                      )}
+                    </div>
+                  )}
                 </div>
               </details>
             ))}

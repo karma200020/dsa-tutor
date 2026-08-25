@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "next lint",
     "audit:hld-diagrams": "tsx scripts/audit-hld-diagrams.ts",
-    "audit:lld-diagrams": "tsx scripts/audit-lld-diagrams.ts"
+    "audit:lld-diagrams": "tsx scripts/audit-lld-diagrams.ts",
+    "audit:faqs": "tsx scripts/audit-faqs.ts"
   },
   "dependencies": {
     "next": "14.2.5",

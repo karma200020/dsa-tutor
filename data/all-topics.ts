@@ -1,7 +1,7 @@
 // Single source of truth for topic data consumed by the app.
 // Aggregates every topic dataset, drops entries whose moduleId is not in the
 // syllabus, and de-duplicates by topic id (earlier sources win).
-import { Example, LessonSection, Reference, Topic, syllabus } from "./syllabus";
+import { Example, LessonSection, Reference, Topic, syllabus, FaqItem } from "./syllabus";
 import { dsaTopics } from "./dsa-topics";
 import { comprehensiveDsaTopics } from "./comprehensive-dsa-topics";
 import { dsaTopicsExtended } from "./dsa-topics-extended";
@@ -481,6 +481,270 @@ function buildLldMockSolution(topicId: string, title: string): { lesson: LessonS
   };
 }
 
+// Build a rich, topic-specific FAQ set instead of the generic 3-question
+// fallback. HLD FAQs cover requirements changes, capacity math, bottlenecks,
+// API/data model, cache/queue/partitioning, consistency/availability, failure
+// recovery, security/observability, and trade-offs. LLD FAQs cover
+// why/when to use the pattern, alternatives/trade-offs, SOLID/OOP
+// implications, UML/class relationships, concurrency/thread safety,
+// extensibility, and testing. Content is derived from each topic's own
+// authored spec (mock solution, generic HLD solution, or lesson/intuition)
+// so answers stay topic-specific rather than generic filler.
+const primerSourceLinks = {
+  hld: { label: "ashishps1/awesome-system-design-resources", url: "https://github.com/ashishps1/awesome-system-design-resources" },
+  lld: { label: "ashishps1/awesome-low-level-design", url: "https://github.com/ashishps1/awesome-low-level-design" },
+  algomasterUrlShortener: {
+    label: "AlgoMaster: Design a URL Shortener",
+    url: "https://algomaster.io/learn/system-design/url-shortener"
+  }
+};
+
+function buildHldFaq(
+  title: string,
+  intuition: string,
+  complexity: { time: string; space: string },
+  mock: HldMockSpec | null
+): FaqItem[] {
+  const track = "HLD interview practice notes";
+  if (mock) {
+    return [
+      {
+        question: `What happens to the ${title} design if the traffic assumptions in the capacity estimate turn out to be 10x higher?`,
+        answer: `Re-derive the numbers rather than hand-waving: ${mock.capacity} At 10x, re-check whether the cache hit rate, shard count, and queue throughput in the plan still hold, and call out which layer (cache, database shard, or queue) would saturate first.`,
+        source: track,
+        category: "Capacity",
+        sourceLinks: [primerSourceLinks.hld]
+      },
+      {
+        question: `What are the core API contracts for ${title} and what should the error responses look like?`,
+        answer: `${mock.apis} Beyond the happy path, the interviewer expects explicit error handling: validation errors (4xx), conflict/duplicate errors, and rate-limit responses (429) so the API is safe to retry.`,
+        source: track,
+        category: "APIs",
+        sourceLinks: [primerSourceLinks.hld]
+      },
+      {
+        question: `Where is the first bottleneck likely to appear in the ${title} architecture, and how do you relieve it?`,
+        answer: `${mock.scaling} Identify the bottleneck by tracing the request path in the architecture (${mock.architecture}) and naming the first component that cannot be scaled horizontally without a design change.`,
+        source: track,
+        category: "Bottlenecks",
+        sourceLinks: [primerSourceLinks.hld]
+      },
+      {
+        question: `What consistency model does ${title} need, and where can you get away with eventual consistency?`,
+        answer: mock.consistency,
+        source: track,
+        category: "Consistency",
+        sourceLinks: [primerSourceLinks.hld]
+      },
+      {
+        question: `How does ${title} recover when a downstream dependency (cache, database replica, or queue) fails?`,
+        answer: mock.reliability,
+        source: track,
+        category: "Reliability",
+        sourceLinks: [primerSourceLinks.hld]
+      },
+      {
+        question: `What security and observability concerns are specific to ${title}?`,
+        answer: `${mock.security} Operationally: ${mock.observability}`,
+        source: track,
+        category: "Security & Observability",
+        sourceLinks: [primerSourceLinks.hld]
+      },
+      {
+        question: `What is the key trade-off in the ${title} design, and what would you change it to under different constraints?`,
+        answer: mock.tradeoffs,
+        source: track,
+        category: "Trade-offs",
+        sourceLinks: [primerSourceLinks.hld, primerSourceLinks.algomasterUrlShortener]
+      },
+      {
+        question: `How would you explain the requirement-by-requirement build-up for ${title} to an interviewer?`,
+        answer: `${mock.requirements} Walk through each requirement and the component it drives, in the drawing order: ${mock.drawingOrder}`,
+        source: track,
+        category: "Requirements",
+        sourceLinks: [primerSourceLinks.hld]
+      }
+    ];
+  }
+  return [
+    {
+      question: `What clarifying questions should you ask before designing ${title}?`,
+      answer: `Confirm scale (daily/peak active users), the read/write ratio, latency and availability targets, and which invariant must never be violated. For ${title}, this framing changes whether ${intuition.toLowerCase()}`,
+      source: track,
+      category: "Requirements",
+      sourceLinks: [primerSourceLinks.hld]
+    },
+    {
+      question: `How would you estimate capacity for ${title} from a rough DAU number?`,
+      answer: `Start from daily/peak active users, multiply by an assumed action rate per user, and convert to requests/sec; then multiply average payload size by write volume to size storage. State the assumption out loud so the interviewer can push back on it, then relate it to the ${complexity.space} space profile of this design.`,
+      source: track,
+      category: "Capacity",
+      sourceLinks: [primerSourceLinks.hld]
+    },
+    {
+      question: `Where is the most likely bottleneck in a ${title} system at scale?`,
+      answer: `The layer that cannot be trivially horizontally scaled (a single-writer database, a hot shard, or an unbounded fan-out) is the first bottleneck. Name it explicitly and propose the mitigation (partitioning, caching, or async processing) before the interviewer asks.`,
+      source: track,
+      category: "Bottlenecks",
+      sourceLinks: [primerSourceLinks.hld]
+    },
+    {
+      question: `What should the API and data model look like for ${title}?`,
+      answer: `Expose versioned endpoints for the primary read/write operations, require an idempotency key on writes, and model the durable entity with a stable key plus the fields the read path needs indexed. Keep the schema minimal; add fields only when a stated requirement needs them.`,
+      source: track,
+      category: "APIs",
+      sourceLinks: [primerSourceLinks.hld]
+    },
+    {
+      question: `When should ${title} use a cache, a queue, or partitioning - and how do you decide?`,
+      answer: `Cache when reads vastly outnumber writes and slight staleness is acceptable; queue when work can be done asynchronously without blocking the caller; partition when a single node's storage or throughput would otherwise exceed capacity. Justify each choice against the specific read/write ratio for ${title}.`,
+      source: track,
+      category: "Scaling",
+      sourceLinks: [primerSourceLinks.hld]
+    },
+    {
+      question: `Does ${title} need strong consistency, and where can eventual consistency be safe?`,
+      answer: `Anything tied to money, uniqueness, or a user-visible invariant (e.g., a code or slot being assigned twice) needs strong consistency on the write path. Derived or denormalized views (feeds, counters, analytics) can be eventually consistent since a brief staleness window rarely breaks the product.`,
+      source: track,
+      category: "Consistency",
+      sourceLinks: [primerSourceLinks.hld]
+    },
+    {
+      question: `How should ${title} degrade gracefully during a partial outage?`,
+      answer: `Apply timeouts, bounded retries with backoff, and circuit breakers so a slow dependency does not cascade; keep a degraded read path (e.g., serve stale cache) rather than failing the whole request; and route failed async work to a dead-letter queue for replay instead of dropping it.`,
+      source: track,
+      category: "Reliability",
+      sourceLinks: [primerSourceLinks.hld]
+    },
+    {
+      question: `What is the central trade-off an interviewer expects you to articulate for ${title}?`,
+      answer: `${intuition} State explicitly what you are giving up (e.g., some write latency, some storage cost, or some consistency) in exchange for the property the design optimizes for (${complexity.time}), rather than presenting the design as if it had no downside.`,
+      source: track,
+      category: "Trade-offs",
+      sourceLinks: [primerSourceLinks.hld, primerSourceLinks.algomasterUrlShortener]
+    }
+  ];
+}
+
+function buildLldFaq(
+  title: string,
+  intuition: string,
+  mock: LldSolutionSpec | null
+): FaqItem[] {
+  const track = "LLD interview practice notes";
+  if (mock) {
+    return [
+      {
+        question: `Why choose the design patterns used in ${title}, and what did you reject?`,
+        answer: mock.patterns,
+        source: track,
+        category: "Patterns",
+        sourceLinks: [primerSourceLinks.lld]
+      },
+      {
+        question: `What are the core class relationships in ${title} and how would you diagram them in an interview?`,
+        answer: mock.relationships,
+        source: track,
+        category: "UML & Relationships",
+        sourceLinks: [primerSourceLinks.lld]
+      },
+      {
+        question: `What entities and responsibilities make up ${title}?`,
+        answer: mock.entities,
+        source: track,
+        category: "Responsibilities",
+        sourceLinks: [primerSourceLinks.lld]
+      },
+      {
+        question: `What are the key API/interface signatures for ${title}?`,
+        answer: mock.apis,
+        source: track,
+        category: "Interfaces",
+        sourceLinks: [primerSourceLinks.lld]
+      },
+      {
+        question: `What concurrency or thread-safety issues does ${title} need to handle?`,
+        answer: mock.concurrencyErrors,
+        source: track,
+        category: "Concurrency",
+        sourceLinks: [primerSourceLinks.lld]
+      },
+      {
+        question: `How would you extend ${title} with a new requirement without breaking existing code?`,
+        answer: mock.extensibility,
+        source: track,
+        category: "Extensibility",
+        sourceLinks: [primerSourceLinks.lld]
+      },
+      {
+        question: `How would you test ${title} to prove the design is correct?`,
+        answer: mock.tests,
+        source: track,
+        category: "Testing",
+        sourceLinks: [primerSourceLinks.lld]
+      },
+      {
+        question: `What is the main design trade-off in ${title}?`,
+        answer: mock.tradeoffs,
+        source: track,
+        category: "Trade-offs",
+        sourceLinks: [primerSourceLinks.lld]
+      }
+    ];
+  }
+  return [
+    {
+      question: `When should you reach for the approach behind ${title}, and when is it overkill?`,
+      answer: `${intuition} Apply it when the requirement explicitly needs the flexibility or invariant it provides; if the system is small and unlikely to change along that axis, a simpler direct implementation (YAGNI) is the better interview answer.`,
+      source: track,
+      category: "Patterns",
+      sourceLinks: [primerSourceLinks.lld]
+    },
+    {
+      question: `What alternative designs exist for ${title}, and why prefer this one?`,
+      answer: `Name at least one simpler alternative (e.g., a conditional/if-else chain instead of a Strategy, or a single class instead of a hierarchy) and explain the specific extensibility or testability requirement that tips the balance toward the ${title} approach instead.`,
+      source: track,
+      category: "Trade-offs",
+      sourceLinks: [primerSourceLinks.lld]
+    },
+    {
+      question: `Which SOLID principle is most relevant to ${title}, and how does the design honor it?`,
+      answer: `Identify the responsibility boundary the design protects (e.g., Open-Closed if new variants should not require editing existing classes, or Dependency Inversion if a concrete implementation is injected behind an interface) and point to the specific class relationship that enforces it.`,
+      source: track,
+      category: "SOLID & OOP",
+      sourceLinks: [primerSourceLinks.lld]
+    },
+    {
+      question: `How would you draw the UML class or sequence diagram for ${title} on a whiteboard?`,
+      answer: `Start with the core entities and their composition/association relationships, then add the interface(s) that decouple the parts likely to vary. Follow with a short sequence diagram for the primary flow so the interviewer can see the runtime interaction, not just the static structure.`,
+      source: track,
+      category: "UML & Relationships",
+      sourceLinks: [primerSourceLinks.lld]
+    },
+    {
+      question: `What concurrency issues should you flag for ${title} even if the interviewer doesn't ask?`,
+      answer: `Identify any shared mutable state (a counter, a queue, a shared resource pool) that two threads could touch at once, and state how it is protected (a lock, an atomic operation, or an immutable value object) - this shows you think past the single-threaded happy path.`,
+      source: track,
+      category: "Concurrency",
+      sourceLinks: [primerSourceLinks.lld]
+    },
+    {
+      question: `How would you extend ${title} to support a new variant without editing existing classes?`,
+      answer: `Point to the exact interface or abstract class new variants would implement, and confirm no existing class needs modification - only a new implementation registered behind the existing seam (factory, strategy, or similar).`,
+      source: track,
+      category: "Extensibility",
+      sourceLinks: [primerSourceLinks.lld]
+    },
+    {
+      question: `What tests would prove ${title} is implemented correctly?`,
+      answer: `Write a unit test for the core invariant in isolation, a test for the boundary/edge case (empty, full, or concurrent conflict), and one integration-style test that exercises the primary flow end-to-end through the public API.`,
+      source: track,
+      category: "Testing",
+      sourceLinks: [primerSourceLinks.lld]
+    }
+  ];
+}
+
 function enrichTopic(topic: Topic): Topic {
   const title = topic.title.trim();
   const module = syllabus.find((entry) => entry.id === topic.moduleId);
@@ -573,7 +837,11 @@ function enrichTopic(topic: Topic): Topic {
     : [`practice-${topic.id}-core`, `practice-${topic.id}-edge-case`];
   const faq = topic.faq && topic.faq.length > 0
     ? topic.faq
-    : [
+    : track === "HLD"
+      ? buildHldFaq(title, topic.intuition, complexity, hldMockSolution ? hldMockSolutions[topic.id] : null)
+      : track === "LLD"
+        ? buildLldFaq(title, topic.intuition, lldMockSolution ? lldMockSolutions[topic.id] : null)
+        : [
         {
           question: `When should I reach for ${title} in an interview?`,
           answer: `Pick ${title} when the interviewer's constraints match the trade-off it is built for: ${complexity.time} time and ${complexity.space} space. State the constraint out loud, then justify the choice instead of jumping straight to code.`,
