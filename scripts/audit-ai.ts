@@ -10,10 +10,19 @@
 //      but is wrong for this track.
 // Both are caught mechanically here rather than by review.
 //
-// Run with: npx tsx scripts/audit-ai.ts  (or: npm run audit:ai)
+// Run with:
+//   npx tsx scripts/audit-ai.ts              (per-module gate: skips module coverage)
+//   npx tsx scripts/audit-ai.ts --complete   (completion gate: also requires every
+//                                             AI module to have at least one topic)
+// or: npm run audit:ai  /  npm run audit:ai -- --complete
 import { syllabus, Topic } from "../data/syllabus";
 import { aiTopics } from "../data/ai-topics";
 import { allAiTopics, allTopics } from "../data/all-topics";
+
+// Module coverage is the only rule that cannot pass mid-content-phase, so it is
+// opt-in. Without it the audit goes green as soon as the first module lands and
+// stays green, which keeps it meaningful instead of permanently red.
+const enforceCoverage = process.argv.slice(2).includes("--complete");
 
 const MIN_FAQS = 5;
 const MIN_DIAGRAM_LINES = 3;
@@ -96,13 +105,20 @@ for (const topic of aiTopics) {
 }
 
 // Every syllabus module should have at least one topic. AI modules are exempt
-// only while the AI dataset is entirely empty (the pre-content bootstrap state),
-// so this never breaks the existing tracks.
+// while the AI dataset is entirely empty (the pre-content bootstrap state), and
+// the rule as a whole is only enforced with --complete so the audit stays usable
+// as a per-module gate during the content phase. Non-AI modules are always
+// checked, so this never silently regresses the existing tracks.
 const aiTrackIsEmpty = aiTopics.length === 0;
+const emptyAiModules: string[] = [];
+
 for (const mod of syllabus) {
   const count = allTopics.filter((t) => t.moduleId === mod.id).length;
   if (count === 0) {
-    if (aiModuleIds.has(mod.id) && aiTrackIsEmpty) continue;
+    if (aiModuleIds.has(mod.id)) {
+      emptyAiModules.push(mod.id);
+      if (aiTrackIsEmpty || !enforceCoverage) continue;
+    }
     fail(`${mod.id} ("${mod.title}") has no topics.`);
   } else if (aiModuleIds.has(mod.id) && count !== mod.topicCount) {
     warnings.push(`${mod.id}: topicCount metadata says ${mod.topicCount} but ${count} topic(s) are authored.`);
@@ -193,6 +209,14 @@ for (const warning of warnings) {
   console.warn(`WARN: ${warning}`);
 }
 
+// Progress is informational in the default mode so it stays visible without
+// being a failure.
+if (!aiTrackIsEmpty && emptyAiModules.length > 0 && !enforceCoverage) {
+  console.log(
+    `INFO: ${emptyAiModules.length}/${aiModules.length} AI modules still empty (run with --complete to enforce): ${emptyAiModules.join(", ")}`
+  );
+}
+
 if (errors.length > 0) {
   console.error(`FAIL: ${errors.length} AI track problem(s):`);
   for (const message of errors) console.error(` - ${message}`);
@@ -204,7 +228,10 @@ if (aiTrackIsEmpty) {
     `PASS (bootstrap): the AI dataset is still empty, so per-topic checks are skipped. All ${aiModules.length} AI modules are declared and every non-AI module has topics.`
   );
 } else {
+  const coverageNote = enforceCoverage
+    ? `all ${aiModules.length} modules are populated`
+    : `${aiModules.length - emptyAiModules.length}/${aiModules.length} modules populated (coverage not enforced)`;
   console.log(
-    `PASS: all ${aiTopics.length} AI topics across ${aiModules.length} modules have valid ids/moduleIds, a substantial lesson diagram, explicit complexity framing, populated tips/tricks/memoryAids/interviewPatterns/references/practiceProblems, and at least ${MIN_FAQS} FAQs.`
+    `PASS: all ${aiTopics.length} AI topics have valid ids/moduleIds, a substantial lesson diagram, explicit complexity framing, populated tips/tricks/memoryAids/interviewPatterns/references/practiceProblems, and at least ${MIN_FAQS} FAQs; ${coverageNote}.`
   );
 }
