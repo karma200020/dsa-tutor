@@ -64,6 +64,36 @@ function substantialDiagram(diagram: string | undefined): boolean {
 // value matches one of these, the field was left empty in the source data.
 const boilerplateComplexity = ["Depends on the selected operation", "Depends on the data structure state"];
 
+// Mojibake guard. Content specs have arrived double-encoded (UTF-8 bytes decoded
+// as cp1252), which turns box-drawing characters into sequences like "â”€". The
+// length-based diagram rules cannot see this, because mojibake preserves both
+// line and character counts - so it needs its own check.
+//
+// The lead bytes below are the cp1252 renderings of the UTF-8 prefixes for the
+// ranges we actually use: U+2000-U+2BFF punctuation/arrows/box-drawing (â...),
+// Latin-1 supplement (Ã.../Â...). Plain English prose never contains them.
+const MOJIBAKE_PATTERN = /â[\u0080-\u00FF\u201A-\u20AC\u2020-\u2122]|Â[\u00A0-\u00BF]|Ã[\u0082-\u00BF]/;
+
+function findMojibake(value: unknown, path: string, hits: string[]): void {
+  if (typeof value === "string") {
+    const match = MOJIBAKE_PATTERN.exec(value);
+    if (match) {
+      const at = Math.max(0, match.index - 30);
+      hits.push(`${path}: ...${value.slice(at, match.index + 30).replace(/\n/g, " ")}...`);
+    }
+    return;
+  }
+  if (Array.isArray(value)) {
+    value.forEach((item, i) => findMojibake(item, `${path}[${i}]`, hits));
+    return;
+  }
+  if (value && typeof value === "object") {
+    for (const [key, inner] of Object.entries(value)) {
+      findMojibake(inner, `${path}.${key}`, hits);
+    }
+  }
+}
+
 function nonEmptyList(value: unknown[] | undefined): boolean {
   return Array.isArray(value) && value.length > 0;
 }
@@ -152,6 +182,12 @@ function auditTopicContent(topic: Topic) {
       `${id}: no lesson section carries a substantial diagram (need >= ${MIN_DIAGRAM_LINES} lines and >= ${MIN_DIAGRAM_CHARS} chars of visible text).`
     );
   }
+
+  const mojibakeHits: string[] = [];
+  findMojibake(topic, id, mojibakeHits);
+  mojibakeHits.forEach((hit) => {
+    fail(`${hit} <- mojibake (double-encoded UTF-8). Re-read the source spec as UTF-8 and re-author this value.`);
+  });
 
   const examples = topic.examples || [];
   if (examples.length === 0) {

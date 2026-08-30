@@ -11,6 +11,13 @@ type TopicViewerProps = {
 export function TopicViewer({ topic, masteryMap, onMasteryChange, onBackClick }: TopicViewerProps) {
   const currentStatus = masteryMap[topic.id] || "not-started";
 
+  // AI topics repurpose the `complexity` pair as a latency/cost profile rather than
+  // Big-O, so the labels are derived from the module prefix instead of hardcoded.
+  const isAiTopic = topic.moduleId.startsWith("mod-ai-");
+  const complexityLabels = isAiTopic
+    ? { nav: "Latency & Cost", heading: "⚡ Latency & Cost Profile", first: "Latency:", second: "Memory & Storage:" }
+    : { nav: "Complexity", heading: "⏱️ Complexity Analysis", first: "Time:", second: "Space:" };
+
   const statusEmoji: Record<string, string> = {
     "not-started": "⭕",
     learning: "🟡",
@@ -61,7 +68,7 @@ export function TopicViewer({ topic, masteryMap, onMasteryChange, onBackClick }:
         {topic.examples && topic.examples.length > 0 && <a href="#examples">Examples</a>}
         <a href="#tips">Tips</a>
         <a href="#tricks">Tricks</a>
-        {topic.complexity && <a href="#complexity">Complexity</a>}
+        {topic.complexity && <a href="#complexity">{complexityLabels.nav}</a>}
         <a href="#patterns">Patterns</a>
         {topic.faq && topic.faq.length > 0 && <a href="#faq">FAQ</a>}
         <a href="#practice">Practice</a>
@@ -191,13 +198,13 @@ export function TopicViewer({ topic, masteryMap, onMasteryChange, onBackClick }:
 
       {topic.complexity && (
         <section id="complexity" className={styles.section}>
-          <h2>⏱️ Complexity Analysis</h2>
+          <h2>{complexityLabels.heading}</h2>
           <div className={styles.complexityBox}>
             <div className={styles.complexityItem}>
-              <strong>Time:</strong> {topic.complexity.time}
+              <strong>{complexityLabels.first}</strong> {topic.complexity.time}
             </div>
             <div className={styles.complexityItem}>
-              <strong>Space:</strong> {topic.complexity.space}
+              <strong>{complexityLabels.second}</strong> {topic.complexity.space}
             </div>
           </div>
         </section>
