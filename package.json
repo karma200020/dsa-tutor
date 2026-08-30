@@ -9,7 +9,8 @@
     "lint": "next lint",
     "audit:hld-diagrams": "tsx scripts/audit-hld-diagrams.ts",
     "audit:lld-diagrams": "tsx scripts/audit-lld-diagrams.ts",
-    "audit:faqs": "tsx scripts/audit-faqs.ts"
+    "audit:faqs": "tsx scripts/audit-faqs.ts",
+    "audit:ai": "tsx scripts/audit-ai.ts"
   },
   "dependencies": {
     "next": "14.2.5",

@@ -1,5 +1,5 @@
 import { syllabus } from "@/data/syllabus";
-import { Topic } from "@/data/syllabus";
+import { Module, Topic } from "@/data/syllabus";
 import styles from "./module-list.module.css";
 
 type ModuleListProps = {
@@ -24,7 +24,7 @@ export function ModuleList({ track, masteryMap, onMasteryUpdate, onTopicClick, a
           const status = masteryMap[t.id];
           return status === "practiced" || status === "interview-ready";
         }).length;
-        const cheatsheet = buildModuleCheatsheet(mod.title, modTopics);
+        const cheatsheet = buildModuleCheatsheet(mod, modTopics);
 
         return (
           <div key={mod.id} className={styles.module}>
@@ -81,7 +81,14 @@ export function ModuleList({ track, masteryMap, onMasteryUpdate, onTopicClick, a
   );
 }
 
-function buildModuleCheatsheet(moduleTitle: string, topics: Topic[]): string[] {
+function buildModuleCheatsheet(mod: Module, topics: Topic[]): string[] {
+  // A module can author its own cheat sheet in the syllabus; that always wins.
+  // Keyword matching on the title stays as the fallback for modules that don't.
+  if (mod.cheatsheet && mod.cheatsheet.length > 0) {
+    return mod.cheatsheet;
+  }
+
+  const moduleTitle = mod.title;
   const normalized = moduleTitle.toLowerCase();
   const topicNames = topics.map((t) => t.title);
 

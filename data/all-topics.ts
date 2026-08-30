@@ -985,7 +985,16 @@ function collect(...sources: Topic[][]): Topic[] {
   for (const source of sources) {
     for (const topic of source) {
       if (seen.has(topic.id)) continue;
-      if (!validModuleIds.has(topic.moduleId)) continue;
+      // A topic whose moduleId is not in the syllabus is dropped here. That used
+      // to be completely silent, which makes a typo look identical to content
+      // that was never written, so warn loudly instead. No topic in any current
+      // dataset hits this; scripts/audit-ai.ts turns it into a hard failure.
+      if (!validModuleIds.has(topic.moduleId)) {
+        console.warn(
+          `[all-topics] Dropping topic "${topic.id}" (${topic.title}): moduleId "${topic.moduleId}" is not in the syllabus.`
+        );
+        continue;
+      }
       seen.add(topic.id);
       result.push(enrichTopic(topic));
     }

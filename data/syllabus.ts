@@ -12,6 +12,10 @@ export interface Module {
   estimatedHours: number;
   dependencies: string[]; // Module IDs that must be completed first
   topicCount: number;
+  // Optional module-scoped cheat sheet shown above the topic list. When present
+  // it is used verbatim; otherwise the UI falls back to keyword matching on the
+  // module title (see buildModuleCheatsheet in components/module-list.tsx).
+  cheatsheet?: string[];
 }
 
 export interface LessonSection {
@@ -446,3 +450,5 @@ export const durationByTrack: Record<Track, number> = syllabus.reduce(
   },
   { DSA: 0, LLD: 0, HLD: 0, AI: 0 } as Record<Track, number>
 );
+
+
