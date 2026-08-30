@@ -17,6 +17,10 @@ function isValidTrack(value: string | null): value is TrackParam {
   return value !== null && (VALID_TRACKS as readonly string[]).includes(value);
 }
 
+// Derived so copy stays correct when a track is added; nothing on this page
+// should hardcode the number of tracks.
+const trackCount = new Set(syllabus.map((m) => m.track)).size;
+
 // The whole app's navigation (home -> track -> topic) is URL-driven via
 // `?track=` and `?topic=` query params instead of local-only React state, so
 // that opening a track/module/topic creates a browser history entry, and
@@ -136,8 +140,9 @@ function HomePageContent() {
         <span className={styles.heroEyebrow}>Interview prep, structured</span>
         <h1>🚀 FAANG Interview Mastery</h1>
         <p>
-          Complete preparation for coding, system design, and LLD interviews. Learn from industry patterns, 
-          master complex concepts with interactive examples, and ace your next interview.
+          Complete preparation for coding, low-level design, system design, and AI engineering
+          interviews. Learn from industry patterns, master complex concepts with interactive
+          examples, and ace your next interview.
         </p>
         <div className={styles.ctaButtons}>
           <a href="#tracks" className={styles.ctaPrimary}>Get Started</a>
@@ -215,7 +220,7 @@ function HomePageContent() {
           <FeatureCard
             icon="📚"
             title="Comprehensive Content"
-            description="15+ modules covering every FAANG interview topic with code examples and worked problems"
+            description={`${syllabus.length} modules across ${trackCount} tracks covering FAANG interview topics with code examples and worked problems`}
             index={0}
           />
           <FeatureCard
@@ -277,7 +282,7 @@ function HomePageContent() {
           <div className={styles.statLabel}>Hours of Content</div>
         </div>
         <div className={styles.statBox}>
-          <div className={styles.statNumber}>{new Set(syllabus.map((m) => m.track)).size}</div>
+          <div className={styles.statNumber}>{trackCount}</div>
           <div className={styles.statLabel}>Interview Tracks</div>
         </div>
       </section>
