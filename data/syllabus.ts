@@ -71,7 +71,7 @@ export interface Topic {
 }
 
 export interface Reference {
-  source: "interview-experience" | "blog" | "book" | "note" | "leetcode";
+  source: "interview-experience" | "blog" | "book" | "note" | "leetcode" | "paper" | "video";
   attribution: string;
   insight: string;
 }

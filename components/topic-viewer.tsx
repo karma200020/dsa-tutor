@@ -340,7 +340,9 @@ function ReferenceCard({ ref }: { ref: Reference }) {
     blog: "📰",
     book: "📖",
     note: "📄",
-    leetcode: "💻"
+    leetcode: "💻",
+    paper: "🔬",
+    video: "🎥"
   };
 
   return (
