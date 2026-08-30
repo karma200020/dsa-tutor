@@ -3,7 +3,7 @@
 // content. Fails if any topic has fewer than the minimum FAQ count or any FAQ
 // item has an empty question/answer. Run with:
 //   npx tsx scripts/audit-faqs.ts
-import { allLldTopics, allHldTopics } from "../data/all-topics";
+import { allLldTopics, allHldTopics, allAiTopics } from "../data/all-topics";
 import { FaqItem, Topic } from "../data/syllabus";
 
 const MIN_FAQS = 5;
@@ -35,6 +35,7 @@ let failed = false;
 
 const lldResult = auditTrack(allLldTopics, "LLD");
 const hldResult = auditTrack(allHldTopics, "HLD");
+const aiResult = auditTrack(allAiTopics, "AI");
 
 if (lldResult.tooFew.length > 0) {
   failed = true;
@@ -46,6 +47,12 @@ if (hldResult.tooFew.length > 0) {
   failed = true;
   console.error(`FAIL: ${hldResult.tooFew.length} HLD topic(s) have fewer than ${MIN_FAQS} FAQs:`);
   for (const t of hldResult.tooFew) console.error(` - ${t.id}: ${t.title} (${t.faq?.length || 0} FAQs)`);
+}
+
+if (aiResult.tooFew.length > 0) {
+  failed = true;
+  console.error(`FAIL: ${aiResult.tooFew.length} AI topic(s) have fewer than ${MIN_FAQS} FAQs:`);
+  for (const t of aiResult.tooFew) console.error(` - ${t.id}: ${t.title} (${t.faq?.length || 0} FAQs)`);
 }
 
 if (lldResult.invalid.length > 0) {
@@ -64,10 +71,18 @@ if (hldResult.invalid.length > 0) {
   }
 }
 
+if (aiResult.invalid.length > 0) {
+  failed = true;
+  console.error(`FAIL: ${aiResult.invalid.length} AI topic(s) have invalid FAQ fields:`);
+  for (const entry of aiResult.invalid) {
+    console.error(` - ${entry.topic.id}: ${entry.topic.title} -> ${entry.problems.join("; ")}`);
+  }
+}
+
 if (failed) {
   process.exit(1);
 } else {
   console.log(
-    `PASS: all ${allLldTopics.length} LLD topics and ${allHldTopics.length} HLD topics have at least ${MIN_FAQS} FAQs with non-empty question/answer fields.`
+    `PASS: all ${allLldTopics.length} LLD topics, ${allHldTopics.length} HLD topics, and ${allAiTopics.length} AI topics have at least ${MIN_FAQS} FAQs with non-empty question/answer fields.`
   );
 }

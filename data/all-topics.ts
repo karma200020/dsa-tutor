@@ -10,6 +10,7 @@ import { expandedDsaTopics as arrayFoundationTopics } from "./expanded-dsa-topic
 import { coverageTopics } from "./expanded-coverage";
 import { lldTopics } from "./lld-topics";
 import { hldTopics } from "./hld-topics";
+import { aiTopics } from "./ai-topics";
 import { googleDsaProblems, googleCheatSheetReference } from "./google-cheat-sheet-integration";
 
 const validModuleIds = new Set(syllabus.map((m) => m.id));
@@ -1018,7 +1019,11 @@ export const allHldTopics = ensureModuleCoverage(
   ),
   syllabus.filter((m) => m.track === "HLD").map((m) => m.id)
 );
-export const allTopics: Topic[] = [...allDsaTopics, ...allLldTopics, ...allHldTopics];
+export const allAiTopics = ensureModuleCoverage(
+  collect(aiTopics),
+  syllabus.filter((m) => m.track === "AI").map((m) => m.id)
+);
+export const allTopics: Topic[] = [...allDsaTopics, ...allLldTopics, ...allHldTopics, ...allAiTopics];
 
 export const topicsByModule: Record<string, Topic[]> = syllabus.reduce(
   (acc, mod) => {

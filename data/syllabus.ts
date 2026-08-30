@@ -1,5 +1,5 @@
 // Complete SWE Interview Syllabus with Module Dependencies
-export type Track = "DSA" | "LLD" | "HLD";
+export type Track = "DSA" | "LLD" | "HLD" | "AI";
 export type Level = "Beginner" | "Intermediate" | "Advanced";
 export type MasteryStatus = "not-started" | "learning" | "practiced" | "interview-ready";
 
@@ -315,6 +315,127 @@ export const syllabus: Module[] = [
     estimatedHours: 8,
     dependencies: ["mod-hld-design-exercises"],
     topicCount: 3
+  },
+
+  // AI-first software engineering track
+  {
+    id: "mod-ai-foundations",
+    title: "AI: LLM Foundations",
+    description:
+      "Build a working mental model of transformers, tokenization, context windows, sampling, embeddings, hallucination, model selection, and prompt engineering.",
+    track: "AI",
+    level: "Beginner",
+    estimatedHours: 7,
+    dependencies: [],
+    topicCount: 8
+  },
+
+  {
+    id: "mod-ai-ml-bridge",
+    title: "AI: ML Fundamentals for System Design",
+    description:
+      "Bridge classic system design and ML: vector similarity, precision/recall/F1, nDCG ranking metrics, A/B testing, feature stores, training-serving skew, two-tower retrieval.",
+    track: "AI",
+    level: "Beginner",
+    estimatedHours: 6,
+    dependencies: ["mod-ai-foundations"],
+    topicCount: 7
+  },
+
+  {
+    id: "mod-ai-rag",
+    title: "AI: Retrieval-Augmented Generation",
+    description:
+      "The most-asked AI design area: RAG vs fine-tuning, pipeline architecture, chunking, embedding choice, vector DBs and ANN indexes, hybrid search, re-ranking, query rewriting, retrieval evaluation, failure modes.",
+    track: "AI",
+    level: "Intermediate",
+    estimatedHours: 10,
+    dependencies: ["mod-ai-ml-bridge"],
+    topicCount: 10
+  },
+
+  {
+    id: "mod-ai-agents-architecture",
+    title: "AI: Agents, Tool Use & App Architecture",
+    description:
+      "Agent spectrum, tool calling, ReAct and planning loops, memory, sandboxing, failure modes, human-in-the-loop, streaming, caching, model routing, rate limits and cost control.",
+    track: "AI",
+    level: "Intermediate",
+    estimatedHours: 9,
+    dependencies: ["mod-ai-rag"],
+    topicCount: 10
+  },
+
+  {
+    id: "mod-ai-evaluation",
+    title: "AI: Evaluation & Testing",
+    description:
+      "Testing nondeterministic systems: the eval pyramid, golden datasets, LLM-as-judge, prompt regression testing, tracing and observability, online eval, drift detection.",
+    track: "AI",
+    level: "Intermediate",
+    estimatedHours: 6,
+    dependencies: ["mod-ai-agents-architecture"],
+    topicCount: 7
+  },
+
+  {
+    id: "mod-ai-adaptation-safety",
+    title: "AI: Fine-tuning, Safety & Governance",
+    description:
+      "RAG vs fine-tuning decisions, SFT, LoRA/QLoRA, preference tuning, dataset construction, distillation, quantization; plus OWASP LLM risks, prompt injection, PII handling, and guardrails.",
+    track: "AI",
+    level: "Intermediate",
+    estimatedHours: 8,
+    dependencies: ["mod-ai-evaluation"],
+    topicCount: 9
+  },
+
+  {
+    id: "mod-ai-llmops",
+    title: "AI: LLMOps & Inference Serving",
+    description:
+      "Serving stacks, GPU basics, KV cache, continuous batching, PagedAttention, speculative decoding, deployment patterns, cost telemetry, and production incident patterns.",
+    track: "AI",
+    level: "Advanced",
+    estimatedHours: 6,
+    dependencies: ["mod-ai-adaptation-safety"],
+    topicCount: 6
+  },
+
+  {
+    id: "mod-ai-estimation-tradeoffs",
+    title: "AI: Estimation & Tradeoffs",
+    description:
+      "Back-of-envelope math for AI systems: token throughput and latency, GPU/KV-cache memory sizing, cost per query, batching curves, context-window cost scaling, vector DB sizing.",
+    track: "AI",
+    level: "Intermediate",
+    estimatedHours: 5,
+    dependencies: ["mod-ai-llmops"],
+    topicCount: 6
+  },
+
+  {
+    id: "mod-ai-design-exercises",
+    title: "AI: Design Exercises",
+    description:
+      "End-to-end designs: RAG document Q&A, LLM inference platform, semantic search, AI coding assistant, content moderation, two-tower recommender, conversational agent, LLM observability.",
+    track: "AI",
+    level: "Advanced",
+    estimatedHours: 10,
+    dependencies: ["mod-ai-estimation-tradeoffs"],
+    topicCount: 8
+  },
+
+  {
+    id: "mod-ai-mocks",
+    title: "AI: Mock Rounds",
+    description:
+      "Annotated 45-60 minute AI design mocks with interviewer rubric, strong-vs-mediocre signals, red flags, and curveball follow-up drills.",
+    track: "AI",
+    level: "Advanced",
+    estimatedHours: 5,
+    dependencies: ["mod-ai-design-exercises"],
+    topicCount: 4
   }
 ];
 
@@ -323,5 +444,5 @@ export const durationByTrack: Record<Track, number> = syllabus.reduce(
     acc[mod.track] += mod.estimatedHours;
     return acc;
   },
-  { DSA: 0, LLD: 0, HLD: 0 } as Record<Track, number>
+  { DSA: 0, LLD: 0, HLD: 0, AI: 0 } as Record<Track, number>
 );

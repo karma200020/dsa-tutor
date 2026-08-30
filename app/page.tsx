@@ -4,13 +4,13 @@ import { Suspense, useCallback, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { syllabus, durationByTrack } from "@/data/syllabus";
-import { allTopics, allDsaTopics, allLldTopics, allHldTopics } from "@/data/all-topics";
+import { allTopics, allDsaTopics, allLldTopics, allHldTopics, allAiTopics } from "@/data/all-topics";
 import styles from "./page.module.css";
 import { ModuleList } from "@/components/module-list";
 import { MasteryTracker } from "@/components/mastery-tracker";
 import { TopicViewer } from "@/components/topic-viewer";
 
-const VALID_TRACKS = ["DSA", "LLD", "HLD"] as const;
+const VALID_TRACKS = ["DSA", "LLD", "HLD", "AI"] as const;
 type TrackParam = (typeof VALID_TRACKS)[number];
 
 function isValidTrack(value: string | null): value is TrackParam {
@@ -194,6 +194,18 @@ function HomePageContent() {
             color="#f6ad55"
             index={2}
           />
+          <TrackCardClickable
+            emoji="🤖"
+            title="AI"
+            subtitle="AI-First Software Engineering"
+            description="Design RAG, agent, and LLM serving systems interviewers actually ask about"
+            topics={allAiTopics.length}
+            hours={durationByTrack.AI}
+            modules={syllabus.filter(m => m.track === "AI").length}
+            onClick={() => goToTrack("AI")}
+            color="#34d399"
+            index={3}
+          />
         </div>
       </section>
 
@@ -265,7 +277,7 @@ function HomePageContent() {
           <div className={styles.statLabel}>Hours of Content</div>
         </div>
         <div className={styles.statBox}>
-          <div className={styles.statNumber}>3</div>
+          <div className={styles.statNumber}>{new Set(syllabus.map((m) => m.track)).size}</div>
           <div className={styles.statLabel}>Interview Tracks</div>
         </div>
       </section>

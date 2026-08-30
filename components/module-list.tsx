@@ -3,7 +3,7 @@ import { Topic } from "@/data/syllabus";
 import styles from "./module-list.module.css";
 
 type ModuleListProps = {
-  track: "DSA" | "LLD" | "HLD";
+  track: "DSA" | "LLD" | "HLD" | "AI";
   masteryMap: Record<string, "not-started" | "learning" | "practiced" | "interview-ready">;
   onMasteryUpdate: (topicId: string, status: "not-started" | "learning" | "practiced" | "interview-ready") => void;
   onTopicClick: (topic: Topic) => void;
@@ -127,6 +127,15 @@ function buildModuleCheatsheet(moduleTitle: string, topics: Topic[]): string[] {
       "Prefer composition and abstraction over deep inheritance.",
       "Use the right pattern for the extensibility need: factory, singleton, observer, strategy.",
       "In interviews, defend your design with trade-offs and failure handling."
+    ];
+  }
+
+  if (normalized.startsWith("ai:") || normalized.includes("llm") || normalized.includes("rag")) {
+    return [
+      "Start from the product requirement: quality bar, latency budget, and cost ceiling.",
+      "Prefer retrieval over training when knowledge is fresh, private, or changing.",
+      "Every AI design needs an evaluation story: dataset, metric, and regression guard.",
+      "Trade-off axes: quality, latency, cost per query, and safety/failure handling."
     ];
   }
 
