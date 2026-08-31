@@ -15,7 +15,7 @@ export const comprehensiveDsaTopics: Topic[] = [
     title: "Two Sum & Multi-Sum Problems",
     intuition:
       "Find pairs/triplets/k-numbers that sum to target. Hash map for O(n), sorting for space-efficient.",
-    methodology: `Hash map approach: Store complement â Check if target found. Sorting approach: Two pointers from ends.`,
+    methodology: `Hash map approach: Store complement → Check if target found. Sorting approach: Two pointers from ends.`,
     cppCode: `
 // Hash Map O(n) time, O(n) space
 unordered_map<int, int> seen;
@@ -41,16 +41,16 @@ i=1,7: complement=2, found! return [0,1]
 3Sum in [-1,0,1,2,-1,-4], target=0
 Sort: [-4,-1,-1,0,1,2]
 Fix -4: left=-1,right=2: -1+2=1>0, right--
-Fix -4: left=-1,right=1: -1+1=0 â (but skip dups)
+Fix -4: left=-1,right=1: -1+1=0 ✓ (but skip dups)
 Fix -1: left=0,right=2: 0+2=2>0, right--
 Found: [-1,-1,2], [-1,0,1]
 `,
     complexity: {
-      time: "O(nÂ²) for 3Sum (O(n) hash map for 2Sum)",
+      time: "O(n²) for 3Sum (O(n) hash map for 2Sum)",
       space: "O(n) for hash map, O(1) for sorted two-pointers"
     },
     tips: [
-      "2Sum: Use hash map O(n). 3Sum: Sort then two-pointers O(nÂ²).",
+      "2Sum: Use hash map O(n). 3Sum: Sort then two-pointers O(n²).",
       "Skip duplicates in 3Sum/4Sum after fixing element",
       "For sorted input, always use two-pointers"
     ],
@@ -122,7 +122,7 @@ Found: [-1,-1,2], [-1,0,1]
     title: "Sliding Window - Complete Mastery",
     intuition:
       "Maintain window with left/right pointers. Expand to include, shrink to exclude. O(n) for most substring problems.",
-    methodology: `Expand right â While invalid shrink left â Update answer â Move right`,
+    methodology: `Expand right → While invalid shrink left → Update answer → Move right`,
     cppCode: `
 // Generic sliding window template
 int left = 0;
@@ -245,15 +245,15 @@ for (int i = 1; i <= m; i++) {
     workedExample: `
 1D Prefix: arr=[1,3,5,7]
 prefix=[0,1,4,9,16]
-sum(1,2)=prefix[3]-prefix[1]=9-1=8 â
+sum(1,2)=prefix[3]-prefix[1]=9-1=8 ✓
 
 2D Prefix: matrix=[[1,2],[3,4]]
 prefix=[[0,0,0],[0,1,3],[0,3,10]]
-sum(0,0,1,1)=prefix[2][2]-prefix[0][2]-prefix[2][0]+prefix[0][0]=10-0-0+0=10 â
+sum(0,0,1,1)=prefix[2][2]-prefix[0][2]-prefix[2][0]+prefix[0][0]=10-0-0+0=10 ✓
 `,
     complexity: {
-      time: "O(n) build, O(1) query [O(nÂ²) build 2D, O(1) query 2D]",
-      space: "O(n) [O(nÂ²) for 2D]"
+      time: "O(n) build, O(1) query [O(n²) build 2D, O(1) query 2D]",
+      space: "O(n) [O(n²) for 2D]"
     },
     tips: [
       "1-indexed prefix array simplifies boundary handling",
@@ -324,7 +324,7 @@ sum(0,0,1,1)=prefix[2][2]-prefix[0][2]-prefix[2][0]+prefix[0][0]=10-0-0+0=10 â�
     title: "Fast & Slow Pointers (Floyd's Cycle Detection)",
     intuition:
       "Move one pointer 2x speed. If cycle, they meet. Detects cycle, finds middle, finds kth from end.",
-    methodology: `Slow moves 1 step, Fast moves 2 steps â Eventually meet if cycle exists (or fast reaches null)`,
+    methodology: `Slow moves 1 step, Fast moves 2 steps → Eventually meet if cycle exists (or fast reaches null)`,
     cppCode: `
 // Detect cycle in linked list
 ListNode* slow = head;
@@ -365,16 +365,16 @@ while (fast) {
 return slow;  // kth from end
 `,
     workedExample: `
-Detect cycle in 1â2â3â4â2 (cycle from node 2)
-Slow: 1â2â3â4â2â3â4â2â3â...
-Fast: 1â3â2â4â3â2â4â3â2â...
+Detect cycle in 1→2→3→4→2 (cycle from node 2)
+Slow: 1→2→3→4→2→3→4→2→3→...
+Fast: 1→3→2→4→3→2→4→3→2→...
 Meet at node 2 (they meet after moving same distance to meeting point)
 
 Find cycle start:
 After meeting at node 2, reset one pointer to head (1)
 Both move 1 step at a time
-1â2 (they meet)
-2 is cycle start â
+1→2 (they meet)
+2 is cycle start ✓
 `,
     complexity: {
       time: "O(n) - in worst case entire list traversed",
@@ -391,7 +391,7 @@ Both move 1 step at a time
       "Can be applied to arrays too (with modulo for cycle)"
     ],
     memoryAids: [
-      "SLOW=1, FAST=2 â If cycle, they WILL meet",
+      "SLOW=1, FAST=2 → If cycle, they WILL meet",
       "CYCLE START = reset one to head, both move 1 step together",
       "Works because: fast pointer 'laps' slow pointer"
     ],
@@ -450,7 +450,7 @@ Both move 1 step at a time
     title: "Monotonic Stack Pattern",
     intuition:
       "Maintain stack in increasing/decreasing order. Solves next/previous greater/smaller in O(n).",
-    methodology: `For each element: Pop while condition fails â Push current â Record answer`,
+    methodology: `For each element: Pop while condition fails → Push current → Record answer`,
     cppCode: `
 // Next Greater Element
 vector<int> nextGreaterElement(vector<int>& arr) {
