@@ -610,56 +610,56 @@ Rule: storage doubles immediately, quality rarely does`)
         diagram: asciiDiagram(`Exact vs approximate — the cost curve that forces the trade
 
   query latency
-      \u25b2
-      \u2502                                    \u256f exact scan: O(N\u00b7d)
-      \u2502                                  \u256f   linear in corpus
-      \u2502                                \u256f     10M vectors \u2248 100s of ms
-      \u2502                              \u256f
-      \u2502                            \u256f
-      \u2502                          \u256f
-      \u2502                        \u256f
-      \u2502                      \u256f
-      \u2502                    \u256f
-      \u2502      \u250c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2518
-      \u2502  \u2500\u2500\u2500\u2500\u2518         HNSW: O(ef \u00b7 log N)
-      \u2502                logarithmic in corpus
-      \u2502                10M vectors \u2248 5\u201330 ms
-      \u2514\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u25b6 corpus size N
+      ▲
+      │                                    ╯ exact scan: O(N·d)
+      │                                  ╯   linear in corpus
+      │                                ╯     10M vectors ≈ 100s of ms
+      │                              ╯
+      │                            ╯
+      │                          ╯
+      │                        ╯
+      │                      ╯
+      │                    ╯
+      │      ┌───────────┘
+      │  ────┘         HNSW: O(ef · log N)
+      │                logarithmic in corpus
+      │                10M vectors ≈ 5–30 ms
+      └──────────────────────────────────────────▶ corpus size N
          100K      1M       10M      100M
 
-  Crossover sits near 100K\u2013500K vectors. Below it, brute force
+  Crossover sits near 100K–500K vectors. Below it, brute force
   is simpler AND fast enough. Above it, ANN is not optional.
 
-  What you pay: recall drops from 1.00 to ~0.90\u20130.98`)
+  What you pay: recall drops from 1.00 to ~0.90–0.98`)
       },
       {
         title: "HNSW: The Index You Will Actually Be Asked About",
         content:
           "HNSW builds a navigable small-world graph: every vector is a node connected to roughly M of its near neighbours. Search is greedy graph traversal — start somewhere, look at the current node's neighbours, move to whichever is closest to the query, repeat until no neighbour improves. The reason this finds good answers quickly is the small-world property: a graph with mostly-local links plus a few long-range ones lets you cross the space in a small number of hops. The hierarchical part is what makes entry cheap. The index is a stack of layers. The top layer holds a sparse sample of nodes with long-range links; each layer down is denser. A search enters at the top, greedily descends to the closest node in that sparse layer, drops to the next layer using that node as the entry point, and repeats. The top layers are a coarse express network that gets you to the right region in a handful of hops; the bottom layer, which contains every vector, does the fine-grained work. The three parameters deserve an emphatic distinction because it is a reliable signal in interviews. M controls how many neighbours each node keeps — build-time and structural, higher M means better recall and a more robust graph at linearly higher memory and slower construction, with 16–48 being the typical range. ef_construction controls how hard the builder searches for each node's neighbours during construction — build-time and quality-determining, higher is strictly better and costs only one-time build time so you should set it generously at 200–400 with no production downside. ef (efSearch) controls how many candidates the traversal keeps in flight at query time — this is runtime, changeable live, and requires no rebuild, making it your production incident dial: raise it for recall, lower it for latency. The operational punchline is stark: ef is the only one of the three you can change in response to a production incident. M and ef_construction are baked in at build time and changing them means a multi-hour rebuild. HNSW handles deletes by tombstoning, not by repairing the graph. Accumulated soft-deletes degrade connectivity and therefore recall, silently, over months. The fix is periodic full rebuilds, and the leading indicator is recall measured against a frozen golden query set — recall degrades before latency does, so latency alerts will not catch it.",
-        diagram: asciiDiagram(`HNSW \u2014 hierarchical navigable small world
+        diagram: asciiDiagram(`HNSW — hierarchical navigable small world
 
-  Layer 2   \u25cf\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u25cf          sparse, long links
-  (entry)    \u2572                       \u2571           few nodes, big hops
-               \u2572                     \u2571
-                \u25bc                   \u25bc
-  Layer 1   \u25cf\u2500\u2500\u2500\u2500\u25cf\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u25cf\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u25cf\u2500\u2500\u2500\u2500\u25cf        denser
-             \u2572    \u2572      \u2571 \u2572      \u2571    \u2571
-              \u25bc    \u25bc    \u25bc   \u25bc    \u25bc    \u25bc
-  Layer 0   \u25cf\u2500\u25cf\u2500\u25cf\u2500\u25cf\u2500\u25cf\u2500\u25cf\u2500\u25cf\u2500\u25cf\u2500\u25cf\u2500\u25cf\u2500\u25cf\u2500\u25cf\u2500\u25cf\u2500\u25cf\u2500\u25cf        ALL vectors
+  Layer 2   ●─────────────────────────●          sparse, long links
+  (entry)    ╲                       ╱           few nodes, big hops
+               ╲                     ╱
+                ▼                   ▼
+  Layer 1   ●────●────────●────────●────●        denser
+             ╲    ╲      ╱ ╲      ╱    ╱
+              ▼    ▼    ▼   ▼    ▼    ▼
+  Layer 0   ●─●─●─●─●─●─●─●─●─●─●─●─●─●─●        ALL vectors
             every node has ~M neighbours          fine-grained
 
-  Search: enter at top \u2500\u2500\u25b6 greedy descent \u2500\u2500\u25b6 refine at layer 0
+  Search: enter at top ──▶ greedy descent ──▶ refine at layer 0
 
-  \u250c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u252c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u252c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2510
-  \u2502 parameter        \u2502 when set   \u2502 effect                      \u2502
-  \u251c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u253c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u253c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2524
-  \u2502 M                \u2502 build      \u2502 neighbours per node;        \u2502
-  \u2502                  \u2502 (locked)   \u2502 recall \u25b2 memory \u25b2           \u2502
-  \u2502 ef_construction  \u2502 build      \u2502 build quality; set high,    \u2502
-  \u2502                  \u2502 (locked)   \u2502 cost is one-time only       \u2502
-  \u2502 ef  (efSearch)   \u2502 QUERY TIME \u2502 recall \u25b2 latency \u25b2          \u2502
-  \u2502                  \u2502 \u2705 live    \u2502 \u25c4\u2500\u2500 your production dial    \u2502
-  \u2514\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2534\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2534\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2518`)
+  ┌──────────────────┬────────────┬─────────────────────────────┐
+  │ parameter        │ when set   │ effect                      │
+  ├──────────────────┼────────────┼─────────────────────────────┤
+  │ M                │ build      │ neighbours per node;        │
+  │                  │ (locked)   │ recall ▲ memory ▲           │
+  │ ef_construction  │ build      │ build quality; set high,    │
+  │                  │ (locked)   │ cost is one-time only       │
+  │ ef  (efSearch)   │ QUERY TIME │ recall ▲ latency ▲          │
+  │                  │ ✅ live    │ ◄── your production dial    │
+  └──────────────────┴────────────┴─────────────────────────────┘`)
       },
       {
         title: "IVF and Product Quantization: When Memory Is the Constraint",
@@ -667,103 +667,103 @@ Rule: storage doubles immediately, quality rarely does`)
           "HNSW optimises recall and latency and pays in memory. Once the corpus reaches a scale where holding vectors plus graph in RAM is the binding cost — hundreds of millions of vectors — the trade has to move. IVF (inverted file index) partitions the space by running k-means over the corpus to produce nlist centroids; each vector is assigned to its nearest centroid's cell. At query time, find the nprobe closest centroids and search only within those cells. Searching nprobe=8 of nlist=4096 cells examines roughly 0.2% of the corpus. nprobe is the runtime recall/latency dial, exactly analogous to ef. The characteristic failure is honest and worth naming: when the true nearest neighbour sits just across a cell boundary that was not probed, it is missed, and this is why IVF recall is generally below HNSW at equal latency. Product quantization is the memory lever and deserves the mechanism, not just the name. Split each vector into m subvectors; run k-means separately on each subvector position to learn a codebook of 256 centroids; store each subvector as the one-byte id of its nearest centroid. A 1536-dim float32 vector is 6,144 bytes; split into m=96 subvectors it becomes 96 bytes — roughly 64× smaller. Distances are computed approximately against the codebooks using precomputed lookup tables, which is also fast. The cost is real and should be stated plainly: PQ is lossy compression of the vectors themselves, so recall drops meaningfully — this is a capacity decision, not a free optimisation. The practical selection rule: HNSW under roughly 50M vectors where memory is affordable; IVF+PQ above that or wherever RAM is the hard constraint; hybrid IVF+HNSW arrangements that use a graph to find the right cells exist as well. Disk-based ANN variants for RAM-constrained deployments are worth naming in an interview as evidence of awareness, without pretending they are the common case.",
         diagram: asciiDiagram(`Two ways to avoid scanning everything
 
-  IVF \u2014 partition, then probe a few cells
-  \u250c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u252c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u252c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u252c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2510
-  \u2502  cell 1 \u2502  cell 2 \u2502  cell 3 \u2502  cell 4 \u2502   nlist = 4096 cells
-  \u2502   \u25cf \u25cf   \u2502  \u25cf   \u25cf  \u2502 \u25cf \u25cf \u25cf   \u2502   \u25cf  \u25cf  \u2502   built by k-means
-  \u2502  \u25cf   \u25cf  \u2502   \u25cf \u25cf   \u2502  \u25cf   \u25cf  \u2502  \u25cf \u25cf    \u2502
-  \u251c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u253c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u253c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u253c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2524   query \u25bc finds the
-  \u2502  cell 5 \u2502  cell 6 \u2502  cell 7 \u2502  cell 8 \u2502   nprobe nearest
-  \u2502  \u25cf  \u25cf   \u2502 \u2726 query \u2502  \u25cf  \u25cf   \u2502  \u25cf   \u25cf  \u2502   centroids and
-  \u2502   \u25cf \u25cf   \u2502  \u25cf \u25cf \u25cf  \u2502   \u25cf  \u25cf  \u2502 \u25cf  \u25cf    \u2502   searches ONLY those
-  \u2514\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2534\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2534\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2534\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2518
-   nprobe=2 searches cells 6 and 3 \u2500\u2500 examines ~0.05% of corpus
-   risk: a true neighbour in cell 7 is never seen \u2500\u2500\u25b6 recall loss
+  IVF — partition, then probe a few cells
+  ┌─────────┬─────────┬─────────┬─────────┐
+  │  cell 1 │  cell 2 │  cell 3 │  cell 4 │   nlist = 4096 cells
+  │   ● ●   │  ●   ●  │ ● ● ●   │   ●  ●  │   built by k-means
+  │  ●   ●  │   ● ●   │  ●   ●  │  ● ●    │
+  ├─────────┼─────────┼─────────┼─────────┤   query ▼ finds the
+  │  cell 5 │  cell 6 │  cell 7 │  cell 8 │   nprobe nearest
+  │  ●  ●   │ ✦ query │  ●  ●   │  ●   ●  │   centroids and
+  │   ● ●   │  ● ● ●  │   ●  ●  │ ●  ●    │   searches ONLY those
+  └─────────┴─────────┴─────────┴─────────┘
+   nprobe=2 searches cells 6 and 3 ── examines ~0.05% of corpus
+   risk: a true neighbour in cell 7 is never seen ──▶ recall loss
 
-  PQ \u2014 compress each vector into subvector codes
-   original  [1536 floats \u00d7 4 bytes]  = 6,144 bytes
-                     \u2502
-                     \u25bc  split into m=96 subvectors of 16 dims
-   each subvector \u2500\u2500\u25b6 nearest of 256 learned centroids \u2500\u2500\u25b6 1 byte
-                     \u2502
-                     \u25bc
-   compressed  [96 bytes]  \u2248 64\u00d7 smaller, lossy
+  PQ — compress each vector into subvector codes
+   original  [1536 floats × 4 bytes]  = 6,144 bytes
+                     │
+                     ▼  split into m=96 subvectors of 16 dims
+   each subvector ──▶ nearest of 256 learned centroids ──▶ 1 byte
+                     │
+                     ▼
+   compressed  [96 bytes]  ≈ 64× smaller, lossy
 
-  \u250c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u252c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u252c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u252c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2510
-  \u2502 index        \u2502 recall   \u2502 memory   \u2502 use when              \u2502
-  \u251c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u253c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u253c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u253c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2524
-  \u2502 flat / exact \u2502 1.00     \u2502 high     \u2502 under ~100K vectors   \u2502
-  \u2502 HNSW         \u2502 0.90\u2013.98 \u2502 high     \u2502 100K\u201350M, RAM is fine \u2502
-  \u2502 IVF + PQ     \u2502 0.70\u2013.90 \u2502 very low \u2502 50M+, RAM is binding  \u2502
-  \u2514\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2534\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2534\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2534\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2518`)
+  ┌──────────────┬──────────┬──────────┬───────────────────────┐
+  │ index        │ recall   │ memory   │ use when              │
+  ├──────────────┼──────────┼──────────┼───────────────────────┤
+  │ flat / exact │ 1.00     │ high     │ under ~100K vectors   │
+  │ HNSW         │ 0.90–.98 │ high     │ 100K–50M, RAM is fine │
+  │ IVF + PQ     │ 0.70–.90 │ very low │ 50M+, RAM is binding  │
+  └──────────────┴──────────┴──────────┴───────────────────────┘`)
       },
       {
         title: "Metadata Filtering: The Failure Mode That Silently Returns Nothing",
         content:
           "Real queries are almost never pure vector similarity — they are 'similar chunks from this tenant', 'from documents this user may read', 'published in the last year'. How the system combines the filter with the ANN traversal determines whether it works at all. Post-filtering retrieves ANN top-k, then discards non-matching results. It is the naive default and it is fine when the filter is broad. The arithmetic is simple and worth writing out: expected survivors equal k times the filter selectivity. Retrieve 200 with a filter matching 10% of the corpus and about 20 survive — plenty for a top-10. Now the failure. Take a filter matching 0.05% of the corpus, a small tenant on a shared index. Retrieve 200 and expect 0.1 survivors. Most queries return nothing. This is silent: ANN search succeeded, the filter succeeded, the pipeline reports no error, and the model is handed empty context and either refuses or invents an answer. To reliably obtain ten results at 0.05% selectivity you must retrieve roughly 20,000 candidates, which is a different latency regime entirely. So the system either breaks or becomes hundreds of milliseconds slow, and both failures land only on your smallest tenants — the ones least likely to be in your load tests. Pre-filtering applies the predicate during traversal so the graph walk only ever considers eligible nodes. This is correct at any selectivity but requires index support; a naive implementation that restricts the graph too aggressively can disconnect it and hurt recall, which is why filter-aware ANN is a genuine engineering feature and not a checkbox. The rule to carry into an interview: ask about selectivity before proposing anything. Above roughly 10%, post-filtering is fine. Below 1%, you need filter-aware ANN or a separate index per filter value — and note that a small tenant's vectors are usually tiny enough that a dedicated index is trivially cheap. Between 1% and 10%, measure.",
-        diagram: asciiDiagram(`Post-filter vs pre-filter \u2014 why selectivity decides
+        diagram: asciiDiagram(`Post-filter vs pre-filter — why selectivity decides
 
   POST-FILTER   ANN first, then discard
-  \u250c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2510
-  \u2502  query \u2500\u2500\u25b6 ANN top-200 \u2500\u2500\u25b6 apply filter \u2500\u2500\u25b6 survivors     \u2502
-  \u2514\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2518
-   survivors \u2248 200 \u00d7 selectivity
+  ┌──────────────────────────────────────────────────────────┐
+  │  query ──▶ ANN top-200 ──▶ apply filter ──▶ survivors     │
+  └──────────────────────────────────────────────────────────┘
+   survivors ≈ 200 × selectivity
 
-   selectivity 10%   \u2500\u2500\u25b6  ~20 survive   \u2705 fine
-   selectivity  1%   \u2500\u2500\u25b6  ~2  survive   \u26a0\ufe0f marginal
-   selectivity 0.05% \u2500\u2500\u25b6  ~0 survive    \u274c returns nothing, silently
+   selectivity 10%   ──▶  ~20 survive   ✅ fine
+   selectivity  1%   ──▶  ~2  survive   ⚠️ marginal
+   selectivity 0.05% ──▶  ~0 survive    ❌ returns nothing, silently
 
    to force 10 survivors at 0.05% you must pull ~20,000 candidates
-   \u2500\u2500\u25b6 ~100\u00d7 the work \u2500\u2500\u25b6 p95 blows past any sane SLA
+   ──▶ ~100× the work ──▶ p95 blows past any sane SLA
 
   PRE-FILTER    filter during traversal
-  \u250c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2510
-  \u2502  query \u2500\u2500\u25b6 ANN walks ONLY eligible nodes \u2500\u2500\u25b6 top-10       \u2502
-  \u2514\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2518
+  ┌──────────────────────────────────────────────────────────┐
+  │  query ──▶ ANN walks ONLY eligible nodes ──▶ top-10       │
+  └──────────────────────────────────────────────────────────┘
    correct at ANY selectivity, needs filter-aware index support
 
-  \u250c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u252c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2510
-  \u2502 selectivity    \u2502 what to do                               \u2502
-  \u251c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u253c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2524
-  \u2502 above 10%      \u2502 post-filter is fine                      \u2502
-  \u2502 1% \u2013 10%       \u2502 measure, then decide                     \u2502
-  \u2502 below 1%       \u2502 pre-filter-aware ANN, or a separate      \u2502
-  \u2502                \u2502 index for that filter value              \u2502
-  \u2514\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2534\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2518
+  ┌────────────────┬──────────────────────────────────────────┐
+  │ selectivity    │ what to do                               │
+  ├────────────────┼──────────────────────────────────────────┤
+  │ above 10%      │ post-filter is fine                      │
+  │ 1% – 10%       │ measure, then decide                     │
+  │ below 1%       │ pre-filter-aware ANN, or a separate      │
+  │                │ index for that filter value              │
+  └────────────────┴──────────────────────────────────────────┘
 
-  \u26a0\ufe0f this failure hits your SMALLEST tenants \u2014 the ones least
+  ⚠️ this failure hits your SMALLEST tenants — the ones least
      likely to appear in load tests`)
       },
       {
         title: "Do You Actually Need a Vector Database?",
         content:
           "Frame the decision as build-versus-adopt rather than vendor selection, because vendor comparisons date within months while the decision procedure does not. The default should be to add vector search to infrastructure you already run, not to introduce a new stateful service. For a team already on PostgreSQL, pgvector is CREATE EXTENSION vector plus an index — no new service, no new failure modes, no new backup and restore story, no new on-call surface. Against that, PostgreSQL already gives you full-text with indexing natively, ACID transactions, existing access control and row-level security, familiar backup and restore, and no additional infrastructure to learn or operate. The tradeoff is real but often overstated: pgvector's HNSW implementation has somewhat higher query latency at very large scale compared to purpose-built systems, and it lacks advanced features like native sparse-dense hybrid search, multi-vector storage, or GPU-accelerated indexing. The practical decision framework: start with pgvector if you are already on PostgreSQL and your corpus is under 1–5 million vectors; measure query p95 latency under your expected concurrent query load; graduate to a purpose-built vector database only when measurements show pgvector is the actual bottleneck. The most common mistake is pre-emptively adopting a purpose-built vector database for a corpus of 100,000 vectors — adding operational complexity to solve a problem that pgvector handles trivially at that scale.",
-        diagram: asciiDiagram(`Decision tree \u2014 do you need a dedicated vector database?
+        diagram: asciiDiagram(`Decision tree — do you need a dedicated vector database?
 
   How many vectors in your index?
-              \u2502
-        &lt; 1M  \u2502  1M\u201310M       &gt; 10M
-              \u2502                 \u2502
-              \u25bc                 \u25bc
+              │
+        &lt; 1M  │  1M–10M       &gt; 10M
+              │                 │
+              ▼                 ▼
   pgvector or       Measure p95 latency    Purpose-built
   even in-memory    under load with        vector DB is
   (numpy/faiss)     pgvector first         likely justified
-              \u2502                 \u2502
-              \u25bc                 \u25bc
-  Do you need ANY of these?    p95 &lt; SLA?  \u2192 stay on pgvector
-  \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500    p95 &gt; SLA?  \u2192 evaluate purpose-built
-  \u2022 Native hybrid (sparse+dense)
-  \u2022 Multi-vector per document
-  \u2022 GPU-accelerated indexing
-  \u2022 &gt; 500 concurrent queries/sec
-  \u2022 Multi-tenant with &gt; 1000 tenants
-  \u2022 Disk-based ANN (RAM-constrained)
-              \u2502
+              │                 │
+              ▼                 ▼
+  Do you need ANY of these?    p95 &lt; SLA?  → stay on pgvector
+  ─────────────────────────    p95 &gt; SLA?  → evaluate purpose-built
+  • Native hybrid (sparse+dense)
+  • Multi-vector per document
+  • GPU-accelerated indexing
+  • &gt; 500 concurrent queries/sec
+  • Multi-tenant with &gt; 1000 tenants
+  • Disk-based ANN (RAM-constrained)
+              │
              YES
-              \u2502
-              \u25bc
+              │
+              ▼
   Evaluate purpose-built options
-  by capability category \u26a0\ufe0f fast-moving:
+  by capability category ⚠️ fast-moving:
   verify current feature support per vendor`)
       }
     ],
