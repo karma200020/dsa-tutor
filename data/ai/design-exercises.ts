@@ -2761,4 +2761,1006 @@ export const aiDesignExerciseTopics: Topic[] = [
       "THE CORRECTION RATE JUMPED AND NOTHING WAS DEPLOYED. Human correction rate on a stable invoice class rises from 6 to 15 percent over two weeks with no pipeline change. Diagnose. ANSWER: Something upstream changed, and there are four candidates. Input quality drift - a large customer replaced their scanner, or switched from digital PDFs to scanned printouts, which would show as a shift in the native-text fraction and is the first thing to check because it is cheap to measure. Vendor template change - a major vendor redesigned their invoice layout, which shows as the correction rate concentrating in documents from that vendor, so segment by source before anything else. Silent model change - if the reading model is a hosted API, the provider may have updated it without notice, which is why pinning versions matters and why a fixed golden set should be re-scored on a schedule rather than only at deploy time. Reviewer behaviour change - new reviewers correcting values that older reviewers accepted, which is a calibration issue rather than an extraction one and is distinguished by the golden set staying flat. Check the golden set first: if it is unchanged, the model is fine and the change is in the inputs or the reviewers.",
     ],
   },
+  {
+    id: "topic-ai-design-llm-gateway",
+    moduleId: "mod-ai-design-exercises",
+    title: "Design an LLM Gateway and Model Routing Layer",
+    complexity: {
+      time: "The gateway's entire latency budget is overhead on someone else's request, so single-digit milliseconds of added processing is the target and anything approaching tens of milliseconds needs justifying. The hard requirement is that it must stream: a gateway that buffers a complete response before returning it destroys time-to-first-token, which is the metric users actually perceive, and turns a responsive feature into a frozen one. That rules out any design needing the whole response to make a decision - output guardrails, full-response logging and response caching must work incrementally or move off the hot path. Failover adds latency precisely when things are already bad, so timeouts must come from the provider's real latency distribution rather than a round number.",
+      space: "The gateway is stateless on the request path, which is what keeps it scalable, but it accumulates significant state around it: request and response logs for evaluation and debugging, which at full fidelity is the largest data volume in the system and grows with every token the company generates; cache entries; per-team quota counters shared across instances; and prompt and model version pins. Log retention is the main storage decision and is usually resolved by sampling rather than storing everything, because full-fidelity capture quickly rivals the inference spend itself. Cost attribution requires tokens counted per team and per feature, so the metering path cannot be dropped even under load shedding.",
+    },
+    intuition:
+      "Once more than a couple of teams call model providers directly, the same problems get solved badly several times over: nobody knows what the company is spending or on what, one team's runaway batch job exhausts a shared rate limit and breaks another team's product, a provider silently updates a model and behaviour shifts everywhere at once, and no two teams log requests the same way so nothing can be evaluated centrally. A gateway is the standard answer - one internal service every AI call passes through. It is also a genuinely uncomfortable piece of infrastructure, because the moment it exists it is on the critical path of every AI feature in the company. Its availability becomes everyone's ceiling and its latency is added to everyone's budget. That is the tension the design has to earn its way out of.",
+    lesson: [
+      {
+        title: "Requirements: What Belongs Here and What Does Not",
+        content:
+          "The users of this system are internal engineering teams, not end users, and the product is leverage: things every team needs and none should build separately. That framing matters because it changes what 'good' means - a gateway is judged on how much duplicated work it removes and how little risk it adds, not on features.\n\nEnumerate the candidate responsibilities honestly: provider abstraction and failover, authentication and team identity, per-team quota and rate limiting, cost attribution and chargeback, response caching, request and response logging for evaluation and debugging, prompt and model version pinning, PII redaction, guardrails, and routing to cheaper models where quality allows.\n\nThen apply the discipline that separates a good answer from a feature list: every feature added to the gateway is latency and availability risk imposed on every team simultaneously. A bug in a library affects the teams that upgraded; a bug in the gateway affects everyone at once, including the teams that changed nothing.\n\nSo some of that list belongs in a thin SDK that teams import rather than in the central service. Client-side retry policy, request construction and even some caching are reasonable candidates. What genuinely needs to be central is anything requiring a shared view: quota enforcement against a shared provider limit, cost attribution across teams, and the logging corpus that central evaluation depends on.\n\nSay plainly that the central-gateway-versus-thin-SDK choice is a real and unsettled trade with an organisational dimension. At three teams, an SDK and a spreadsheet may genuinely be better. At thirty teams sharing a provider rate limit, the gateway is close to forced. The honest answer depends on company size and on how much teams need protecting from each other, and an interviewer who hears that framing learns more about you than any feature enumeration would convey.",
+        diagram: asciiDiagram(`
+  WHAT BELONGS CENTRAL, WHAT BELONGS IN A LIBRARY
+
+  ┌──────────────────────────────┬─────────────────────────────────┐
+  │ needs a SHARED view ─► gateway│ per-caller ─► thin SDK          │
+  ├──────────────────────────────┼─────────────────────────────────┤
+  │ quota vs shared provider limit│ retry / backoff policy          │
+  │ cost attribution across teams │ request construction helpers    │
+  │ central eval log corpus       │ client-side caching             │
+  │ model aliases + version pins  │ prompt templating               │
+  │ provider failover             │ local schema validation         │
+  └──────────────────────────────┴─────────────────────────────────┘
+
+  ╔═════════════════════════════════════════════════════════════════╗
+  ║ EVERY feature added to the gateway is latency and availability  ║
+  ║ risk imposed on EVERY team at once.                             ║
+  ║   library bug ─► affects teams that upgraded                    ║
+  ║   gateway bug ─► affects everyone, including teams that         ║
+  ║                  changed nothing                                ║
+  ╚═════════════════════════════════════════════════════════════════╝
+
+  THE TRADE IS ORGANISATIONAL, NOT ONLY TECHNICAL
+   3 teams   ─► an SDK and a spreadsheet may genuinely be better
+   30 teams sharing one provider rate limit
+             ─► a gateway is close to forced
+   ▲ saying this out loud tells an interviewer more than any
+     feature list will
+`),
+      },
+      {
+        title: "Scale and Capacity: Concurrency, Not RPS",
+        content:
+          "Start with the numbers: requests per second across all teams, tokens per request, and the peak-to-average ratio. Take twenty teams generating a combined 200 requests per second at peak, averaging 800 output tokens each.\n\nBy web-service standards 200 RPS is nothing. That is exactly why people size this wrong. Each gateway request is long-lived and streaming - an 800-token response at 40 tokens per second occupies a connection for twenty seconds. At 200 RPS with a twenty-second mean duration, Little's law gives 4,000 concurrent open connections, each holding an upstream connection to a provider as well.\n\nSo connection concurrency, not requests per second, is the sizing constraint. A gateway sized like a normal API - threads per request, default connection pool limits, standard load-balancer idle timeouts - will fall over at request rates that look trivially small on a dashboard. The design consequences are concrete: asynchronous or event-driven I/O rather than thread-per-request, generous connection pool ceilings upstream, and load-balancer idle timeouts raised above the longest plausible generation.\n\nLog volume follows from tokens rather than requests. At 200 RPS with roughly a thousand tokens in and out combined, full-fidelity capture is on the order of hundreds of gigabytes a day of text before any indexing overhead. That is why sampling is essentially forced: keep full payloads for a small percentage plus all errors and all flagged requests, and keep metadata - team, alias, resolved model, token counts, latency, status - for everything, because metadata is small and is what cost attribution and alerting actually need.\n\nThe quota counter store is sized from team count times window granularity times a small number of counters, which is trivially small. Its difficulty is not capacity but that it must be shared across gateway instances and must be fast enough to sit on the hot path, which points toward an in-memory store with approximate counting rather than a transactional database.",
+        diagram: asciiDiagram(`
+  WHY THIS IS NOT A NORMAL API
+
+   200 RPS  ◄── trivial on any dashboard
+   × 20 s mean stream duration (800 tok @ 40 tok/s)
+   ────────────────────────────────────────────────
+   = 4 000 CONCURRENT OPEN CONNECTIONS   (Little's law)
+     each holding an upstream provider connection too
+
+  ╔═════════════════════════════════════════════════════════════════╗
+  ║ CONNECTION CONCURRENCY sizes the gateway, not RPS.              ║
+  ║ Sized like a normal API it falls over at request rates that     ║
+  ║ look trivially small.                                           ║
+  ╚═════════════════════════════════════════════════════════════════╝
+
+  CONSEQUENCES
+   ┌────────────────────────────────────────────────────────────┐
+   │ async / event-driven I/O, NOT thread-per-request           │
+   │ upstream connection pool ceilings raised well above 4 000  │
+   │ LB idle timeout > longest plausible generation             │
+   │   ▲ default 60 s LB timeouts silently kill long streams    │
+   └────────────────────────────────────────────────────────────┘
+
+  LOG VOLUME - why sampling is forced
+   200 RPS × ~1 000 tok in+out × ~4 bytes/tok
+   ≈ 800 KB/s ≈ 70 GB/day of raw text, before indexing
+   ┌──────────────────────┬─────────────────────────────────────┐
+   │ FULL payloads        │ sample % + ALL errors + ALL flagged │
+   │ METADATA for 100%    │ team · alias · resolved model ·     │
+   │  (small, and it is   │ tokens in/out · latency · status    │
+   │   what cost + alerts │                                     │
+   │   actually need)     │                                     │
+   └──────────────────────┴─────────────────────────────────────┘
+
+  QUOTA STORE
+   teams × windows × counters ─► tiny. The difficulty is that it is
+   SHARED across instances and sits on the HOT PATH ─► in-memory
+   store with approximate counting, not a transactional database
+`),
+      },
+      {
+        title: "Architecture: Model Aliases and a Minimal Hot Path",
+        content:
+          "The request path in order: authenticate the caller and identify the owning team; resolve the requested model alias to a concrete pinned provider and version; check quota; check cache; apply input guardrails and PII redaction; dispatch to the provider; stream the response back while incrementally logging and metering; record usage for attribution.\n\nAround that path sit the config and version store, the log and trace sink, the cache, the quota store, and a control plane where platform engineers manage pins, budgets and routing rules without shipping gateway code.\n\nThe central abstraction is the model alias. Teams request a logical name - `summarisation-default`, `code-review-high-quality` - rather than a provider-specific model string. That single indirection is what makes everything else possible. Migration becomes a config change rather than a coordinated deploy across twenty repositories. Routing to a cheaper model for a subset of traffic becomes an experiment rather than an application change. Version pinning becomes enforceable, because there is a place to record what a name currently means.\n\nWithout aliases the gateway is just a proxy, and a proxy that adds latency and a shared failure domain while providing nothing that a library could not. This is worth stating explicitly in an interview, because it distinguishes a design with a thesis from a design that is a list of middlewares.\n\nThe control plane deserves separate mention because it is where the operational value accrues. A platform engineer changing which concrete model `summarisation-default` points to, adjusting a team's budget, or shifting ten percent of traffic to a cheaper model should be a configuration action with an audit trail, not a code deploy. That separation is also what keeps the data plane simple enough to be reliable.",
+        diagram: asciiDiagram(`
+  GATEWAY REQUEST PATH - hot path stays minimal
+
+   team service
+        │  model ALIAS: "summarisation-default"
+        │  ▲ never a raw provider model string
+        ▼
+   ┌───────────────────────────────────────────────────────────┐
+   │ authn ─► resolve alias ─► quota ─► cache ─► input         │
+   │          to pinned                        guardrails /    │
+   │          provider + version               PII redaction   │
+   └───────────────────────────────────────────────────────────┘
+        │
+        ▼
+   ┌──────────────┐   failover   ┌─────────────────────┐
+   │ provider A   │ ───────────► │ provider B          │
+   │ (pinned ver) │              │ PRE-EVALUATED       │
+   └──────────────┘              │ fallback            │
+        │                        └─────────────────────┘
+        │   ◄── STREAM tokens back, NEVER buffer ──►
+        ▼
+   team service  ◄── first token arrives fast
+
+  OFF THE HOT PATH - all fail-open
+   ┌────────────┐ ┌─────────────┐ ┌──────────────┐ ┌───────────┐
+   │ log/trace  │ │ usage meter │ │ config store │ │ control   │
+   │ sink       │ │ chargeback  │ │ last-known-  │ │ plane     │
+   │            │ │             │ │ good cache   │ │ (pins,    │
+   │            │ │             │ │              │ │ budgets,  │
+   │            │ │             │ │              │ │ routing)  │
+   └────────────┘ └─────────────┘ └──────────────┘ └───────────┘
+
+  ╔═════════════════════════════════════════════════════════════════╗
+  ║ RULE: nothing on the hot path is a HARD dependency except the   ║
+  ║       provider call itself.                                     ║
+  ╚═════════════════════════════════════════════════════════════════╝
+
+  WHY ALIASES ARE THE THESIS
+   ┌────────────────────────┬────────────────────────────────────┐
+   │ migrate provider       │ config change, not 20 repo deploys │
+   │ route 10% to cheaper   │ an experiment, not an app change   │
+   │ pin a version          │ enforceable - one place records    │
+   │                        │ what the name currently means      │
+   └────────────────────────┴────────────────────────────────────┘
+   without aliases the gateway is JUST A PROXY - added latency and
+   a shared failure domain, providing nothing a library could not
+`),
+      },
+      {
+        title: "Deep Dive: Streaming, Multi-Tenancy and Being Everyone's Ceiling",
+        content:
+          "Three hard parts, and they are the reason this is a platform-engineering question rather than a proxy-writing exercise.\n\nStreaming first. Buffering a complete response before returning it makes time-to-first-token equal to full generation time, which for an 800-token answer is twenty seconds of apparently frozen UI instead of half a second to first word. Users perceive TTFT, not total time, so buffering converts a responsive feature into a broken-feeling one across the entire company at once.\n\nThat constraint forbids anything needing the complete output inline. Output guardrails are the collision point: a classifier that must see the whole response cannot run before the first token is sent. Three resolutions, and a good answer names all three. Scan incrementally over the stream, flagging as soon as enough text has accumulated - workable for many checks and it preserves TTFT. Run the check asynchronously and retract after the fact, accepting that the user briefly saw content that was then withdrawn. Or accept buffering for the narrow set of cases where safety genuinely outweighs responsiveness, which is a legitimate choice made deliberately for specific aliases rather than globally by default.\n\nAlso note that errors can occur mid-stream, after a 200 status has already been sent. That complicates retries badly - you cannot transparently retry a request whose first half the client already has - and means the client contract must define partial-response semantics explicitly rather than pretending the failure mode does not exist.\n\nMulti-tenancy fairness second. The concrete failure: one team's overnight batch job saturates the shared provider rate limit, and another team's interactive product starts timing out at three in the morning with no deploy and no bug of its own. The fix is per-team quotas, priority classes separating interactive from batch, fair queueing between teams, and admission control that sheds batch load before interactive load. The key insight is that shared provider capacity is the actually contended resource, so quotas must be expressed against provider limits rather than against gateway capacity - a gateway with plenty of headroom that faithfully forwards every request into an exhausted provider limit has enforced nothing.\n\nThird, being everyone's ceiling. Availability composes multiplicatively: a gateway at three nines caps every dependent feature at three nines no matter how reliable that feature's own code is. Ten dependent features do not each get three nines; they collectively inherit a single correlated failure mode.\n\nThe responses are structural. Keep the hot path minimal and stateless. Make everything non-essential asynchronous or fail-open. Degrade rather than fail: serve stale config when the config store is unreachable, skip the cache when it is down, keep serving when the logging sink is unavailable, fail quota checks open while alerting. And provide a documented bypass path for emergencies - direct provider credentials that teams can fall back to - which must be rehearsed before it is needed, because an untested bypass discovered during an outage is not a bypass.\n\nThe governing rule, stated directly: nothing on the gateway's hot path may be a hard dependency except the provider call itself.\n\nFinally, pinning and failover. Providers update models behind stable names, and a team's carefully tuned prompt can shift behaviour overnight with no deploy anywhere. The gateway pins explicit versions and makes upgrades a deliberate, eval-gated act. Failover across providers is harder than it looks - different tokenizers, different message formats, different refusal behaviour, different quality on the same prompt - so a fallback must be evaluated in advance rather than chosen during an incident, and the honest framing is that failover degrades semantics rather than transparently preserving them.",
+        diagram: asciiDiagram(`
+  1. BUFFERING DESTROYS PERCEIVED LATENCY
+
+   ┌─────────────────────────────────────────────────────────┐
+   │ buffered:  [.........wait 20 s.........] then all at    │
+   │            once.  TTFT = FULL generation time      ✗    │
+   │ streamed:  t t t t t t t t t t t t t t t t t t t t      │
+   │            TTFT = first token, ~0.5 s              ✓    │
+   └─────────────────────────────────────────────────────────┘
+   users perceive TTFT, not total time
+
+   FORBIDS: any check needing the COMPLETE output inline
+   ┌──────────────────┬──────────────────────────────────────┐
+   │ scan incremental │ flag as text accumulates. Preserves  │
+   │                  │ TTFT. Works for many checks.         │
+   │ check async +    │ user briefly saw content that was    │
+   │ retract          │ then withdrawn                       │
+   │ accept buffering │ legitimate - but per ALIAS, chosen   │
+   │ narrowly         │ deliberately, never global default   │
+   └──────────────────┴──────────────────────────────────────┘
+
+   MID-STREAM ERROR after 200 already sent
+    ─► cannot transparently retry; client has half the answer
+    ─► the client contract MUST define partial-response semantics
+
+  2. MULTI-TENANCY - the 3 a.m. failure
+
+   team A batch job ──┐
+                      ├──► SHARED PROVIDER RATE LIMIT ──► 429
+   team B interactive ┘         ▲ exhausted
+        │
+        ▼ times out at 3 a.m. with no deploy and no bug of its own
+
+   ┌─────────────────────────────────────────────────────────┐
+   │ per-team quotas · priority classes (interactive/batch)  │
+   │ fair queueing · admission control sheds BATCH first     │
+   └─────────────────────────────────────────────────────────┘
+   ╔═════════════════════════════════════════════════════════╗
+   ║ Express quotas against PROVIDER limits, not gateway     ║
+   ║ capacity. A gateway with headroom that faithfully       ║
+   ║ forwards into an exhausted provider limit has enforced  ║
+   ║ nothing.                                                ║
+   ╚═════════════════════════════════════════════════════════╝
+
+  3. AVAILABILITY COMPOSES MULTIPLICATIVELY
+
+   gateway 99.9%  ──► EVERY dependent feature capped at 99.9%
+   10 features do not each get three nines - they inherit ONE
+   correlated failure mode
+
+   ┌──────────┬────────────┬────────────────────────────────┐
+   │ component│ if down    │ gateway behaviour              │
+   ├──────────┼────────────┼────────────────────────────────┤
+   │ provider │ failover   │ try PRE-EVALUATED alternative  │
+   │ cache    │ skip       │ serve, slower                  │
+   │ config   │ stale      │ last-known-good                │
+   │ logging  │ drop/queue │ serve anyway                   │
+   │ quota    │ fail OPEN  │ serve, alert loudly            │
+   │ gateway  │ BYPASS     │ documented direct-provider     │
+   │ itself   │            │ path, REHEARSED beforehand     │
+   └──────────┴────────────┴────────────────────────────────┘
+   an untested bypass discovered during an outage is not a bypass
+`),
+      },
+      {
+        title: "Evaluation: Overhead, Platform Value, and the Corpus",
+        content:
+          "Measure the gateway's own service metrics as overhead rather than as totals. Reporting p99 total latency of eight seconds tells you about the providers, not about the gateway. Report added latency at p50 and p99 - the difference between when the gateway received the request and when it dispatched upstream, plus the difference on the return path. That number should be single-digit milliseconds, and it is the number that justifies the gateway's existence on the hot path.\n\nThen availability, and error rate broken down by provider rather than aggregated, because an aggregate error rate hides that one provider is degrading while another is fine - which is exactly the signal failover decisions need.\n\nSeparately, measure the platform value the gateway exists to provide, because service health is necessary and not sufficient. Cost per team over time, which is the artefact that makes chargeback possible. Cache hit rate and, more usefully, the spend it avoided expressed in currency. Routing savings from traffic served by cheaper models, alongside a quality check confirming the cheaper model was actually adequate for that traffic - savings reported without the paired quality number are not savings.\n\nAnd the one that is easy to overlook: because the gateway sees every request, it is uniquely able to supply the corpus that a central evaluation platform consumes. Every team's real production traffic, in one schema, with team, alias, resolved model version, latency, cost and outcome attached. No individual team would produce that voluntarily in a compatible format.\n\nThat data-collection role is frequently the strongest justification for centralising at all, and it is worth saying so, because it reframes the gateway from infrastructure tax into the thing that makes company-wide evaluation, regression detection and model migration possible. A company without a gateway usually cannot answer 'did quality drop when we switched models' for any team but the one that happened to instrument itself.",
+        diagram: asciiDiagram(`
+  MEASURE OVERHEAD, NOT TOTAL
+
+   ┌──────────────────────────────────────────────────────────┐
+   │ request in                                               │
+   │  ├─ gateway processing ──┐  ◄── THIS is your number      │
+   │  │   target: single-digit ms                             │
+   │  ├─ provider generation ─┤  ◄── not yours. Reporting     │
+   │  │   3-20 s              │      p99 total = 8 s tells    │
+   │  ├─ gateway return path ─┘      you about PROVIDERS      │
+   │ response out                                             │
+   └──────────────────────────────────────────────────────────┘
+
+  ERROR RATE BY PROVIDER, never aggregated
+   aggregate 1.2%  ◄── looks fine
+     provider A 0.3%     provider B 7.1%  ◄── degrading NOW
+   ▲ the aggregate hides exactly the signal failover needs
+
+  PLATFORM VALUE - service health is necessary, not sufficient
+  ┌────────────────────┬─────────────────────────────────────┐
+  │ cost per team      │ the artefact that makes chargeback  │
+  │ over time          │ possible at all                     │
+  │ cache hit rate     │ report SPEND AVOIDED in currency,   │
+  │                    │ not a percentage                    │
+  │ routing savings    │ ALWAYS paired with a quality check. │
+  │                    │ Savings without the quality number  │
+  │                    │ are not savings.                    │
+  └────────────────────┴─────────────────────────────────────┘
+
+  ╔══════════════════════════════════════════════════════════════╗
+  ║ THE CORPUS - often the strongest reason to centralise        ║
+  ║                                                              ║
+  ║ every team's real production traffic, ONE schema, with team, ║
+  ║ alias, resolved model version, latency, cost and outcome     ║
+  ║ attached ──► feeds the central evaluation platform           ║
+  ║                                                              ║
+  ║ No team produces that voluntarily in a compatible format.    ║
+  ║ Without it, "did quality drop when we switched models?" is   ║
+  ║ unanswerable for every team but the one that instrumented    ║
+  ║ itself.                                                      ║
+  ╚══════════════════════════════════════════════════════════════╝
+`),
+      },
+      {
+        title: "Failure Modes and Degradation",
+        content:
+          "Provider outage, handled by failover to a pre-evaluated alternative. The word pre-evaluated is doing the work: an untested fallback selected during an incident will differ in format, tokenizer and behaviour, and swapping to it converts an availability incident into a quality incident that nobody notices for a week.\n\nProvider rate-limit exhaustion, handled by fair shedding that drops batch before interactive. Without priority classes the shedding is arbitrary and the most latency-sensitive traffic is as likely to be dropped as the most tolerant.\n\nThe gateway itself down. This is the failure the gateway creates, so the answer must be structural: a documented bypass path with direct provider credentials, rehearsed on a schedule. An emergency procedure that has never been executed is a plan, not a capability, and outages are a poor time to discover that a team's code cannot construct a provider request without the SDK.\n\nConfig store unreachable, serving last-known-good pins. This must be a cached local copy rather than a lookup, or the config store becomes a hard dependency and violates the governing rule.\n\nCache poisoning or staleness. Exact-match caching is safe in the sense that identical inputs deserve identical outputs. Semantic caching - returning a cached response for a similar-but-different prompt - is materially riskier, because 'similar' is a threshold judgment and a near-miss returns a confidently wrong answer to a question that was never asked. Enable it per alias where the tolerance is understood, not globally.\n\nA quota bug locking out a legitimate team, which is why quota checks fail open with loud alerting rather than failing closed. Failing closed on an internal accounting mechanism converts a billing inconvenience into an outage.\n\nProvider deprecation forcing migration on an external timeline you do not control. Aliases and pins are what make this survivable: the migration becomes a control-plane change validated against evaluation data, rather than twenty teams each rewriting application code under the same deadline.\n\nAnd mid-stream failures, which need explicit client contract semantics rather than being treated as an edge case that will not happen.",
+        diagram: asciiDiagram(`
+  FAILURE MODES
+
+  ┌──────────────────────┬────────────────────────────────────────┐
+  │ provider outage      │ failover to a PRE-EVALUATED alternative│
+  │                      │ ▲ untested fallback converts an        │
+  │                      │   availability incident into a QUALITY │
+  │                      │   incident nobody notices for a week   │
+  ├──────────────────────┼────────────────────────────────────────┤
+  │ rate-limit exhausted │ fair shedding: batch before interactive│
+  │                      │ ▲ without priority classes shedding is │
+  │                      │   arbitrary                            │
+  ├──────────────────────┼────────────────────────────────────────┤
+  │ GATEWAY ITSELF DOWN  │ documented bypass, direct provider     │
+  │ (the failure it      │ credentials, REHEARSED on a schedule   │
+  │  creates)            │ ▲ an unexecuted procedure is a plan,   │
+  │                      │   not a capability                     │
+  ├──────────────────────┼────────────────────────────────────────┤
+  │ config store down    │ last-known-good from a LOCAL cached    │
+  │                      │ copy - never a lookup, or config       │
+  │                      │ becomes a hard dependency              │
+  ├──────────────────────┼────────────────────────────────────────┤
+  │ cache staleness /    │ exact-match: safe                      │
+  │ poisoning            │ SEMANTIC: risky - "similar" is a       │
+  │                      │ threshold judgment, and a near-miss    │
+  │                      │ answers a question nobody asked.       │
+  │                      │ Per-alias opt-in, never global.        │
+  ├──────────────────────┼────────────────────────────────────────┤
+  │ quota bug locks out  │ fail OPEN with loud alerting.          │
+  │ a legitimate team    │ ▲ failing closed turns a billing       │
+  │                      │   inconvenience into an outage         │
+  ├──────────────────────┼────────────────────────────────────────┤
+  │ provider deprecates  │ external timeline you do not control.  │
+  │ a widely-used model  │ Aliases + pins make it a control-plane │
+  │                      │ change validated against evals, not 20 │
+  │                      │ teams rewriting code to one deadline   │
+  ├──────────────────────┼────────────────────────────────────────┤
+  │ mid-stream failure   │ explicit client contract semantics -   │
+  │                      │ not an edge case that "won't happen"   │
+  └──────────────────────┴────────────────────────────────────────┘
+`),
+      },
+      {
+        title: "Cost and Trade-offs",
+        content:
+          "The largest cost lever the gateway provides is not technical. Chargeback makes spend visible per team and per feature, and visibility alone reduces spend more reliably than caching or routing ever will. Teams that could not previously see what their feature cost routinely discover a debug loop calling an expensive model on every request, or a retry policy tripling volume. Publishing the per-team number tends to produce a step change within a week, at zero engineering cost.\n\nCaching and routing savings are real but come with complexity and correctness risk. Exact-match caching is nearly free and safe. Semantic caching and cheap-model routing both trade quality for cost in ways that must be measured, and both should be reported with a paired quality metric or they are not savings at all - they are an undeclared quality reduction with a favourable accounting treatment.\n\nThe gateway's own operational cost - the service, the log storage, and a platform team's time - is genuine and should be weighed against the duplicated effort it removes. Twenty teams each building failover, cost tracking and logging badly is expensive too, and worse, incompatibly.\n\nThe central trade, stated honestly: centralisation buys governance, cost control, failover and above all data, and pays with a shared failure domain and an organisational dependency on the platform team's responsiveness. The second half is the part candidates omit. A team blocked for three weeks because the platform team's backlog is full will route around the gateway, and a bypassed gateway provides none of the benefits while retaining all of the costs. Design the control plane so that common changes are self-service, precisely so that the organisational dependency does not become the reason the system is abandoned.",
+        diagram: asciiDiagram(`
+  THE BIGGEST LEVER IS NOT TECHNICAL
+
+   ┌──────────────────────────────────────────────────────────┐
+   │ CHARGEBACK - publish per-team, per-feature spend         │
+   │                                                          │
+   │ team A  $41 200/mo  ████████████████████                 │
+   │ team B  $ 3 100/mo  ██                                   │
+   │ team C  $28 900/mo  ██████████████                       │
+   │                                                          │
+   │ what teams discover in week 1:                           │
+   │   a debug loop calling the expensive model every request │
+   │   a retry policy tripling volume                         │
+   │   a batch job nobody remembered scheduling               │
+   │ ▲ step change in spend, ZERO engineering cost            │
+   └──────────────────────────────────────────────────────────┘
+
+  TECHNICAL SAVINGS - always paired with quality
+  ┌────────────────────┬───────────┬──────────────────────────┐
+  │ exact-match cache  │ safe      │ nearly free               │
+  │ semantic cache     │ RISKY     │ report quality or it is   │
+  │ cheap-model routing│ RISKY     │ not a saving - it is an   │
+  │                    │           │ undeclared quality cut    │
+  │                    │           │ with nice accounting      │
+  └────────────────────┴───────────┴──────────────────────────┘
+
+  THE CENTRAL TRADE
+   ┌──────────────────────────┬──────────────────────────────┐
+   │ centralisation BUYS      │ and PAYS WITH                │
+   ├──────────────────────────┼──────────────────────────────┤
+   │ governance               │ a SHARED FAILURE DOMAIN      │
+   │ cost control + chargeback│ organisational dependency on │
+   │ failover                 │ the platform team's          │
+   │ THE DATA CORPUS          │ responsiveness               │
+   └──────────────────────────┴──────────────────────────────┘
+
+  ╔══════════════════════════════════════════════════════════════╗
+  ║ The second column is what candidates omit. A team blocked    ║
+  ║ three weeks on a platform backlog will ROUTE AROUND the      ║
+  ║ gateway - and a bypassed gateway delivers none of the        ║
+  ║ benefits while retaining all of the costs.                   ║
+  ║ ► make common changes SELF-SERVICE in the control plane.     ║
+  ╚══════════════════════════════════════════════════════════════╝
+`),
+      },
+    ],
+    examples: [
+      {
+        title: "The batch job that broke an interactive product",
+        input:
+          "Team A schedules an overnight backfill of 400,000 documents through the gateway. Team B runs a customer-facing assistant. At 02:00 team B's error rate goes from 0.1 percent to 34 percent with no deploy on their side.",
+        output:
+          "The shared provider rate limit was saturated by team A. The fix is priority classes with interactive traffic protected, per-team quotas expressed against provider capacity, and admission control that sheds batch first. Team B's error rate returns to baseline and team A's job takes longer.",
+        explanation:
+          "Step 1: Diagnosis is quick from gateway metrics if error rate is broken down by provider and by team - the provider returns 429s, and the request volume driving them is entirely team A's. Without that breakdown, team B spends the night investigating their own code. Step 2: Note what is actually contended. The gateway itself had abundant headroom; it faithfully forwarded every request into an exhausted upstream limit, so gateway-capacity-based quotas would have prevented nothing. Quotas must be expressed against the provider's limit. Step 3: Introduce priority classes at the alias level - interactive aliases get guaranteed share, batch aliases get the remainder. This is a config change once the control plane exists. Step 4: Add admission control that sheds batch requests when provider capacity nears exhaustion, so degradation lands on the workload that tolerates it. Team A's backfill takes nine hours instead of six, which is a correct outcome. Step 5: The general principle: fairness must be enforced against the genuinely scarce resource, and priority must be declared in advance because during exhaustion there is no time to decide whose traffic matters.",
+      },
+      {
+        title: "The silent model update",
+        input:
+          "A team's summarisation quality degrades over a weekend. Their eval scores drop from 0.82 to 0.71. Nobody deployed anything - no code change, no config change, no prompt change on their side.",
+        output:
+          "The provider updated the model served behind a stable name. The fix is pinning explicit versions in the alias resolution so a model change is never implicit, and gating any version bump behind an evaluation run.",
+        explanation:
+          "Step 1: The diagnostic that identifies this quickly is comparing gateway logs across the weekend and finding the resolved model version metadata changed while the request payloads did not - which is only possible because the gateway records the resolved version on every request. Step 2: Without pinning, the alias resolved to whatever the provider currently served under that name, so behaviour changed company-wide for every team using that model simultaneously, with no deploy anywhere in the company. Step 3: The structural fix is that aliases resolve to explicit provider plus version, and the version is a deliberate configuration value. Providers that only expose floating names must be pinned by whatever mechanism they offer, and where none exists that should be recorded as a known risk for that alias. Step 4: A version bump then becomes a control-plane change gated on an evaluation run against the golden set for each alias using it - which is exactly what the gateway's own corpus makes possible. Step 5: Worth stating in an interview: this failure is invisible without a gateway. Each team would independently notice degraded quality, investigate their own recent changes, find nothing, and eventually give up or blame the prompt.",
+      },
+      {
+        title: "Sizing for streaming concurrency",
+        input:
+          "A capacity plan sizes the gateway for 200 requests per second using standard web-service assumptions: thread-per-request, a default connection pool of 200 upstream connections, and a 60-second load balancer idle timeout.",
+        output:
+          "The plan under-provisions by an order of magnitude. Actual steady-state concurrency is around 4,000 connections. The corrected design uses asynchronous I/O, upstream pool ceilings above 5,000, and idle timeouts raised past the longest plausible generation.",
+        explanation:
+          "Step 1: Compute concurrency rather than trusting the request rate. Mean response is 800 tokens at roughly 40 tokens per second, so each request occupies a connection for about twenty seconds. Step 2: Little's law gives concurrency as arrival rate times duration: 200 times 20 equals 4,000 simultaneous open connections, each also holding an upstream provider connection. Step 3: Thread-per-request at that concurrency is untenable - 4,000 threads mostly blocked on network I/O - which forces asynchronous or event-driven request handling as a structural decision rather than an optimisation. Step 4: The default 200-connection upstream pool becomes the binding constraint long before CPU does, and the symptom is queueing that looks like provider slowness rather than like a local misconfiguration, which is why it is often misdiagnosed. Step 5: The 60-second idle timeout silently kills long generations. A 3,000-token response at 40 tokens per second runs 75 seconds and is terminated mid-stream by the load balancer, producing an intermittent failure correlated with response length that is genuinely difficult to trace. Step 6: The transferable lesson is that anything streaming must be sized by concurrency, and that 200 RPS on a dashboard is a misleading number for this class of service.",
+      },
+      {
+        title: "Deciding what does not belong in the gateway",
+        input:
+          "A team proposes adding automatic prompt optimisation to the gateway: rewriting incoming prompts through a small model to improve quality, on every request, for every team.",
+        output:
+          "The proposal is declined for the gateway and moved into the SDK as an opt-in. It would add an inline model call to everyone's hot path, creating a hard dependency and a latency floor for teams that did not ask for it and cannot opt out.",
+        explanation:
+          "Step 1: Apply the governing rule - nothing on the hot path may be a hard dependency except the provider call itself. An inline rewrite call is a second model call with its own latency, error rate and availability, imposed on every request in the company. Step 2: Quantify it: even at 150 milliseconds and 99.9 percent availability, that is a latency floor added to every team's budget and a second correlated failure source multiplied across every AI feature. Step 3: Consider whether it could be fail-open - if the rewrite fails, pass the original prompt through. That helps availability but not latency, and it also means the feature silently stops working, which is arguably worse for a quality feature than failing loudly. Step 4: Note that it also breaks a property teams depend on: what they sent is no longer what was sent, which complicates their own debugging and evaluation, and does so invisibly. Step 5: The right home is an SDK function teams call deliberately, where the cost is borne by the team that wants the benefit and a bug affects one team rather than all of them. Step 6: This example generalises - the question to ask of any proposed gateway feature is whether it needs a shared view. Prompt optimisation does not; quota enforcement does.",
+      },
+    ],
+    tips: [
+      "Introduce model aliases from day one and never let raw provider model strings appear in application code. Retrofitting that indirection after twenty teams have hard-coded model names is a migration project rather than a config change.",
+      "Pin versions explicitly and treat a version bump as a deliberate, eval-gated act. Providers update models behind stable names, and without pinning your quality can change company-wide with no deploy anywhere.",
+      "Stream end to end and treat buffering as a design error rather than an implementation detail, because time-to-first-token is what users perceive and buffering makes it equal to full generation time.",
+      "Make every non-essential dependency fail-open: cache, logging, config and quota should all degrade rather than fail, since the gateway's availability is the ceiling for every AI feature in the company.",
+      "Sample logs rather than storing everything, but keep metadata for one hundred percent of requests - metadata is small and it is what cost attribution, alerting and provider-level error breakdowns actually need.",
+      "Publish per-team cost early. Visibility alone reduces spend more reliably than caching or routing, and it costs nothing to implement once metering exists.",
+    ],
+    tricks: [
+      "Raise 'the gateway becomes everyone's availability ceiling' before the interviewer does. It is the observation that distinguishes a platform engineer from someone describing a proxy, and it naturally leads into the degradation matrix.",
+      "Ask early whether interactive and batch traffic share provider capacity. If they do, multi-tenancy fairness is the real problem in the question, and identifying it before designing anything reframes the whole conversation.",
+      "Volunteer the buffering-versus-streaming constraint the moment output guardrails come up, since that is exactly where the tension bites and most candidates describe both requirements without noticing they conflict.",
+      "Size by concurrency out loud. Saying '200 RPS sounds small but at twenty-second streams that is 4,000 open connections' immediately demonstrates that you have built one of these rather than read about it.",
+      "When asked to add a feature, ask whether it needs a shared view. If it does not, propose the SDK instead - declining to add something to the hot path is a stronger answer than accommodating every request.",
+    ],
+    memoryAids: [
+      "One hop, everyone's ceiling. The gateway's availability caps every feature behind it.",
+      "Alias, pin, stream, degrade - the four decisions the whole design rests on.",
+      "Buffering destroys TTFT, and TTFT is the only latency users perceive.",
+      "Concurrency sizes it, not RPS. Twenty-second streams turn a trivial request rate into thousands of open connections.",
+      "Nothing on the hot path is a hard dependency except the provider call itself.",
+    ],
+    interviewPatterns: [
+      "'Why centralise at all?' Answer with governance, cost control, failover and above all the data corpus - then state the honest cost, a shared failure domain and an organisational dependency. Naming both sides is the answer.",
+      "'How do you stop one team starving another?' Per-team quotas expressed against provider capacity, priority classes separating interactive from batch, fair queueing, and admission control that sheds batch first.",
+      "'How do output guardrails coexist with streaming?' Incremental scanning, asynchronous checking with retraction, or narrowly accepted buffering per alias - and say explicitly that inline full-output checking destroys TTFT.",
+      "'What happens when the gateway is down?' A documented and rehearsed bypass path, plus the degradation matrix showing every non-essential dependency failing open.",
+      "'Should this feature go in the gateway?' The test is whether it needs a shared view. Quota does; prompt optimisation does not.",
+      "Frequency and companies: common in platform and infrastructure interviews at any company with multiple AI-consuming teams - large tech companies with internal AI platforms, AI infrastructure startups, and enterprises consolidating provider spend. Stability: high; the alias, pin, stream and degrade structure has been stable since gateways emerged, while the provider landscape underneath changes constantly.",
+    ],
+    faq: [
+      {
+        question: "Gateway or a thin SDK? How do you actually decide?",
+        answer:
+          "The test is whether a responsibility needs a shared view across teams. Quota enforcement against a provider rate limit needs one, because no individual client can know what the others are consuming. Cost attribution needs one, because the aggregation is the product. A central evaluation corpus needs one, because its value comes from every team's traffic being in a single schema. Retry policy, prompt templating, request construction and client-side caching all work perfectly well per caller and belong in a library, where a bug affects only the teams that upgraded. Company size shifts the answer: at three teams an SDK plus a shared dashboard is often genuinely better, because the coordination cost of a platform team exceeds the duplicated effort saved. At thirty teams sharing one provider rate limit, a gateway is close to forced. Many mature setups run both - a gateway for the shared concerns and a thin SDK that handles ergonomics and can bypass the gateway in an emergency.",
+        category: "architecture",
+      },
+      {
+        question: "How does failover work when providers differ in format, tokenizer and behaviour?",
+        answer:
+          "Imperfectly, and the honest framing is that failover degrades semantics rather than transparently preserving them. Format differences are the easy part - message schemas, parameter names and streaming envelopes are mechanical translation the gateway can own. What does not translate is behaviour: different models refuse different requests, follow instructions with different fidelity, produce different output structure for the same prompt, and tokenize differently so that a request near the context limit on one provider may exceed it on another. The consequence is that a fallback must be evaluated in advance against the same golden sets the primary uses, per alias, so you know what you are switching to before an incident forces it. Choosing a fallback during an outage means converting an availability incident into an undetected quality incident. Two practical refinements: fail over per alias rather than globally, since some workloads tolerate the alternative and others do not, and record the served provider on every logged request so post-incident quality analysis is possible at all.",
+        category: "reliability",
+      },
+      {
+        question: "Is semantic caching safe?",
+        answer:
+          "Less safe than it appears, and it should be an opt-in per alias rather than a global setting. Exact-match caching is straightforwardly correct: identical input, identical model, identical parameters, so an identical response is a legitimate answer. Semantic caching returns a cached response for a prompt that is merely similar, and 'similar' is a threshold on an embedding distance, which means near-misses are inevitable. A near-miss does not produce a slightly-off answer; it produces a confident, fluent answer to a question the user did not ask, and because it comes from cache it arrives fast and looks healthy on every metric. The failure is worst precisely where inputs are similar but consequential - two customer records differing in one field, two code snippets differing in a condition. Where it does work well is high-volume, low-stakes, genuinely repetitive traffic such as common support questions, and even there it deserves a quality sample rather than a hit-rate dashboard. Report the hit rate alongside a measured quality figure, or you are reporting a cost saving that is actually an undeclared quality reduction.",
+        category: "caching",
+      },
+      {
+        question: "How do you attribute cost accurately across teams and features?",
+        answer:
+          "Count tokens at the gateway on every request, in and out, and attach the calling team, the alias, the resolved model and version, and a caller-supplied feature tag. The team comes from authentication and is trustworthy; the feature tag comes from the caller and is not, so validate it against a registered set or you will end up with a long tail of typo'd tags that cannot be aggregated. Metering must survive load shedding: if you drop logging under pressure you lose exactly the traffic that spiked, which is the traffic the bill will reflect, and the resulting attribution gap will be blamed on the gateway. Three complications worth naming. Streaming responses need output tokens counted incrementally so a mid-stream failure still bills the tokens actually generated. Cached hits should be recorded with zero provider cost but non-zero request count, so the saving is attributable. And shared or platform-level traffic - evaluation runs, canary comparisons - needs its own cost centre rather than being distributed, or one team will appear to own spend it did not initiate.",
+        category: "cost",
+      },
+      {
+        question: "How do you handle errors that occur mid-stream, after a success status was already sent?",
+        answer:
+          "Define the semantics explicitly in the client contract, because the failure is common and cannot be hidden. Once the gateway has sent a 200 and streamed tokens, it cannot retract them, and it cannot transparently retry because the client already holds a partial answer that a retry would duplicate or contradict. The workable contract is that the stream carries an explicit terminal event - either completion or error - and clients must treat the absence of a completion event as a failure rather than assuming a closed connection means success. That single rule prevents the most common bug, which is a client that silently accepts a truncated answer as complete. For retries, the honest options are to surface the partial content and let the application decide, or to discard and retry from scratch, accepting duplicated cost. Which is right depends on whether the consumer is a human watching tokens appear - where discarding and restarting is jarring - or a program assembling a result, where restarting is usually correct. Record mid-stream failures separately from request failures, because they have different causes and an aggregate error rate hides them entirely.",
+        category: "streaming",
+      },
+      {
+        question: "How do you keep the hot path fast as features accumulate?",
+        answer:
+          "By defending the governing rule institutionally, not just technically. Every proposed feature gets the same two questions: does it need a shared view, and can it fail open. Anything answering no to the first belongs in the SDK. Anything answering no to the second needs a very strong justification, because it converts the gateway from a component whose failure degrades service into one whose failure stops it. Concretely, keep the synchronous path to authentication, alias resolution from a locally cached config, an approximate quota check, an optional cache lookup, and dispatch. Everything else - logging, metering, tracing, post-hoc guardrail evaluation - happens asynchronously off the response path. Measure added latency as a first-class metric with an explicit budget, and treat a regression in it as a release blocker, because without a published number it degrades one millisecond per feature until someone notices it is fifty. It also helps to make the control plane self-service, since a large share of feature requests are really requests for a configuration change that a platform team's backlog has made impossible.",
+        category: "operations",
+      },
+      {
+        question: "Should you build a gateway or buy one?",
+        answer:
+          "Buy or adopt open source first in almost every case, and build only when a specific requirement is genuinely unmet. The core functionality - provider abstraction, streaming passthrough, key management, basic rate limiting and logging - is commoditised, well-tested and available in several mature open-source proxies, and reimplementing it consumes a platform team for a quarter to arrive at something less battle-tested. Where building becomes justified is the integration surface rather than the proxying: your identity system, your chargeback and finance pipeline, your evaluation platform's schema, and any regulatory requirement such as data residency or an on-premises deployment that a hosted product cannot satisfy. A common and sensible middle path is to adopt an open-source gateway as the data plane and build only the control plane and the integrations around it, which is where the company-specific value actually lives. Whichever route, insist on model aliases and version pinning from the start - those are the properties that make the choice reversible later, and a product that does not offer them is not really a gateway.",
+        category: "platform",
+      },
+    ],
+    references: [
+      {
+        source: "note",
+        attribution: "Provider API documentation on streaming, rate limits and model versioning policies",
+        insight: "Streaming envelope formats, how rate limits are expressed and shared across an organisation, and which providers offer pinnable versions versus floating names.",
+      },
+      {
+        source: "note",
+        attribution: "Open-source LLM gateway and proxy project documentation",
+        insight: "Reference implementations of alias resolution, provider abstraction, failover and per-key budgeting, and the feature boundaries those projects chose to draw.",
+      },
+      {
+        source: "blog",
+        attribution: "Engineering blog posts on internal AI platforms at companies with many AI-consuming teams",
+        insight: "Operational accounts of chargeback changing team behaviour, of multi-tenancy incidents, and of the migration cost of retrofitting aliases after direct provider calls proliferated.",
+      },
+      {
+        source: "note",
+        attribution: "Provider model deprecation policies and migration notices",
+        insight: "The external timelines that force migrations, and why version pinning plus aliases determine whether that is a config change or a company-wide code change.",
+      },
+      {
+        source: "video",
+        attribution: "Recorded conference talks on AI platform infrastructure and shared inference layers",
+        insight: "Practitioner treatment of streaming concurrency sizing, guardrails versus time-to-first-token, and the centralisation trade-off.",
+      },
+    ],
+    practiceProblems: [
+      "ADDING A SELF-HOSTED MODEL ALONGSIDE PROVIDERS. The company deploys its own fine-tuned model on internal GPUs and wants it available through the gateway. What changes? ANSWER: The alias layer already absorbs most of it - a self-hosted deployment becomes another concrete target an alias can resolve to, and application code changes not at all, which is the payoff for the indirection. What genuinely differs is capacity semantics. Hosted providers present an elastic limit expressed in requests or tokens per minute; a self-hosted deployment has a fixed number of GPUs and a queue, so exceeding capacity produces queueing latency rather than 429s. Quota enforcement must therefore be expressed differently for it, and admission control matters more because there is no elastic headroom to absorb a spike. Cost attribution also changes character: the marginal cost of a request is near zero while the fixed cost of the fleet is large, so chargeback must allocate fleet cost by usage share rather than multiplying tokens by a price. Add health and saturation signals from the deployment into failover decisions, so the gateway can shed to a hosted provider when the internal fleet queues. And evaluate the self-hosted model against the same golden sets as the alias's current target before pointing any traffic at it.",
+      "STRICT DATA RESIDENCY. EU customer data must never leave the EU, while the company operates globally and providers have region-specific endpoints. Design for it. ANSWER: Residency becomes a first-class attribute of the request, not a deployment detail. The caller declares the data region, and alias resolution takes it as an input so that `summarisation-default` resolves to an EU-region endpoint for EU-tagged traffic and a different one elsewhere. Trusting the caller's tag is the weak point, so the tag should derive from authenticated context - the tenant or customer identity - wherever possible rather than being a free parameter. The gateway itself must be deployed per region, since a globally routed gateway that terminates EU requests in another region has already violated the requirement before any provider is called. That means the shared state must be regionalised too: logs and request payloads stay in-region, and only aggregate metadata that contains no customer data crosses for global cost reporting. Failover must be constrained to in-region alternatives, which means the pre-evaluated fallback set differs per region and some regions may have no viable fallback - a limitation to surface explicitly rather than discover during an outage. Finally, the cache must be partitioned by region or it becomes a cross-region data path that no one is looking at.",
+      "CUT COMPANY-WIDE SPEND BY 30 PERCENT FROM THE GATEWAY ALONE. No application changes are permitted. Where does it come from? ANSWER: In order of return and risk. First, publish per-team and per-feature cost if it is not already visible - this is free, requires no technical change, and routinely surfaces a debug loop or a runaway retry policy worth several percent on its own. Second, enable exact-match caching where it is off; on workloads with repeated inputs this is pure saving with no quality risk. Third, examine alias usage: teams frequently request a high-capability alias for tasks a cheaper model handles identically, and re-pointing a specific alias after evaluating the cheaper model on its golden set is a control-plane change that requires no application involvement. Fourth, look at token waste rather than request count - oversized system prompts repeated on every call and unbounded conversation history are common and are addressed by gateway-side truncation policy per alias. Fifth, move genuinely batch traffic to batch endpoints where providers price them lower. Reserve semantic caching and aggressive cheap-model routing for last, since both trade quality for cost and must be reported with a paired quality metric. If the target is still unmet, the honest answer is that the remainder requires application changes and should be presented as such rather than taken silently out of quality.",
+      "A PROVIDER DEPRECATES A WIDELY-USED MODEL IN 30 DAYS. Twelve teams depend on it. Run the migration. ANSWER: Start from the gateway's own data, which is the reason this is survivable at all: query the log corpus for every alias resolving to the deprecated model, the teams using each, request volume and any recorded quality signals. That inventory takes minutes and would otherwise take a week of asking around. Select candidate replacements and evaluate them against each affected alias's golden set - not one global replacement, because aliases serving different tasks may need different targets. Where an alias has no golden set, build a minimal one from sampled production traffic in the corpus, which is again only possible because the gateway captured it. Then shift traffic incrementally per alias, starting with the lowest-stakes and highest-volume, comparing outputs in shadow before switching. Communicate per team with the specific evidence for their alias rather than a general notice, since teams respond to 'your summarisation alias scores 0.79 on the replacement versus 0.81 today' and ignore broadcasts. Keep the old pin available until the deprecation date so a regression can be reverted by config. The transferable point: without aliases and a request corpus, this is twelve teams each rewriting code against an external deadline; with them, it is a platform-team project with evaluation evidence.",
+      "THE GATEWAY ADDED 40 MS TO P99 OVER SIX MONTHS AND NOBODY NOTICED. Diagnose and prevent recurrence. ANSWER: The cause is almost always accumulation rather than a single regression: each feature added two to five milliseconds inline, no single change looked significant, and total latency was dominated by provider time so the overhead was invisible in the aggregate. Diagnose by instrumenting the hot path segment by segment - authentication, alias resolution, quota, cache, guardrails, dispatch - and reporting added latency as its own metric rather than as part of total. Expect to find the usual culprits: a config lookup that became a network call when someone removed local caching, a quota check against a transactional store rather than an in-memory one, a synchronous log write that was meant to be asynchronous, and an input guardrail model call that was added inline as a temporary measure. Prevention is structural: publish an explicit added-latency budget, break the build on regression, and require that every new hot-path feature declare whether it needs a shared view and whether it can fail open. The deeper lesson is that a metric nobody publishes degrades by one millisecond per feature until it is fifty, and that measuring overhead separately from total is the only way to see it happen.",
+    ],
+  },
+  {
+    id: "topic-ai-design-eval-platform",
+    moduleId: "mod-ai-design-exercises",
+    title: "Design an AI Evaluation and Observability Platform",
+    complexity: {
+      time: "Two very different workloads share the system. Offline evaluation is batch: running a suite over a golden set takes minutes to hours dominated by model calls, is embarrassingly parallel, and sits in the deployment path - so its wall-clock time directly gates release velocity, which is the constraint that matters and the reason suites get sharded and cached aggressively. Online observability is a streaming ingest problem on the serving path, where the hard requirement is that trace collection must never slow or break the production request: asynchronous, sampled and fail-open, always. Human annotation runs on a timescale of hours to days and is therefore never in a blocking path; the platform's job is to make its results arrive eventually and land in the right places.",
+      space: "Trace volume is the dominant cost and grows with every request the organisation serves, with multi-step agent traces an order of magnitude larger than single calls because each step carries its own inputs, outputs and intermediate state. Full-fidelity capture of every production request is rarely affordable, so sampling policy is a first-class design decision rather than a tuning detail - and biased sampling silently biases every conclusion drawn from the data. Evaluation itself has a real running cost that is easy to overlook: an LLM-judge suite over a large golden set, run on every prompt change, can rival production inference spend, which is why tiered suites - a fast cheap set per change, the full set before release - are the standard resolution.",
+    },
+    intuition:
+      "Every other system in this module can tell you whether it is working. This one has to tell you whether something is good - with no ground truth, non-deterministic outputs, and a quality bar that is partly a matter of taste. That is why AI features so often ship on vibes: someone tries ten prompts, they look fine, it goes out, and six weeks later nobody can say whether last month's change helped or hurt. An evaluation platform is the infrastructure that replaces that with something measurable. Its hardest constraint is not scale - it is that the measurement instrument is itself unreliable, so a serious design spends most of its effort on making the measurement trustworthy rather than on collecting more of it.",
+    lesson: [
+      {
+        title: "Requirements: What Question Is This Answering",
+        content:
+          "The platform exists to answer three distinct questions, and conflating them produces a muddled design that answers none of them well.\n\nDid this change make things worse? That is regression detection, it gates a deploy, it runs offline against a fixed dataset, and its output is a pass or fail decision that a human may override. It needs comparability above all else.\n\nHow is the system doing right now? That is online monitoring, it gates an alert, it runs continuously against sampled production traffic, and its output is a time series. It needs timeliness and it tolerates approximation.\n\nWhy did this specific interaction go wrong? That is tracing and debugging, it serves an engineer at three in the morning, it needs one complete trace rather than an aggregate, and it needs retention long enough that a user complaint from last week is still investigable.\n\nEach implies different data, different latency and different retention. A single undifferentiated 'log everything' pipeline serves the third badly and the first not at all, because the first needs a fixed dataset and the third needs unfiltered production reality.\n\nFor scope: which AI features are covered, whether traces are single model calls or multi-step agent runs - the difference is roughly an order of magnitude in trace size and a large difference in how you display them - who the users are, whether human annotation capacity exists at all, and what retention obligations apply.\n\nThe annotation question is the one that determines feasibility, as it did for document processing. LLM-as-judge is what makes evaluation scale, but it is calibrated against human labels, so with no annotation capacity there is no way to know whether the judge is measuring anything. That is worth surfacing early rather than discovering after the platform is built.",
+        diagram: asciiDiagram(`
+  THREE DIFFERENT QUESTIONS - do not conflate them
+
+  ┌──────────────────┬──────────────┬──────────┬────────────────┐
+  │ question         │ gates        │ data     │ needs most     │
+  ├──────────────────┼──────────────┼──────────┼────────────────┤
+  │ did this change  │ a DEPLOY     │ fixed,   │ COMPARABILITY  │
+  │ make it worse?   │              │ versioned│                │
+  │                  │              │ dataset  │                │
+  ├──────────────────┼──────────────┼──────────┼────────────────┤
+  │ how is it doing  │ an ALERT     │ sampled  │ timeliness;    │
+  │ right now?       │              │ live     │ tolerates      │
+  │                  │              │ traffic  │ approximation  │
+  ├──────────────────┼──────────────┼──────────┼────────────────┤
+  │ why did THIS one │ an ENGINEER  │ one full │ retention +    │
+  │ go wrong?        │ at 03:00     │ trace    │ completeness   │
+  └──────────────────┴──────────────┴──────────┴────────────────┘
+   ▲ one undifferentiated "log everything" pipeline serves the
+     third badly and the first NOT AT ALL - the first needs a
+     FIXED dataset, the third needs unfiltered production reality
+
+  SCOPE TO SETTLE
+  ┌──────────────────────────────────────────────────────────────┐
+  │ single call vs MULTI-STEP AGENT traces                       │
+  │   ▲ ~10× trace size, and a different display problem         │
+  │ users: engineers · PMs · annotators · sometimes compliance   │
+  │ retention obligations                                        │
+  └──────────────────────────────────────────────────────────────┘
+
+  ╔══════════════════════════════════════════════════════════════╗
+  ║ IS THERE HUMAN ANNOTATION CAPACITY?                          ║
+  ║ LLM-as-judge is what makes eval scale - but it is CALIBRATED ║
+  ║ against human labels. With no annotation capacity there is   ║
+  ║ no way to know the judge measures anything at all.           ║
+  ║ Surface this before building, not after.                     ║
+  ╚══════════════════════════════════════════════════════════════╝
+`),
+      },
+      {
+        title: "Scale and Capacity: Traces, Suites and Release Velocity",
+        content:
+          "Take an organisation serving two million AI requests a day across eight features, of which one is agentic.\n\nTrace size differs sharply by shape. A single-call trace - prompt, response, model, latency, tokens, metadata - is on the order of a few kilobytes. A multi-step agent trace with eight tool calls, each carrying its inputs, outputs and intermediate reasoning, is tens of kilobytes. Treat those constants as snapshot values from your own traffic rather than borrowed numbers, and re-derive them, because they move with prompt size and context length.\n\nAt two million requests a day averaging 5 KB, full-fidelity capture is about 10 GB daily, or 300 GB a month before indexing. That is affordable. Add the agent feature at 40 KB a trace and the picture changes quickly, and at ten times the traffic it changes decisively. This is why sampling is usually forced rather than chosen, and why the sampling policy deserves to be designed rather than defaulted.\n\nGolden sets are small by comparison and matter more. A few hundred examples per feature is typical and sufficient, provided they are the right examples - which is what the promotion loop in section four is for.\n\nThe number that constrains engineering practice is the cost and duration of one evaluation run. Five hundred examples, each requiring a target model call and a judge call, is a thousand model calls. Serially that is twenty minutes; sharded across fifty parallel workers it is under a minute. Cost is modest per run and significant in aggregate: run the full suite on every prompt change across eight features and dozens of engineers, and evaluation spend becomes a visible line item that can rival production inference.\n\nThat pair of facts - suite duration gates release velocity, suite cost scales with change frequency - is what forces tiered suites. A fast, cheap subset runs on every change; the full suite runs before release.\n\nAnnotation throughput comes from annotator count times handling time, and it is always the scarcest resource. Five annotators at two minutes per item is about 1,200 items a day, which is why human labels are spent on judge calibration rather than on routine measurement.",
+        diagram: asciiDiagram(`
+  TRACE VOLUME - re-derive these constants from your own traffic
+
+  ┌──────────────────────┬───────────┬──────────────────────────┐
+  │ single-call trace    │ ~5 KB     │ prompt · response ·      │
+  │                      │           │ model · latency · tokens │
+  │ MULTI-STEP agent     │ ~40 KB    │ 8 steps, each with its   │
+  │ trace                │           │ own in/out + intermediate│
+  │                      │  ▲ ~10×   │ state                    │
+  └──────────────────────┴───────────┴──────────────────────────┘
+
+   2 000 000 requests/day × ~5 KB ≈ 10 GB/day ≈ 300 GB/month
+     affordable ────────────────────────────► ████
+   add the agent feature at 40 KB ──────────► ████████████
+   at 10× traffic ──────────────────────────► ████████████████████
+   ╔══════════════════════════════════════════════════════════════╗
+   ║ Sampling is usually FORCED, not chosen. So design the policy ║
+   ║ rather than defaulting it - see section 4.                   ║
+   ╚══════════════════════════════════════════════════════════════╝
+
+  ONE EVALUATION RUN - the number that gates release velocity
+   500 examples × (1 target call + 1 judge call) = 1 000 calls
+     serial, ~1.2 s each ──────► ~20 minutes  ✗ blocks the deploy
+     sharded × 50 workers ─────► under 1 minute  ✓
+
+   cost per run: modest.  cost × every prompt change × 8 features
+   × dozens of engineers: a VISIBLE line item that can rival
+   production inference spend.
+
+  ┌──────────────────────────────────────────────────────────────┐
+  │ ► TIERED SUITES are forced by those two facts together       │
+  │   fast cheap subset  ─► every change                         │
+  │   full suite         ─► before release                       │
+  └──────────────────────────────────────────────────────────────┘
+
+  ANNOTATION - always the scarcest resource
+   5 annotators × 8 h ÷ 2 min ≈ 1 200 items/day
+   ▲ which is why human labels are spent CALIBRATING the judge,
+     not on routine measurement
+`),
+      },
+      {
+        title: "Architecture: Collect, Evaluate, Judge, Annotate, Compare",
+        content:
+          "A trace collection SDK sits on the serving path. Three properties are non-negotiable: asynchronous, so it never adds latency; sampled, so it never adds unbounded cost; and fail-open, so a trace sink outage cannot take down an AI feature. Note the direct link to the gateway topic - if a gateway exists, it is the natural trace emitter, because it already sees every request in one schema. That is frequently the strongest argument for having built the gateway at all.\n\nIngest and a trace store behind it, optimised for write throughput and for retrieving one complete trace by identifier, since debugging is a point-lookup problem rather than an analytical one.\n\nDataset management holding versioned golden sets. Versions are immutable, which section four treats as the single most important property in the system.\n\nAn evaluation runner that executes a suite against a dataset version and a target configuration, sharding across workers and caching results keyed by the full version tuple, so an unchanged prompt on an unchanged dataset need not be re-evaluated.\n\nA judge service wrapping LLM-as-judge behind versioned, pinned prompts - the evaluation module covers judge behaviour itself; the platform's contribution is treating it as a deployed component with a version, a calibration record and a revalidation schedule.\n\nAn annotation tool and queue feeding human labels in, used primarily to calibrate the judge rather than to score routine runs.\n\nA results store keyed by dataset version, target version, judge version and code version together - the tuple, never the bare number.\n\nDashboards and regression alerting on top. And the loop that makes the platform compound rather than merely report: promoting production traces into datasets, with provenance, so that a failure found once becomes a test that runs forever.",
+        diagram: asciiDiagram(`
+  EVAL PLATFORM - offline gate, online watch, human calibrate
+
+   PRODUCTION                            OFFLINE
+   ┌────────────────────┐            ┌────────────────────────┐
+   │ serving path       │            │ versioned datasets     │
+   │  (or the GATEWAY,  │            │ ══ IMMUTABLE ══        │
+   │   which already    │            └───────────┬────────────┘
+   │   sees everything  │                        ▼
+   │   in one schema)   │            ┌────────────────────────┐
+   │                    │            │ evaluation runner      │
+   │ trace SDK          │            │ suite × target version │
+   │  · ASYNC           │            │ sharded · cached by    │
+   │  · SAMPLED         │            │ the full version tuple │
+   │  · FAIL-OPEN       │            └───────────┬────────────┘
+   └─────────┬──────────┘                        ▼
+             ▼                       ┌────────────────────────┐
+   ┌────────────────────┐            │ judge service          │
+   │ trace store        │            │ versioned + PINNED     │
+   │ stratified sample: │◄───────────┤ calibrated vs humans   │
+   │  · uniform base    │ calibrate  └───────────┬────────────┘
+   │  · oversample      │                        ▼
+   │    low-confidence  │            ┌────────────────────────┐
+   │    thumbs-down     │            │ results store          │
+   │    high-latency    │            │ keyed by ALL versions  │
+   │    retried         │            └───────────┬────────────┘
+   │    escalated       │                        ▼
+   └─────────┬──────────┘            ┌────────────────────────┐
+             │                       │ dashboards + regression│
+             │  PROMOTE a failure    │ alerting               │
+             │  into a dataset       └────────────────────────┘
+             └──────────────┐
+                            ▼
+              ╔══════════════════════════════════════╗
+              ║ THE RATCHET                          ║
+              ║ production failure ──► permanent     ║
+              ║ regression test                      ║
+              ╚══════════════════════════════════════╝
+
+   ┌────────────────────────────────────────────────────────────┐
+   │ human annotation ──► ground truth for JUDGE CALIBRATION    │
+   │ hours to days ──► NEVER in a blocking path                 │
+   └────────────────────────────────────────────────────────────┘
+`),
+      },
+      {
+        title: "Deep Dive: Making an Unreliable Instrument Trustworthy",
+        content:
+          "Four parts, and together they are the whole reason this is a hard design rather than a data pipeline.\n\nVersion everything. A result is not a number; it is a tuple of dataset version, prompt version, model version, judge version and code version. Change any one term and comparison across runs is invalid. The single most common failure of home-grown eval systems is comparing two numbers produced under different conditions and drawing a confident, wrong conclusion - and the conclusion is usually acted upon, because the numbers came from a dashboard.\n\nImmutable dataset versions are therefore non-negotiable. A golden set that someone edited in place makes every historical number uninterpretable, retroactively, with no signal that anything happened. Adding examples creates a new version; the old version remains queryable forever.\n\nThe judge is a model too. LLM-as-judge is what makes evaluation scale, and it drifts, exhibits position bias, favours verbose answers, and can be updated underneath you by a provider - the same silent-update failure the gateway topic describes, but here it corrupts the measuring instrument rather than the product. Treat it as a versioned, pinned, evaluated component: calibrate against human labels on a held-out set, measure agreement, and revalidate whenever anything about it changes. The evaluation module covers the calibration methods; the platform's job is to make them routine. State the consequence plainly: an uncalibrated judge produces confident numbers that mean nothing, and is worse than no judge, because a team acts on it.\n\nSampling and its biases. You cannot judge everything, so what you sample determines what you can conclude. Uniform sampling under-represents rare failures, which are exactly what you care about. The practical policy is stratified: a uniform baseline stratum for unbiased aggregates, plus deliberate oversampling of low-confidence, thumbs-down, high-latency, retried and escalated interactions.\n\nAnd then the part that is routinely got wrong: oversampled strata must be reweighted before computing aggregates. Otherwise the aggregate is dominated by deliberately-collected failures and the system looks far worse than it is - a subtle bug that produces alarming dashboards, wastes weeks of investigation, and destroys trust in the platform, which is much harder to rebuild than the bug is to fix.\n\nClosing the loop. A production failure is found, promoted into a versioned dataset with its expected behaviour recorded, and becomes a permanent regression test. This is the AI analogue of writing a regression test for a bug, and it converts evaluation from a snapshot into a ratchet - the suite can only get stricter. Design for it explicitly: one-click promotion from trace to dataset entry, carrying provenance. Friction here is fatal, because the promotion happens during an incident when nobody has spare attention, and a three-step process simply does not get done.\n\nFinally, regression detection is a statistics problem, not a threshold choice. Outputs are noisy, so a small metric movement may be pure noise. Run enough examples for adequate power, use paired comparison on identical inputs rather than comparing independent runs - which removes most of the variance for free - and set the gate threshold from measured run-to-run variance rather than from a round number someone liked. A gate that fires on noise gets disabled by the team within a month, and a disabled gate is worse than no gate, because everyone still believes it is protecting them.",
+        diagram: asciiDiagram(`
+  A RESULT IS A TUPLE, NOT A NUMBER
+
+   ┌──────────────────────────────────────────────────────┐
+   │ score = f( dataset_ver, prompt_ver, model_ver,       │
+   │            judge_ver, code_ver )                     │
+   └──────────────────────────────────────────────────────┘
+   change ANY term ──► cross-run comparison is INVALID
+
+   THE CLASSIC WRONG CONCLUSION
+     week 1: 0.82
+     week 3: 0.76   ─► "the prompt change hurt, roll it back"
+     reality: someone edited the golden set in between
+              ─► different dataset. The numbers were never
+                 comparable. And the rollback was acted on.
+
+   ╔══════════════════════════════════════════════════════╗
+   ║ IMMUTABLE dataset versions are NON-NEGOTIABLE.       ║
+   ║ In-place editing retroactively invalidates every     ║
+   ║ historical number, silently. Adding examples makes   ║
+   ║ a NEW version; the old stays queryable forever.      ║
+   ╚══════════════════════════════════════════════════════╝
+
+  THE JUDGE IS A MODEL TOO
+   ┌────────────────────┬─────────────────────────────────┐
+   │ drifts             │ provider updates it underneath  │
+   │ position bias      │ prefers whichever came first    │
+   │ verbosity bias     │ scores longer answers higher    │
+   └────────────────────┴─────────────────────────────────┘
+   ► pin it · version it · calibrate vs human labels on a
+     held-out set · revalidate on ANY change
+   ► an UNCALIBRATED judge yields confident numbers that mean
+     nothing - worse than no judge, because a team ACTS on it
+
+  STRATIFIED SAMPLING - and the reweighting trap
+   ┌────────────────────┬────────┬──────────┬───────────────┐
+   │ stratum            │ pop. % │ sampled %│ weight        │
+   ├────────────────────┼────────┼──────────┼───────────────┤
+   │ uniform baseline   │  95    │    40    │  ×2.375       │
+   │ thumbs-down        │   2    │    25    │  ×0.08        │
+   │ low-confidence     │   2    │    25    │  ×0.08        │
+   │ retried / escalated│   1    │    10    │  ×0.10        │
+   └────────────────────┴────────┴──────────┴───────────────┘
+   UNWEIGHTED aggregate ──► 60% of the sample is deliberately
+   collected FAILURES ──► "quality is 0.41!"  ✗ alarming, wrong
+   REWEIGHTED aggregate ──► 0.86  ✓
+   ▲ weeks of investigation, and trust in the platform lost -
+     far harder to rebuild than the bug is to fix
+
+  REGRESSION GATES ARE STATISTICS, NOT THRESHOLDS
+   outputs are NOISY ──► a small delta may be noise
+    ► PAIRED comparison on IDENTICAL inputs (removes most
+      variance for free)
+    ► enough examples for POWER
+    ► threshold from MEASURED run-to-run variance
+   ╔══════════════════════════════════════════════════════╗
+   ║ A gate that cries wolf is disabled within a month -  ║
+   ║ and a disabled gate is WORSE than no gate, because   ║
+   ║ everyone still believes it protects them.            ║
+   ╚══════════════════════════════════════════════════════╝
+`),
+      },
+      {
+        title: "Evaluating the Evaluation Platform Itself",
+        content:
+          "The headline metric is judge-to-human agreement, because it is the number that determines whether anything else the platform reports means anything. Track it per feature and over time, not once at launch, and treat a decline as an incident rather than a data point - every score produced since the decline began is suspect.\n\nThen the question that actually justifies the platform: do the gates catch real regressions? Measure it honestly by tracking quality incidents that reached production and asking, for each, whether the suite could have caught it. That retrospective is uncomfortable and it is the only real evidence of value. It also generates the most useful backlog the platform will ever have, because each miss is a concrete gap in coverage.\n\nFalse-alarm rate, because that single number determines whether engineers keep the gate enabled. A gate with excellent sensitivity and a twenty percent false-alarm rate will be bypassed, then ignored, then removed - and the platform team is usually the last to find out. Track bypasses explicitly as a leading indicator.\n\nCoverage in two senses: which features have suites at all, and which known failure modes have a corresponding test. The second is more informative, since a feature can have a large suite that exercises none of the ways it has actually failed.\n\nAnd adoption, which is the honest measure of any internal platform. An evaluation platform that engineers route around is providing zero value regardless of its technical quality, and the usual causes are friction - suites too slow, promotion too manual, results too hard to interpret - rather than missing capability. Measuring adoption per team surfaces that before it becomes structural.",
+        diagram: asciiDiagram(`
+  THE PLATFORM'S OWN METRICS
+
+  ┌──────────────────────┬────────────────────────────────────┐
+  │ JUDGE-HUMAN          │ the headline. Determines whether   │
+  │ AGREEMENT            │ anything else means anything.      │
+  │                      │ Track per feature, OVER TIME.      │
+  │                      │ A decline is an INCIDENT - every   │
+  │                      │ score since it began is suspect.   │
+  ├──────────────────────┼────────────────────────────────────┤
+  │ DO GATES CATCH REAL  │ track quality incidents that       │
+  │ REGRESSIONS?         │ reached production; ask of each:   │
+  │                      │ could the suite have caught it?    │
+  │                      │ ▲ uncomfortable, and the only real │
+  │                      │   evidence of value. Each miss is  │
+  │                      │   a concrete coverage gap.         │
+  ├──────────────────────┼────────────────────────────────────┤
+  │ FALSE-ALARM RATE     │ decides whether the gate SURVIVES  │
+  │                      │ contact with the team              │
+  │                      │ great sensitivity + 20% false      │
+  │                      │ alarms ─► bypassed ─► ignored ─►   │
+  │                      │ removed. Track BYPASSES as the     │
+  │                      │ leading indicator.                 │
+  ├──────────────────────┼────────────────────────────────────┤
+  │ COVERAGE             │ (a) features with a suite at all   │
+  │                      │ (b) KNOWN FAILURE MODES with a     │
+  │                      │     corresponding test ◄ better    │
+  │                      │ a big suite can exercise none of   │
+  │                      │ the ways a feature actually failed │
+  ├──────────────────────┼────────────────────────────────────┤
+  │ ADOPTION             │ the honest measure of any internal │
+  │                      │ platform. Routed around = zero     │
+  │                      │ value, whatever its quality.       │
+  │                      │ Usual cause is FRICTION - slow     │
+  │                      │ suites, manual promotion, results  │
+  │                      │ nobody can interpret - not missing │
+  │                      │ capability.                        │
+  └──────────────────────┴────────────────────────────────────┘
+`),
+      },
+      {
+        title: "Failure Modes and Degradation",
+        content:
+          "Trace collection degrading production. This must be impossible by construction rather than unlikely in practice, which is what asynchronous, sampled and fail-open means. An evaluation platform that causes an outage in the feature it observes loses organisational support permanently, and no amount of subsequent reliability recovers it.\n\nJudge drift silently shifting all scores. Every number moves together, nothing looks broken, and the trend line tells a story about the product that is actually a story about the instrument. Caught only by periodic recalibration against fresh human labels on a held-out set, which is why that schedule must be automatic rather than aspirational.\n\nGolden set staleness as the product evolves. A dataset assembled at launch describes the product as it was, and a suite that passes on a year-old dataset is measuring a product that no longer exists. The promotion loop partly addresses this, but deliberate refresh is still needed.\n\nOverfitting to the eval set, where the suite passes while users suffer. This is the failure mode that most resembles a success. Prompts get tuned until the golden set scores well, and the golden set stops being a sample of reality. Defences: hold out a portion never used for iteration, refresh regularly from production, and treat a suite score that improves while production signals flatten as evidence of overfitting rather than progress.\n\nGate fatigue from false alarms, covered above, and the reason threshold-setting must be statistical.\n\nAnnotation quality decay and disagreement. Annotators drift, guidelines get interpreted differently, and inter-annotator agreement falls without anyone noticing. Since human labels are the ground truth that calibrates the judge, decay here propagates into everything downstream.\n\nSampling bias producing confidently wrong aggregates, which is the reweighting failure and worth stating separately because it is so easy to introduce and so hard to spot.\n\nAnd cost overrun from running full suites too often, which is what tiering exists to prevent, and which typically appears as a finance question rather than an engineering alert - so put an explicit budget alert on evaluation spend the way you would on production inference.",
+        diagram: asciiDiagram(`
+  FAILURE MODES
+
+  ┌────────────────────────┬──────────────────────────────────────┐
+  │ trace collection       │ must be IMPOSSIBLE BY CONSTRUCTION - │
+  │ degrades production    │ async, sampled, fail-open.           │
+  │                        │ ▲ an eval platform that causes an    │
+  │                        │   outage in the feature it observes  │
+  │                        │   loses support PERMANENTLY          │
+  ├────────────────────────┼──────────────────────────────────────┤
+  │ JUDGE DRIFT            │ every number moves together, nothing │
+  │                        │ looks broken. The trend line tells a │
+  │                        │ story about the INSTRUMENT, not the  │
+  │                        │ product.                             │
+  │                        │ ► automatic periodic recalibration   │
+  ├────────────────────────┼──────────────────────────────────────┤
+  │ golden set staleness   │ a launch-era dataset measures a      │
+  │                        │ product that no longer exists        │
+  ├────────────────────────┼──────────────────────────────────────┤
+  │ OVERFITTING TO THE     │ the failure that LOOKS LIKE SUCCESS. │
+  │ EVAL SET               │ suite passes, users suffer.          │
+  │                        │ ► hold out a slice never used for    │
+  │                        │   iteration                          │
+  │                        │ ► refresh from production            │
+  │                        │ ► suite up + production flat = a     │
+  │                        │   WARNING, not progress              │
+  ├────────────────────────┼──────────────────────────────────────┤
+  │ gate fatigue           │ false alarms ─► bypass ─► removal    │
+  ├────────────────────────┼──────────────────────────────────────┤
+  │ annotation decay       │ annotators drift, guidelines diverge,│
+  │                        │ agreement falls unnoticed - and      │
+  │                        │ these labels are the GROUND TRUTH    │
+  │                        │ the judge is calibrated against      │
+  ├────────────────────────┼──────────────────────────────────────┤
+  │ sampling bias          │ unweighted strata ─► confidently     │
+  │                        │ wrong aggregates                     │
+  ├────────────────────────┼──────────────────────────────────────┤
+  │ eval COST OVERRUN      │ full suites run too often. Surfaces  │
+  │                        │ as a FINANCE question, not an alert  │
+  │                        │ ► budget alert on eval spend, same   │
+  │                        │   as production inference            │
+  └────────────────────────┴──────────────────────────────────────┘
+`),
+      },
+      {
+        title: "Cost and Trade-offs",
+        content:
+          "Trace fidelity against storage. Full payload capture is the most useful thing for debugging and the most expensive thing in the system. The resolution is the same shape as the gateway's: metadata for one hundred percent, full payloads for a sampled subset plus everything flagged, errored or thumbs-downed. Retention can be tiered too - full fidelity for a week, metadata for a year.\n\nSuite size against release velocity and evaluation spend. A larger suite has more statistical power and catches more regressions, and it costs more and takes longer, which slows every deploy. Tiered suites resolve this: a fast subset chosen for sensitivity rather than size gates every change, the full suite gates releases, and a periodic exhaustive run catches drift the tiers miss.\n\nJudge model quality against cost. A strong judge agrees better with humans and costs more per evaluation. The nuance worth stating is that a cheap judge is often entirely adequate for coarse binary questions - did it refuse, did it cite a source, is it in the right format - while nuanced quality judgments need the stronger model. Route judge calls by question type rather than picking one judge globally, which is the same per-class routing logic as document processing and the gateway.\n\nHuman annotation is the expensive gold standard, and its correct use is to calibrate the cheap scalable one rather than to measure routinely. A few hundred well-chosen human labels that validate a judge are worth vastly more than the same budget spent labelling production traffic directly, because the judge then scales that judgment to millions of requests.\n\nAnd the framing trade, which is the one that decides whether the platform survives a budget review: evaluation is pure overhead until the day it prevents a bad release. Its value is best argued as insurance, sized against the cost of the incidents it prevents - and it is much easier to argue after the first prevented incident, which is why tracking caught regressions from day one matters as much as any technical decision in the design.",
+        diagram: asciiDiagram(`
+  THE TRADES
+
+  ┌────────────────────┬───────────────────────────────────────┐
+  │ trace fidelity     │ metadata 100% · full payloads for a   │
+  │ vs storage         │ SAMPLE + all errored/flagged/         │
+  │                    │ thumbs-down. Tier retention: full     │
+  │                    │ fidelity 1 week, metadata 1 year.     │
+  ├────────────────────┼───────────────────────────────────────┤
+  │ suite size vs      │ ┌────────────┬──────────────────────┐ │
+  │ release velocity   │ │ fast tier  │ every change. Chosen │ │
+  │                    │ │            │ for SENSITIVITY, not │ │
+  │                    │ │            │ size.                │ │
+  │                    │ │ full suite │ before release       │ │
+  │                    │ │ exhaustive │ periodic - catches   │ │
+  │                    │ │            │ drift the tiers miss │ │
+  │                    │ └────────────┴──────────────────────┘ │
+  ├────────────────────┼───────────────────────────────────────┤
+  │ judge quality      │ ROUTE BY QUESTION TYPE, not globally: │
+  │ vs cost            │  cheap judge  ─► did it refuse? cite? │
+  │                    │                  right format?        │
+  │                    │  strong judge ─► nuanced quality      │
+  │                    │ (same per-class routing logic as D6   │
+  │                    │  and D7)                              │
+  ├────────────────────┼───────────────────────────────────────┤
+  │ human annotation   │ CALIBRATE the cheap scalable judge -  │
+  │                    │ do not measure routinely with it.     │
+  │                    │ 300 labels validating a judge ≫ 300   │
+  │                    │ labels scoring traffic, because the   │
+  │                    │ judge then scales that judgment to    │
+  │                    │ millions of requests.                 │
+  └────────────────────┴───────────────────────────────────────┘
+
+  ╔══════════════════════════════════════════════════════════════╗
+  ║ THE FRAMING TRADE - decides whether the platform survives    ║
+  ║ a budget review                                              ║
+  ║                                                              ║
+  ║ Evaluation is PURE OVERHEAD until the day it prevents a bad  ║
+  ║ release. Argue it as INSURANCE, sized against the cost of    ║
+  ║ the incidents it prevents.                                   ║
+  ║                                                              ║
+  ║ Far easier to argue after the first prevented incident -     ║
+  ║ which is why tracking caught regressions from day one is as  ║
+  ║ important as any technical decision here.                    ║
+  ╚══════════════════════════════════════════════════════════════╝
+`),
+      },
+    ],
+    examples: [
+      {
+        title: "The comparison that was never valid",
+        input:
+          "A team reports that their summarisation quality dropped from 0.82 in week one to 0.76 in week three, and proposes rolling back the prompt change made in week two.",
+        output:
+          "The two numbers were never comparable: eleven examples were added to the golden set in week two, and the added examples were harder. The rollback is cancelled. The fix is immutable dataset versions and storing results keyed by the full version tuple.",
+        explanation:
+          "Step 1: Before acting on any delta, retrieve the version tuple for both results. If the platform does not store one, that is the finding - a bare score with no tuple cannot support any conclusion. Step 2: The dataset version differs. Someone added examples in week two, in place, with good intentions, because they had found new failure cases and wanted them covered. Step 3: Re-run the week-three prompt against the week-one dataset version, which is only possible because the old version still exists. It scores 0.83, so the prompt change was in fact a small improvement, and the proposed rollback would have removed it. Step 4: Then re-run the week-one prompt against the week-three dataset for the complete picture: it scores 0.74, confirming that the new examples are harder and that the apparent regression was entirely a dataset effect. Step 5: The structural fix is that dataset versions are immutable and additions create a new version, so that in-place editing is not possible rather than merely discouraged. Step 6: The transferable lesson is that a score is a tuple. Every dashboard should display the tuple beside the number, because a number that looks comparable will be compared.",
+      },
+      {
+        title: "Calibrating the judge and finding a verbosity bias",
+        input:
+          "An LLM judge scores summarisation quality on a five-point scale. A held-out set of 200 examples is labelled by two human annotators, and judge scores are compared against the human consensus.",
+        output:
+          "Agreement is moderate overall but breaks down systematically: the judge scores longer summaries higher regardless of quality. The judge prompt is revised to evaluate against explicit criteria, and agreement improves substantially on re-validation.",
+        explanation:
+          "Step 1: Establish the human baseline first by measuring inter-annotator agreement between the two humans. If humans disagree with each other substantially, the judge cannot be expected to exceed that ceiling and the task definition needs work before the judge does. Step 2: Compare judge scores to human consensus and, critically, look at the disagreements rather than only the aggregate agreement number - the aggregate tells you there is a problem and the disagreement pattern tells you what it is. Step 3: Segment the disagreements by properties of the output. Sorting by length reveals that the judge over-scores long summaries and under-scores concise ones the humans preferred, which is a known judge bias rather than a surprise. Step 4: Revise the judge prompt to score against explicit named criteria - factual accuracy, coverage of key points, absence of invented detail, concision - rather than asking for a holistic quality rating, since holistic prompts leave room for the bias to operate. Step 5: Re-validate on the same held-out set. This is a new judge version and every result produced by the old version is now on a different footing, so the version bump must be recorded and historical comparisons across it flagged. Step 6: Schedule recalibration rather than treating this as one-time work, because the judge model itself can change underneath you.",
+      },
+      {
+        title: "Sampling bias making the system look worse than it is",
+        input:
+          "A quality dashboard shows overall satisfaction at 0.41 and falling. The sampling policy oversamples thumbs-down, low-confidence, retried and escalated interactions, which together make up 60 percent of the sampled traces but 5 percent of production traffic.",
+        output:
+          "The aggregate was computed unweighted over the stratified sample. Reweighting by inverse sampling probability gives 0.86, consistent with other signals. The dashboard is corrected and reweighting is enforced in the aggregation layer rather than left to each query.",
+        explanation:
+          "Step 1: The tell is that the dashboard disagrees sharply with every other signal - support volume, retention, spot checks - and when an aggregate disagrees with everything else the aggregate is the first thing to check. Step 2: Examine the sampling policy. The strata are deliberate and correct for their purpose: oversampling failures is exactly what you want for finding and diagnosing problems. Step 3: The bug is in aggregation, not collection. Each stratum must be reweighted by the inverse of its sampling probability, so a stratum that is 2 percent of traffic but 25 percent of the sample gets a weight around 0.08 rather than counting equally. Step 4: Recompute with weights, giving 0.86 - and note that both numbers came from the same correctly collected data, which is what makes this bug so persistent. Nothing is wrong with the pipeline. Step 5: Fix it structurally by making the aggregation layer weight-aware so that no individual query can produce an unweighted aggregate, rather than documenting the requirement and hoping. Step 6: The organisational damage is the real cost. Weeks were spent investigating a quality collapse that never happened, and the platform's credibility takes far longer to rebuild than the fix takes to ship.",
+      },
+      {
+        title: "Sizing a regression gate from measured variance",
+        input:
+          "A team wants a gate that blocks a deploy if quality drops. The proposal is to fail when the suite score drops by more than 0.02. The suite has 200 examples.",
+        output:
+          "Measured run-to-run variance on an unchanged configuration is about 0.015 standard deviation, so a 0.02 threshold fires on noise regularly. The gate is redesigned to use paired comparison on identical inputs and a threshold derived from measured variance, with the suite enlarged to give adequate power.",
+        explanation:
+          "Step 1: Measure the noise floor before choosing any threshold, by running the identical configuration against the identical dataset several times and recording the spread. Without that number, a threshold is a guess. Step 2: The observed standard deviation of 0.015 means a 0.02 threshold sits close to one standard deviation and will fire on unchanged code a meaningful fraction of the time - which is precisely how gates acquire a reputation for crying wolf. Step 3: Switch to paired comparison. Evaluating both configurations on identical inputs and comparing per-example differences removes the variance contributed by example difficulty, which is usually the dominant term, and typically shrinks the detectable effect size considerably for free. Step 4: Compute the sample size needed for the effect you actually care about. If a 0.02 regression matters and paired per-example differences have a standard deviation around 0.10, detecting it reliably needs several hundred examples, so 200 is under-powered for the stated goal. Step 5: Set the threshold from the measured distribution rather than a round number, and express the gate as a statistical test with an explicit false-alarm rate rather than as a bare inequality. Step 6: Track the false-alarm rate in production use, because that number determines whether the gate is still enabled in six months - and a gate everyone bypasses is worse than none, since the team believes they are protected.",
+      },
+    ],
+    tips: [
+      "Make dataset versions immutable and never edit a golden set in place. In-place editing retroactively invalidates every historical number with no signal that anything happened, and it is the most common way home-grown eval systems become untrustworthy.",
+      "Pin and version the judge as carefully as the production model, and schedule recalibration rather than doing it once at launch. A judge that drifts moves every score together, so nothing looks broken while everything is wrong.",
+      "Make trace collection fail-open by construction - asynchronous and sampled - because an evaluation platform that causes an outage in the feature it observes loses organisational support permanently.",
+      "Stratify sampling to catch rare failures, and enforce reweighting in the aggregation layer so no query can produce an unweighted aggregate. Leaving reweighting to convention guarantees someone will forget.",
+      "Make promoting a trace into a dataset a one-click action with provenance. Friction there stops the ratchet, because promotion happens during incidents when nobody has spare attention for a multi-step process.",
+      "Tier the suites: a fast, sensitivity-selected subset gates every change and the full suite gates releases. Suite duration is a direct tax on release velocity, and a slow gate is a gate people learn to skip.",
+    ],
+    tricks: [
+      "Say 'a result is a tuple, not a number' early and use it to explain why comparisons break. It is the insight most candidates miss entirely, and it reframes the whole design around versioning rather than around data collection.",
+      "Volunteer that the judge needs its own evaluation before the interviewer asks. Treating the measuring instrument as a component with a version, a calibration record and a revalidation schedule is what separates a platform design from a scoring script.",
+      "Frame regression gates as a statistical power problem rather than a threshold choice, and mention paired comparison specifically - it removes most of the variance for free and few candidates raise it.",
+      "Raise false-alarm rate as the metric that determines whether the gate survives contact with the team. It shows you have operated one of these rather than designed one on a whiteboard.",
+      "Connect this explicitly to the gateway topic: if a gateway exists it is the natural trace emitter, since it already sees every request in one schema. Naming that link is often the strongest argument for either system.",
+    ],
+    memoryAids: [
+      "Version everything, compare only within a tuple. A bare score supports no conclusion.",
+      "The judge is a model too - it drifts, it is biased, and it needs its own evaluation.",
+      "Sample stratified, aggregate reweighted. Forgetting the second half makes a healthy system look broken.",
+      "Every production failure becomes a permanent test. That ratchet is what makes the platform compound.",
+      "Async, sampled, fail-open. Observation must never be able to break the thing observed.",
+    ],
+    interviewPatterns: [
+      "'How do you know a prompt change helped?' Paired evaluation on an immutable versioned dataset, with enough examples for statistical power and a threshold set from measured run-to-run variance.",
+      "'How do you trust an LLM judge?' Calibrate against human labels on a held-out set, measure agreement, pin and version it, and revalidate on any change - and say explicitly that an uncalibrated judge produces confident numbers that mean nothing.",
+      "'You cannot label everything - what do you sample?' Stratified sampling with a uniform baseline plus oversampled failure strata, and reweighting before any aggregate is computed.",
+      "'How do you stop evaluation from slowing releases?' Tiered suites, sharded parallel execution, and result caching keyed by the full version tuple.",
+      "'Your suite score is improving but users are not happier.' Overfitting to the eval set - hold out a slice never used for iteration and refresh the dataset from production.",
+      "Frequency and companies: common in AI platform and ML infrastructure interviews, and increasingly in senior generalist rounds where shipping AI responsibly is in scope - major tech companies with internal AI platforms, AI infrastructure and evaluation-tooling startups, and any organisation running AI features at scale. Stability: high; versioning, judge calibration, stratified sampling and the promotion ratchet have proven durable while the models and tools underneath change constantly.",
+    ],
+    faq: [
+      {
+        question: "Why is accuracy alone insufficient for evaluating an AI feature?",
+        answer:
+          "Because most AI outputs have no single correct answer, so there is nothing to be accurate against. A summary can be excellent in several different ways and poor in several others, and an exact-match comparison against one reference summary scores a better summary lower than a near-copy of the reference. Even where a correct answer exists - an extracted field, a routing decision - accuracy collapses several distinct failure modes into one number: a system that refuses half the time and is right when it answers has the same accuracy as one that always answers and is wrong half the time, and those are entirely different products. The practical approach is a small set of complementary measures matched to what actually matters for the feature: task success, faithfulness to source, format and constraint compliance, refusal behaviour, latency and cost. The evaluation module treats the metric design in depth; the platform's contribution is making a suite of measures routine rather than reducing everything to one headline figure that hides its own composition.",
+        category: "metrics",
+      },
+      {
+        question: "Can LLM judges replace human annotators?",
+        answer:
+          "No, and the relationship is better understood as leverage than replacement. Human labels are the ground truth that establishes whether a judge measures anything; the judge then scales that judgment to volumes no annotation team could reach. Remove the humans entirely and there is nothing anchoring the judge to reality, so it can drift arbitrarily while continuing to emit confident, plausible numbers - and because everything moves together, no dashboard will look wrong. The right allocation is to spend scarce human capacity on calibration sets and on genuinely ambiguous cases, not on routine scoring, since a few hundred well-chosen labels validating a judge are worth far more than the same budget spent labelling production traffic directly. Two caveats worth stating. Judges are weakest exactly where humans disagree, so a task with poor inter-annotator agreement will not be rescued by a better judge - it needs a clearer task definition. And a judge should never evaluate its own model family's output without checking for self-preference bias, which is well documented and easy to miss.",
+        category: "judging",
+      },
+      {
+        question: "How do you detect judge drift?",
+        answer:
+          "With a fixed calibration set and a schedule, because drift is invisible in ordinary operation. Keep a held-out set of human-labelled examples that is never used for prompt iteration, re-run the judge against it on a regular cadence, and track agreement over time as a first-class metric with an alert on it. If agreement falls, every score produced since the decline began is suspect, which is why this is treated as an incident rather than a data point. A cheaper continuous signal is to re-run the judge on a fixed set of frozen outputs - not fresh generations, the identical text every time - and alert if the scores themselves move, since the same input scoring differently means the judge changed. Drift has two sources worth distinguishing: the provider updating the model behind a stable name, which pinning mitigates and which the gateway topic covers, and gradual mismatch as the product's output distribution shifts away from what the judge was calibrated on. The first is prevented; the second can only be detected, which is why the calibration set must be refreshed from current production rather than frozen at launch.",
+        category: "reliability",
+      },
+      {
+        question: "What belongs in the fast suite versus the full suite?",
+        answer:
+          "Select the fast suite for sensitivity, not for size or for coverage. It should contain the examples that historically move when something breaks: cases from past incidents, known-hard inputs, format and constraint checks that are cheap to verify deterministically, and a small stratified sample of routine traffic. Sixty well-chosen examples that catch most real regressions is a better fast suite than four hundred easy ones that always pass, and choosing on the basis of measured discriminating power rather than intuition is worth the effort - you can compute, for each example, how often it differed between a known-good and a known-bad configuration. The full suite covers breadth: every feature area, rare categories, edge cases and the accumulated promoted failures, and it runs before release where a few minutes is acceptable. Keep a third tier if evaluation cost allows: a periodic exhaustive run against everything, which catches slow drift that neither gate would notice because both tiers are subsets. And re-select the fast suite periodically, since examples that were discriminating a year ago may all pass now and be contributing nothing but runtime.",
+        category: "operations",
+      },
+      {
+        question: "How do you avoid overfitting to the evaluation set?",
+        answer:
+          "Accept that it happens by default and design against it, because the mechanism is not carelessness - it is the loop working as intended. Engineers iterate on prompts until the suite scores well, and after enough iterations the suite measures how well the prompt was tuned to those examples rather than how good the feature is. Three defences. Hold out a portion of every dataset that is never used during iteration and is consulted only at release, which gives an honest read at the cost of some data. Refresh datasets continuously from production traffic via the promotion loop, so the target keeps moving toward current reality. And watch for the signature: suite scores improving while production signals - user feedback, escalation rate, task completion - stay flat or decline. That divergence is the tell, and treating it as evidence of overfitting rather than as a measurement problem in the production signals is the correct instinct. It also helps to limit how many iterations are run against a given dataset version before refreshing it, which makes the erosion visible as a version cadence rather than silent.",
+        category: "methodology",
+      },
+      {
+        question: "What retention and sampling policy should traces have?",
+        answer:
+          "Split the decision by the three questions the platform answers, since they have different needs. For debugging, you need complete traces and short retention - a week or two of full fidelity covers nearly every investigation, because complaints that arrive later usually cannot be acted on anyway. For monitoring, you need metadata at high coverage and long retention, and metadata is small enough that keeping it for a year is cheap. For dataset construction, you need the ability to find and promote interesting traces, which argues for keeping flagged, errored, thumbs-downed and escalated traces at full fidelity well beyond the general window. That produces a natural policy: metadata for one hundred percent with long retention, full payloads for a stratified sample plus everything interesting with short retention, and indefinite retention for anything promoted into a dataset since it is now a test artefact. Two constraints override this: regulatory retention obligations, and the reverse - data that must be deleted on request, which means traces need to be attributable to a subject and deletable, a requirement that is painful to retrofit and cheap to design in.",
+        category: "storage",
+      },
+      {
+        question: "How do you justify the platform's cost to a sceptical stakeholder?",
+        answer:
+          "As insurance, sized against the incidents it prevents, and with evidence rather than principle. The difficulty is structural: evaluation produces no visible value on the days nothing goes wrong, which is most days, so it competes badly against feature work in any quarterly review. Three arguments that work. First, the retrospective: take quality incidents that reached production over the last year, estimate their cost in engineering time, customer impact and remediation, and show which the suite would have caught - this is concrete and specific to the organisation. Second, release velocity: teams without evaluation ship AI changes slowly and nervously, or quickly and recklessly, and a working gate lets them ship quickly and safely, which is a productivity argument rather than a risk one. Third, migration capability: without evaluation you cannot change model or provider, because you cannot tell whether the change hurt, and that inability becomes expensive the moment a provider deprecates something - the gateway topic's thirty-day deprecation problem is unsolvable without this platform. Track prevented regressions from day one, because the first one you can point to is worth more than any of these arguments.",
+        category: "platform",
+      },
+    ],
+    references: [
+      {
+        source: "paper",
+        attribution: "Zheng et al., 'Judging LLM-as-a-Judge' and subsequent work on judge bias and agreement",
+        insight: "Empirical measurement of position bias, verbosity bias and self-preference in LLM judges, and the agreement levels achievable against human annotators.",
+      },
+      {
+        source: "note",
+        attribution: "Open-source evaluation and tracing framework documentation",
+        insight: "Reference implementations of dataset versioning, suite execution, judge abstraction and trace collection, and the schema choices those projects settled on.",
+      },
+      {
+        source: "note",
+        attribution: "OpenTelemetry-style semantic conventions for LLM application tracing",
+        insight: "Standardised span attributes for model calls, tool invocations and multi-step traces, which is what makes traces from different teams comparable in one store.",
+      },
+      {
+        source: "blog",
+        attribution: "Engineering blog posts on internal AI evaluation platforms",
+        insight: "Operational accounts of gate false-alarm rates, adoption failures caused by friction, and the promotion loop from production incident to permanent regression test.",
+      },
+      {
+        source: "video",
+        attribution: "Recorded conference talks on evaluating LLM systems in production",
+        insight: "Practitioner treatment of stratified sampling, judge recalibration cadence and the statistics of regression detection under noisy outputs.",
+      },
+    ],
+    practiceProblems: [
+      "EXTENDING SINGLE-CALL EVAL TO MULTI-STEP AGENT TRACES. The platform evaluates single model calls. An agentic feature ships with eight-step tool-using traces. What changes? ANSWER: Almost everything about representation, and less than you would expect about method. Traces become trees rather than records, so the store needs parent-child span relationships and the UI needs to render a run rather than display a row - and trace size grows roughly tenfold, which forces the sampling policy to be revisited per feature rather than set globally. Evaluation gains a dimension: as well as final-outcome quality you now care about trajectory quality, since an agent can reach a correct answer through an absurd path that will fail on the next input, and it can fail on the final step of an otherwise perfect trajectory. Score both, and report them separately - collapsing them hides which half regressed. Per-step evaluation becomes possible and useful: was the right tool chosen, were the arguments well-formed, was the tool output interpreted correctly. Datasets must record expected trajectories or at least trajectory constraints, not just expected outputs. And cost rises sharply, because judging eight steps costs roughly eight times judging one, which pushes hard toward a cheap judge for mechanical per-step checks and a strong judge reserved for the final outcome.",
+      "CUT EVALUATION SPEND BY HALF WITHOUT LOSING GATE SENSITIVITY. Evaluation cost has become a visible line item. Halve it. ANSWER: Four levers, in order of safety. First, caching keyed by the full version tuple - if neither the prompt, model, dataset nor judge changed for an example, its result is already known and re-running it buys nothing. On typical iteration patterns where one prompt changes and everything else is fixed, this alone can be substantial. Second, route judge calls by question type: mechanical checks such as format compliance, refusal detection and citation presence do not need the strongest judge and often do not need a model at all, since a deterministic check is free and perfectly reliable. Moving those off the expensive judge is pure saving with zero sensitivity loss. Third, re-select the fast suite by measured discriminating power, dropping examples that have not differed between any two configurations in a year - they contribute cost and no signal. Fourth, reduce full-suite frequency rather than full-suite size, running it before release rather than on every merge, which preserves sensitivity where it matters and cuts volume where it does not. What to avoid: shrinking the suite uniformly, which reduces statistical power and therefore raises the detectable effect size, quietly converting a cost saving into a sensitivity loss that nobody measures.",
+      "DESIGN THE PROMOTION FLOW FROM INCIDENT TO REGRESSION TEST. Make the ratchet real. ANSWER: Optimise for the moment it is used, which is during or just after an incident when attention is scarce - so the interaction must be one click from a trace view, with everything else inferred or deferred. On click, capture the full input and context, the actual output, and a provenance record: trace id, timestamp, model and prompt versions in effect, and who promoted it and why. The expected behaviour is the part that needs a human, and it should be capturable as either a concrete expected output, a constraint the output must satisfy, or simply a marker that the observed output was wrong - the third is much better than nothing and is often all that is available in the moment, and it can be refined later. Promotion creates a new immutable dataset version rather than mutating the current one, and the new entry should be tagged with its origin so the dataset's composition remains legible over time. Two design points that decide whether this works: review before promotion should be asynchronous, so it does not block capture; and there should be a periodic sweep for promoted entries whose expected behaviour was never filled in, because those quietly accumulate and weaken the suite. Measure promotions per month as an adoption metric - if it trends to zero, the friction is somewhere and the ratchet has stopped.",
+      "A PROVIDER DEPRECATES YOUR JUDGE MODEL MID-QUARTER. Thirty days' notice. What do you do? ANSWER: Recognise first that this is worse than a production model deprecation, because the judge is the measuring instrument - changing it invalidates comparability across the change for every feature at once, and every historical number becomes a number from a different instrument. Start by selecting candidate replacement judges and calibrating each against the same human-labelled held-out sets used for the current judge, per feature, since agreement can differ substantially by task and a judge that is fine for format compliance may be poor at faithfulness. Choose per question type rather than globally, which the routing structure already supports. Then re-baseline: run the new judge across current configurations to establish new reference scores, and mark the version boundary explicitly in the results store and on every dashboard so that nobody compares across it without seeing the discontinuity. Where budget allows, run both judges in parallel for a period on the same outputs and record the mapping between their scores, which lets you interpret historical numbers approximately rather than discarding them. Gate thresholds must be re-derived from measured variance under the new judge, since noise characteristics differ. The preventive lesson: keep judge calibration sets current and portable, because they are what makes this a two-week project rather than a quarter of lost comparability.",
+      "THE GATE HAS BEEN BYPASSED 40 TIMES THIS MONTH. Diagnose and fix. ANSWER: Treat the bypass count as the primary signal it is, and resist the instinct to remove the bypass mechanism - that converts a visible problem into an invisible one where teams stop using the platform entirely. Investigate the bypasses first: pull each one and classify it. If most were false alarms, the gate threshold is set below the noise floor and the fix is statistical - measure run-to-run variance, switch to paired comparison on identical inputs, and re-derive the threshold with an explicit false-alarm target. If most were genuine regressions that teams shipped anyway, the problem is organisational rather than technical and the gate is not empowered; that needs a conversation about what the gate is for, not a code change. If most were 'the suite is slow and I was in a hurry', the fix is the fast tier and better sharding, since a gate that adds fifteen minutes to every deploy will be bypassed regardless of accuracy. If most cluster in one feature, that feature's dataset is probably stale or mis-specified. Then publish the bypass rate as a platform metric alongside coverage and agreement, because a gate everyone bypasses is worse than no gate: the organisation believes it is protected while it is not, and that false confidence is the actual failure.",
+    ],
+  },
 ];
