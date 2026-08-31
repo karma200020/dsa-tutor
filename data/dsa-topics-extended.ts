@@ -14,7 +14,7 @@ export const dsaTopicsExtended: Topic[] = [
     title: "Singly Linked List Operations",
     intuition:
       "Linked lists store data in nodes with pointers. Dynamic memory, O(n) access, O(1) insertion if pointer known.",
-    methodology: `Define Node â Traverse â Insert/Delete â Handle edge cases (head, null)`,
+    methodology: `Define Node → Traverse → Insert/Delete → Handle edge cases (head, null)`,
     cppCode: `
 struct Node {
     int val;
@@ -31,12 +31,12 @@ for(Node* curr = head; curr != nullptr; curr = curr->next) {
 }
 `,
     workedExample: `
-Insert 5 at head: 1â2â3 becomes 5â1â2â3
+Insert 5 at head: 1→2→3 becomes 5→1→2→3
 - Create new node(5)
 - Set new->next = head
 - Set head = new
 
-Insert 4 between 2 and 3: 1â2â3 becomes 1â2â4â3
+Insert 4 between 2 and 3: 1→2→3 becomes 1→2→4→3
 - Find node 2
 - Create new node(4)
 - Set new->next = 2->next
@@ -112,7 +112,7 @@ Insert 4 between 2 and 3: 1â2â3 becomes 1â2â4â3
     title: "Fast & Slow Pointers (Tortoise & Hare)",
     intuition:
       "Use two pointers at different speeds. Detect cycles, find middle, find kth from end.",
-    methodology: `Slow moves 1 step, Fast moves 2 steps â Eventually meet if cycle or reach end`,
+    methodology: `Slow moves 1 step, Fast moves 2 steps → Eventually meet if cycle or reach end`,
     cppCode: `
 ListNode* slow = head;
 ListNode* fast = head;
@@ -126,14 +126,14 @@ while(fast && fast->next) {
 // If no cycle and odd length: fast->next is null, slow at middle
 `,
     workedExample: `
-Detect cycle in 1â2â3â4â2 (cycle)
-Slow: 1â2â3â4â2â3â...
-Fast: 1â3â2â4â3â...
-Eventually fast catches slow at same node â Cycle exists
+Detect cycle in 1→2→3→4→2 (cycle)
+Slow: 1→2→3→4→2→3→...
+Fast: 1→3→2→4→3→...
+Eventually fast catches slow at same node → Cycle exists
 
-Find middle of 1â2â3â4â5
-Slow: 1â2â3
-Fast: 1â3â5ânull
+Find middle of 1→2→3→4→5
+Slow: 1→2→3
+Fast: 1→3→5→null
 Slow is at middle (3)
 `,
     complexity: {
@@ -151,8 +151,8 @@ Slow is at middle (3)
     ],
     memoryAids: [
       "SLOW = 1 step, FAST = 2 steps",
-      "CYCLE â they meet",
-      "NO CYCLE â fast reaches null"
+      "CYCLE → they meet",
+      "NO CYCLE → fast reaches null"
     ],
     interviewPatterns: [
       "Detect cycle in linked list",
@@ -208,7 +208,7 @@ Slow is at middle (3)
     title: "Stack Fundamentals & Operations",
     intuition:
       "LIFO data structure. Push adds to top, Pop removes from top. O(1) operations.",
-    methodology: `Push â Store â Pop â Retrieve`,
+    methodology: `Push → Store → Pop → Retrieve`,
     cppCode: `
 stack<int> s;
 s.push(1);     // O(1)
@@ -220,9 +220,9 @@ bool empty = s.empty();  // O(1)
     workedExample: `
 Push 1, 2, 3
 Stack: [1, 2, 3] (3 on top)
-Pop â 3
-Pop â 2
-Pop â 1
+Pop → 3
+Pop → 2
+Pop → 1
 Stack: []
 `,
     complexity: {
@@ -288,7 +288,7 @@ Stack: []
     title: "Monotonic Stack Pattern",
     intuition:
       "Stack maintaining increasing or decreasing order. Solves next/previous greater/smaller efficiently.",
-    methodology: `Maintain stack in order â Pop while condition fails â Push current â Record answer`,
+    methodology: `Maintain stack in order → Pop while condition fails → Push current → Record answer`,
     cppCode: `
 // Next Greater Element
 stack<int> st;
@@ -373,7 +373,7 @@ Result: [3, 4, 4, -1]
     title: "Queue Fundamentals & Operations",
     intuition:
       "FIFO data structure. Enqueue adds to back, Dequeue removes from front. O(1) operations.",
-    methodology: `Enqueue â Store â Dequeue â Retrieve in order`,
+    methodology: `Enqueue → Store → Dequeue → Retrieve in order`,
     cppCode: `
 queue<int> q;
 q.push(1);      // O(1) enqueue
@@ -385,8 +385,8 @@ q.pop();        // O(1), removes 1
     workedExample: `
 Enqueue 1, 2, 3
 Queue: [1, 2, 3] (1 at front, 3 at back)
-Dequeue â 1
-Dequeue â 2
+Dequeue → 1
+Dequeue → 2
 Queue: [3]
 `,
     complexity: {
@@ -453,7 +453,7 @@ Queue: [3]
     title: "Hash Maps & Collision Handling",
     intuition:
       "Hash maps use hash function to store key-value pairs. Handle collisions via chaining or open addressing.",
-    methodology: `Hash function â Index â Store/Retrieve â Handle collisions`,
+    methodology: `Hash function → Index → Store/Retrieve → Handle collisions`,
     cppCode: `
 unordered_map<string, int> map;  // Hash map with chaining
 map["hello"] = 5;     // O(1) average
@@ -464,7 +464,7 @@ map.erase("hello");   // O(1) average
 // Open addressing: probe next free slot
 `,
     workedExample: `
-Store "cat"â3, "dog"â1, "bat"â2
+Store "cat"→3, "dog"→1, "bat"→2
 Hash("cat")=0, Hash("dog")=1, Hash("bat")=2
 Collisions rare with good hash function
 Retrieve "cat": hash("cat")=0, find value 3
@@ -533,7 +533,7 @@ Retrieve "cat": hash("cat")=0, find value 3
     title: "Binary Search Advanced - Search on Answer",
     intuition:
       "Not just searching value. Can search for an answer using binary search on possible answers.",
-    methodology: `Define search space â Check if answer possible â Binary search on answer`,
+    methodology: `Define search space → Check if answer possible → Binary search on answer`,
     cppCode: `
 // Koko eating bananas: find min speed
 int minSpeed = 1, maxSpeed = max(piles);
@@ -557,10 +557,10 @@ while(minSpeed <= maxSpeed) {
     workedExample: `
 Koko piles=[3,6,7,11], h=8
 Search speed 1-11
-mid=6: hours=1+1+2+2=6 â¤ 8 â, try slower
-mid=3: hours=1+2+3+4=10 > 8 â, need faster
-mid=4: hours=1+2+2+3=8 â¤ 8 â
-mid=2: hours=2+3+4+6=15 > 8 â
+mid=6: hours=1+1+2+2=6 ≤ 8 ✓, try slower
+mid=3: hours=1+2+3+4=10 > 8 ✗, need faster
+mid=4: hours=1+2+2+3=8 ≤ 8 ✓
+mid=2: hours=2+3+4+6=15 > 8 ✗
 Answer=4
 `,
     complexity: {

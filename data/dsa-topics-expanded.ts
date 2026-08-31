@@ -10,11 +10,11 @@ export const expandedDsaTopics: Topic[] = [
     moduleId: "mod-arrays-strings",
     title: "Frequency Maps & Counting Patterns",
     intuition:
-      "Count element occurrences to solve grouping, anagram, and majority problems. Core pattern: build frequency map â answer queries.",
+      "Count element occurrences to solve grouping, anagram, and majority problems. Core pattern: build frequency map → answer queries.",
     lesson: [
       {
         title: "Understanding Frequency Maps",
-        content: "A frequency map (HashMap) stores count of each element. Instead of comparing arrays element-by-element (O(nÂ²)), we count once (O(n)) then answer queries in O(1). This is a fundamental optimization technique.",
+        content: "A frequency map (HashMap) stores count of each element. Instead of comparing arrays element-by-element (O(n²)), we count once (O(n)) then answer queries in O(1). This is a fundamental optimization technique.",
         codeExample: `unordered_map<char, int> freq;
 for (char c : s) {
   freq[c]++;  // Increment count for this character
@@ -45,7 +45,7 @@ return true;  // All chars consumed exactly`
         input: "s = \"listen\", t = \"silent\"",
         output: "true",
         explanation: `Step 1: Count 's = listen'
-  lâ1, iâ1, sâ1, tâ1, eâ1, nâ1
+  l→1, i→1, s→1, t→1, e→1, n→1
 
 Step 2: Iterate through 't = silent' and decrement
   Process 's': freq['s'] becomes 0
@@ -56,7 +56,7 @@ Step 2: Iterate through 't = silent' and decrement
   Process 't': freq['t'] becomes 0
 
 Step 3: All characters used exactly once
-  All counts reached 0 â Return true (valid anagram!)`
+  All counts reached 0 → Return true (valid anagram!)`
       },
       {
         title: "Example 2: Majority Element",
@@ -84,8 +84,8 @@ Step 2: Find element with count > n/2
       "Early exit: If string lengths differ, can't be anagrams - return false immediately"
     ],
     memoryAids: [
-      "Trigger keywords: 'Find', 'Count', 'Group', 'Majority', 'Valid' â often need frequency map",
-      "Core pattern: Count (O(n)) â Query (O(k))",
+      "Trigger keywords: 'Find', 'Count', 'Group', 'Majority', 'Valid' → often need frequency map",
+      "Core pattern: Count (O(n)) → Query (O(k))",
       "Checklist before coding: Handle duplicates? Case sensitive? What to return?"
     ],
     interviewPatterns: [
@@ -164,14 +164,14 @@ Build frequency map from "listen":
   Final freq = {l:1, i:1, s:1, t:1, e:1, n:1}
 
 Validate with "silent":
-  Process 's': freq['s']-- = 1â0 â
-  Process 'i': freq['i']-- = 1â0 â
-  Process 'l': freq['l']-- = 1â0 â
-  Process 'e': freq['e']-- = 1â0 â
-  Process 'n': freq['n']-- = 1â0 â
-  Process 't': freq['t']-- = 1â0 â
+  Process 's': freq['s']-- = 1→0 ✓
+  Process 'i': freq['i']-- = 1→0 ✓
+  Process 'l': freq['l']-- = 1→0 ✓
+  Process 'e': freq['e']-- = 1→0 ✓
+  Process 'n': freq['n']-- = 1→0 ✓
+  Process 't': freq['t']-- = 1→0 ✓
 
-Result: All decrements succeeded â Return true`
+Result: All decrements succeeded → Return true`
   },
 
   {
@@ -211,7 +211,7 @@ Result: All decrements succeeded â Return true`
 Query sum(1, 3):
   sum(1,3) = prefix[4] - prefix[1]
            = 10 - 1
-           = 9  â (which is 2+3+4)`
+           = 9  ✓ (which is 2+3+4)`
       }
     ],
     complexity: { time: "O(n) build, O(1) per query", space: "O(n)" },
@@ -263,7 +263,7 @@ Query sum(1, 3):
     moduleId: "mod-two-pointers-sliding",
     title: "Two Pointer Technique",
     intuition:
-      "Use two pointers moving toward each other on sorted arrays. Avoids O(nÂ²) nested loops.",
+      "Use two pointers moving toward each other on sorted arrays. Avoids O(n²) nested loops.",
     lesson: [
       {
         title: "Converging Pointers Strategy",
@@ -292,7 +292,7 @@ Iteration 2:
 Iteration 3:
   left = 0 (value 2)
   right = 1 (value 7)
-  sum = 2 + 7 = 9  â FOUND!
+  sum = 2 + 7 = 9  ✓ FOUND!
   Return [0+1, 1+1] = [1, 2]`
       }
     ],
@@ -369,13 +369,13 @@ return maxSum;`
         input: "nums = [1, 3, 2, 6, -1, 4, 1, 8, 2], k = 3",
         output: "13 (window: 4 + 1 + 8)",
         explanation: `Window positions:
-  [1, 3, 2] â sum = 6
-  [3, 2, 6] â sum = 11
-  [2, 6, -1] â sum = 7
-  [6, -1, 4] â sum = 9
-  [-1, 4, 1] â sum = 4
-  [4, 1, 8] â sum = 13  â Maximum!
-  [1, 8, 2] â sum = 11`
+  [1, 3, 2] → sum = 6
+  [3, 2, 6] → sum = 11
+  [2, 6, -1] → sum = 7
+  [6, -1, 4] → sum = 9
+  [-1, 4, 1] → sum = 4
+  [4, 1, 8] → sum = 13  ← Maximum!
+  [1, 8, 2] → sum = 11`
       }
     ],
     complexity: { time: "O(n)", space: "O(1)" },
@@ -425,7 +425,7 @@ return maxSum;`
     moduleId: "mod-two-pointers-sliding",
     title: "Sliding Window - Variable Size",
     intuition:
-      "Expand right to include elements, contract left when constraint violated. Each element enters/exits at most once â O(n).",
+      "Expand right to include elements, contract left when constraint violated. Each element enters/exits at most once → O(n).",
     lesson: [
       {
         title: "Variable Window Pattern",
@@ -466,7 +466,7 @@ Maximum window size = 3`
     ],
     complexity: { time: "O(n)", space: "O(min(m,n)) for character count" },
     tips: [
-      "Each element enters window once and exits once â O(n) total",
+      "Each element enters window once and exits once → O(n) total",
       "Maintain HashMap/array to track elements in window"
     ],
     interviewPatterns: [
@@ -539,12 +539,12 @@ return {};  // Not found`
         explanation: `i=0: num=2
   complement = 9 - 2 = 7
   7 not in map yet
-  Add to map: {2â0}
+  Add to map: {2→0}
 
 i=1: num=7
   complement = 9 - 7 = 2
   2 IS in map at index 0!
-  Return [0, 1]  â`
+  Return [0, 1]  ✓`
       }
     ],
     complexity: { time: "O(n)", space: "O(n)" },
