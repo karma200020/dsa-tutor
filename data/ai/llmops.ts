@@ -1668,5 +1668,266 @@ export const aiLlmOpsTopics: Topic[] = [
       "FLASH ATTENTION VERSUS PAGEDATTENTION. An interviewer asks whether these are the same optimisation. Answer and justify. ANSWER: No - they are orthogonal and vLLM runs both simultaneously. Flash Attention optimises the attention computation: SRAM tiling with an online softmax avoids materialising the N-by-N score matrix, cutting HBM traffic from O(N^2) to O(N) and speeding up prefill while slashing activation memory. PagedAttention optimises KV cache allocation: OS-style paging removes internal fragmentation from over-provisioned contiguous allocations and enables copy-on-write sharing of common prefixes. One is about how attention is computed, the other about how its memory is allocated. Conflating them is common, and separating them cleanly is a strong depth signal.",
     ],
   },
+  {
+    id: "topic-ai-llmops-production-operations",
+    moduleId: "mod-ai-llmops",
+    title: "Production LLMOps: Model Versioning and Rollout, Canary and Shadow Deploys, Monitoring and Cost Telemetry, and the Five Incident Patterns",
+    complexity: {
+      time: "Rollout risk is governed by exposure x hold time: canary at 5% for 24 hours exposes ~5% of a day's traffic to an unproven model, while shadow exposes zero users but costs a second full inference pass per request. Detection latency for a quality regression is bounded below by your eval sampling rate - at 5% sampling you need roughly 20x more traffic to reach the same confidence as full evaluation.",
+      space: "Operational cost, not memory: shadow deployment is ~2x inference spend for the duration; LLM-as-judge sampling at 1-5% of requests adds roughly 1-3% to serving cost; a cost ledger storing per-request token counts and metadata is small relative to request logs but must be retained long enough to compute 7-day and 30-day baselines.",
+    },
+    intuition:
+      "LLM production operations look like classical MLOps until they don't. Three failure modes have no analogue in traditional ML: the provider can silently change the model underneath a stable API alias, a brief latency blip can amplify itself into a self-sustaining retry storm, and quota exhaustion shows up as slowness rather than as errors. All three share a property that makes them dangerous - they are invisible to latency and error-rate monitoring alone. A model that answers quickly, without errors, and wrongly will pass every conventional health check you have. Knowing these patterns by name, and having a runbook for each, is the difference between having deployed an LLM and running one reliably.",
+    lesson: [
+      {
+        title: "Model Versioning: Pin Everything",
+        content:
+          "Classical ML models are artefacts you own; you know exactly which weights are serving because you put them there. Managed LLM endpoints break that assumption. The same alias - gpt-4o, or a -latest suffix - can be repointed by the provider at new weights with different tone, formatting and task-specific accuracy, and no error is raised on your side because nothing failed.\n\nFour practices follow. First, pin exact date-stamped version strings in production code, never floating aliases; floating aliases are fine in development and unacceptable in production. Second, treat a model upgrade as a code deployment: run your regression evals before rollout and treat a regression with the same seriousness as a failing test. Third, keep a model changelog recording when each version was adopted, what moved in the evals, and what the rollback path is - during an incident this is the artefact that turns a two-hour investigation into a ten-minute one. Fourth, for self-hosted deployments pin the model weights and the serving-framework version together in a single container image tag, because a vLLM upgrade can change throughput and occasionally output behaviour independently of the weights.",
+        diagram: asciiDiagram(`
+  WHAT A FLOATING ALIAS ACTUALLY MEANS
+
+   your code                      provider
+   ┌───────────────────┐          ┌────────────────────────┐
+   │ model: "gpt-4o"   │─────────►│ alias ──► weights v3   │  Monday
+   │ (floating alias)  │          │                        │
+   └───────────────────┘          │ alias ──► weights v4   │  Tuesday
+        ▲                         └────────────────────────┘
+        └── unchanged. no deploy. no error. behaviour moved.
+
+   ┌───────────────────────┐      ┌────────────────────────┐
+   │ "gpt-4o-2024-11-20"   │─────►│ frozen weights         │
+   │ (pinned)              │      │ changes only when YOU  │
+   └───────────────────────┘      │ change the string      │
+                                  └────────────────────────┘
+
+  ┌──────────────────────────────────────────────────────────┐
+  │ dev/staging : floating alias is fine, you want the churn │
+  │ production  : pinned only. the upgrade is a deployment.  │
+  └──────────────────────────────────────────────────────────┘
+`),
+      },
+      {
+        title: "Canary and Shadow: Two Rollout Shapes",
+        content:
+          "Canary routes a small slice of live traffic - typically 1 to 5 percent - to the new version, watches quality, latency and error rate for a defined hold period, then steps the slice up through 25 percent and 50 percent to full cutover. Its defining property is that real users see the new model, so a regression has real blast radius, bounded by the slice size and the hold time. Use it when you are broadly confident in the new version and want staged risk reduction with fast rollback.\n\nShadow runs the new version on a copy of production traffic but returns the old version's response to users; the new outputs are logged and evaluated offline. Its defining property is zero user exposure at roughly double the inference cost. Use it when you cannot risk any user seeing a degraded answer, when you need thousands of diverse examples before committing, or when the candidate is a different model family entirely and even 5 percent is too much initial exposure.\n\nBoth require the same three foundations, and a rollout plan that lacks any of them is not really a rollout plan: request logging with the model version tagged on every record, quality metrics computable from logged responses rather than from labels you do not have, and automated rollback triggers that fire without a human deciding. In practice the strongest sequence for a significant upgrade is shadow first to gather evaluation data, then canary to validate under real user behaviour, then cutover with the old version kept warm for 48 hours.",
+        diagram: asciiDiagram(`
+  CANARY - staged real exposure
+
+  Day 1  ├──────────── 95% ── v1 stable ────────────┤
+         └── 5% ── v2 canary ──┘     hold 24 h: eval, P99 TTFT, error rate
+  Day 2  ├──────── 75% ── v1 ────────┤
+         └──── 25% ── v2 ────────────┘     regression ─► rollback to 0%
+  Day 5  └──────────── 100% ── v2 ──────────┘  keep v1 warm 48 h
+
+  SHADOW - zero exposure, double cost
+
+                       ┌─────────┐
+   traffic ──► LB ────►│ v1      │──► response ──► USERS
+                │      └─────────┘
+                │      ┌─────────┐
+                └─────►│ v2      │──► log only ──► offline LLM-as-judge
+                       └─────────┘        ▲
+                                          └ users never see v2 output
+
+  ┌────────────────┬──────────────────┬───────────────────────────┐
+  │                │ CANARY           │ SHADOW                    │
+  │ user risk      │ bounded by slice │ zero                      │
+  │ extra cost     │ ~none            │ ~2x inference             │
+  │ signal quality │ real behaviour   │ large sample, offline only│
+  └────────────────┴──────────────────┴───────────────────────────┘
+`),
+      },
+      {
+        title: "Monitoring and Cost Telemetry",
+        content:
+          "An LLM monitoring stack has four pillars, and omitting any one of them leaves a class of failure undetectable.\n\nLatency means TTFT and TPOT tracked separately at P50, P90 and P99, per model version and per endpoint. They must be separate because their causes differ: a TTFT spike points at prefill, queueing or quota, while a TPOT spike points at batch size, bandwidth contention or KV pressure. Collapsing them into one 'latency' number destroys the diagnostic signal.\n\nToken usage means input, output and cache-hit tokens per request, which is the substrate for both cost forecasting and anomaly detection - a runaway agent shows up here long before it shows up on the invoice.\n\nQuality means LLM-as-judge scores on a sampled slice, downstream task outcomes such as ticket resolution rate or click-through, and distributional signals like output length, refusal rate and format compliance. This pillar is the one teams skip, and it is the only one that catches a model answering fast, without errors, and wrongly.\n\nInfrastructure, for self-hosted deployments, means GPU utilisation, KV cache utilisation, the prefill-versus-decode time split, batch size distribution and OOM rejections. KV cache utilisation deserves a named alert: sustained above 80 percent it is a warning, and approaching 100 percent it produces preemption in vLLM, where in-flight sequences are swapped out to host memory and their latency degrades sharply.\n\nCost should be attributed, not just totalled. Tag every call with feature, team, environment and a hashed user identifier, store token counts alongside those tags in a ledger, and build cost per feature, per cohort and per model version. Cost per resolved ticket is a far more actionable number than total monthly spend.",
+        diagram: asciiDiagram(`
+  LLM MONITORING DASHBOARD - four pillars
+
+  ┌────────────────────┬─────────────────────┬────────────────────────┐
+  │ LATENCY            │ COST / TOKENS       │ QUALITY                │
+  │ TTFT P50   0.3 s   │ $ / 1K req   $2.00  │ eval score      87 %   │
+  │ TTFT P99   1.2 s ⚠ │ in  tok/req  2 000  │ hallucination    2 %   │
+  │ TPOT P50    22 ms  │ out tok/req    400  │ user rating    4.2/5   │
+  │ TPOT P99    45 ms  │ cache hit     78 %  │ refusal rate   1.1 %   │
+  ├────────────────────┴─────────────────────┴────────────────────────┤
+  │ INFRASTRUCTURE (self-hosted)                                      │
+  │ GPU util 82 %  │ KV util 74 %  │ batch P50 12  │ OOM rejects 0    │
+  │ prefill 35 %   │ decode 65 %   │ queue depth 40│                  │
+  └───────────────────────────────────────────────────────────────────┘
+
+  ┌───────────────────────────────────────────────────────────────────┐
+  │ Drop the QUALITY column and this dashboard stays green through a  │
+  │ silent model update that is serving wrong answers to every user.  │
+  └───────────────────────────────────────────────────────────────────┘
+`),
+      },
+      {
+        title: "The Five Incident Patterns",
+        content:
+          "Five failure modes recur often enough across LLM deployments to deserve named runbooks.\n\nLarge-prefill latency spikes. TTFT P99 climbs while P50 stays flat, because long inputs monopolise compute and stall decode. Diagnose by plotting TTFT against input token count; a correlation confirms it. Mitigate with chunked prefill, an input-length guard, or a dedicated long-context pool.\n\nQuota exhaustion. The provider rate-limits your key. The counter-intuitive part is that it usually surfaces as a latency spike rather than an error spike, because retries eventually succeed and hide the 429s. Diagnose by counting 429 responses and retries per request, not just final status. Mitigate with a multi-provider fallback chain, negotiated limit increases, and application-layer throttling.\n\nSilent model updates. Downstream quality shifts with no deployment on your side. Diagnose by correlating the eval drop with the provider's changelog. Prevent by pinning versions and alerting on eval drift.\n\nCascading retry storms. A brief blip causes timeouts, clients retry in lockstep, load rises, latency rises, more timeouts - a positive feedback loop that takes the service down in minutes. Diagnose by checking whether the request-volume spike is your own retries. Mitigate with exponential backoff plus jitter, client-side circuit breakers, server-side load shedding above a queue-depth threshold, and a hard retry cap.\n\nCost explosion from runaway agents. An agent loop consumes 10 to 100 times the expected tokens for a task. Diagnose from output tokens per task. Mitigate with per-task token budgets, hard max_tokens limits and cost alerting on a rolling baseline.\n\nThe mnemonic is LQ-SRC: Large prefills, Quota exhaustion, Silent updates, Retry storms, Cost explosion. Listing these unprompted in a design interview is a strong maturity signal.",
+        diagram: asciiDiagram(`
+  RETRY STORM - the feedback loop that eats the service
+
+   14:02  brief blip ──► 30% of calls time out
+             │
+             ▼
+   14:03  clients retry, fixed 1 s delay, no jitter
+             │            ▲
+             ▼            │  synchronised thundering herd
+   14:04  load 2x ──► latency up
+             │            │
+             ▼            │
+   14:05  more timeouts ──┘   ◀── loop closes here
+             │
+             ▼
+   14:10  queue depth 50 000 ──► service effectively down
+
+  BREAK THE LOOP AT FOUR POINTS
+   ├─ exponential backoff + ±30% jitter   (desynchronise)
+   ├─ client circuit breaker >20%/30 s    (stop feeding it)
+   ├─ server load shed at queue > 5 000   (503 fast, don't queue)
+   └─ hard cap 3 retries per request      (bound amplification)
+
+  THE FIVE PATTERNS - "LQ SRC"
+   L arge prefills  ─ P99 up, P50 flat      ─► chunked prefill
+   Q uota exhausted ─ looks like latency    ─► fallback chain
+   S ilent update   ─ quality drops, no dep ─► pin versions
+   R etry storm     ─ volume = your retries ─► backoff + breaker
+   C ost explosion  ─ tokens/task 10-100x   ─► budgets + max_tokens
+`),
+      },
+    ],
+    examples: [
+      {
+        title: "Automated canary rollback catches a task-specific regression",
+        input:
+          "Production on Claude 3.5 Sonnet, upgrading to 3.7. SLA: eval score above 85%, P99 TTFT under 2 s, error rate under 0.5%. Baselines: eval 87%, P99 TTFT 1.2 s.",
+        output:
+          "Day 1, 5% canary. After 24 h: eval 88% (pass), P99 TTFT 1.4 s (pass, slightly up), error rate 0.2% (pass). Promote to 25%.\nDay 3, 25% canary. After 24 h: eval 83% - below the 85% floor. Automated rollback to 0%. Alert raised: regression on intent classification.\nRoot cause: 3.7 requires a different prompt format. Prompt updated, canary restarted.",
+        explanation:
+          "Step 1: The 5% tier passed cleanly, which is exactly why staged rollout exists - a single tier is not evidence. Step 2: The regression only became visible at 25%, because intent classification is a minority of traffic and the 5% slice contained too few of those requests to move the aggregate score. Step 3: Latency and error rate were healthy throughout, so a monitoring stack without quality metrics would have promoted this to 100%. Step 4: The rollback was automated on a threshold rather than waiting for a human, bounding exposure to one hold period at 25%. Step 5: The lesson to carry into a design answer is that canary tier sizes must be large enough to contain a statistically useful sample of each important sub-task, otherwise early tiers give false confidence.",
+      },
+      {
+        title: "Retry storm post-mortem",
+        input:
+          "14:02 a network blip times out 30% of LLM calls. 14:03 clients retry, volume doubles. 14:04 latency rises under the doubled load. 14:05 more timeouts, more retries. 14:10 queue depth 50,000 and the service is effectively down.",
+        output:
+          "Root cause: fixed 1-second retry delay with no jitter, so every timed-out request retried simultaneously - a synchronised thundering herd. No circuit breaker existed to detect the overload.\nFixes: exponential backoff with +/-30% jitter; circuit breaker opening above 20% failures in a 30-second window with fallback routing; server-side load shedding returning 503 above queue depth 5,000; retry cap of 3, previously unbounded.",
+        explanation:
+          "Step 1: Note that the triggering fault lasted seconds while the outage lasted eight minutes - the amplification, not the fault, was the incident. Step 2: Fixed-interval retries are the specific defect; they synchronise clients into a single wavefront instead of spreading load. Step 3: Jitter alone desynchronises but does not bound total load, so a circuit breaker is needed to stop feeding an overloaded dependency. Step 4: Load shedding is the server-side complement - failing fast with 503 is strictly better than accepting unbounded queue growth, because a queued request that eventually times out consumed capacity and delivered nothing. Step 5: All four fixes are independent layers; deploying only one leaves the loop closable under a larger initial fault.",
+      },
+      {
+        title: "Detecting a silent model update through quality monitoring",
+        input:
+          "Production calls GPT-4o through the unpinned alias. On a Tuesday afternoon, with no deployments, an alert fires at 15:34: eval score dropped from 91% to 78% on a classification task.",
+        output:
+          "Investigation: no deployments on our side; provider changelog shows the model behind the alias was updated that day. Diagnosis: silent model update altering behaviour on one sub-task.\nImmediate mitigation: pin to the previous date-stamped version, gpt-4o-2024-11-20 - roughly ten minutes of work.\nLong-term: pin explicit versions everywhere, and shadow-evaluate new versions before switching.",
+        explanation:
+          "Step 1: Nothing in the latency or error-rate panels moved, because the model was fast and returning well-formed responses - only its answers changed. Step 2: The detection came entirely from sampled quality evaluation, which is the pillar most teams treat as optional. Step 3: The absence of any deployment on the team's side is the diagnostic fingerprint: when quality moves and your code did not, suspect the dependency. Step 4: Remediation was trivial once diagnosed, which is the point - the expensive part was having the signal at all. Step 5: The unknown window matters too. Without quality monitoring the degradation would have run until a user complained, and the team could not have said how long it had been serving degraded answers.",
+      },
+    ],
+    tips: [
+      "Pin exact date-stamped model versions in production. Floating aliases belong in development, where you want to see the churn early.",
+      "Quality metrics are not optional. Latency and error rate cannot detect a model that is fast, error-free and wrong - which is the most damaging failure mode LLM systems have.",
+      "Learn the five incident patterns by name. Listing them unprompted in a serving design interview is one of the cheapest strong signals available.",
+      "Instrument per-feature cost from day one. Retrofitting attribution during a cost incident is slow, and it is exactly when you cannot afford to be slow.",
+      "Track TTFT and TPOT separately. Merging them into one latency number discards the information that tells you whether to look at prefill or at batching.",
+    ],
+    tricks: [
+      "Set the KV cache utilisation alert at 80% warning and 95% critical. It is the earliest reliable leading indicator of a latency wave, because vLLM begins preempting and swapping sequences before any error surfaces.",
+      "When quality drops and you made no deployment, check the provider changelog before you check your own code. Silent updates are the single most common cause of that specific symptom pattern.",
+      "Size canary tiers by sub-task volume, not by total traffic percentage. If a task is 4% of requests, a 5% canary contains almost none of it, and the tier will pass while hiding a regression on exactly that task.",
+      "For any managed-API deployment, count 429 responses and retry attempts separately from final request status. Quota exhaustion hides inside successful requests as extra latency, and a status-code-only dashboard will show a clean error rate throughout.",
+      "Alert on daily token spend against a rolling 7-day average rather than an absolute threshold. A fixed threshold is either too loose to catch a runaway agent early or too tight to survive normal traffic growth.",
+    ],
+    memoryAids: [
+      "LQ-SRC: Large prefills, Quota exhaustion, Silent updates, Retry storms, Cost explosion. Five patterns, one mnemonic.",
+      "Canary progression: 5, then 25, then 50, then 100 - with a hold period and an eval gate at every step.",
+      "Four monitoring pillars: Latency (TTFT plus TPOT), Tokens (usage plus cost), Quality (evals plus downstream), Infrastructure (GPU plus KV).",
+      "Canary risks users to gain real signal; shadow risks money to gain safety. Pick which currency you can spend.",
+      "Quality moved and you did not deploy? Suspect the provider before you suspect yourself.",
+    ],
+    interviewPatterns: [
+      "'Walk me through rolling out a new model version in production.' Tier 1. Answer with shadow then canary then cutover, naming the hold times, the automated rollback trigger and the warm-standby window.",
+      "'P99 latency jumped from 1 s to 8 s - walk me through the incident response.' Combines prefill, batching and operations; lead with hypotheses ranked by prior probability and name the first metric you would check for each.",
+      "'What do you monitor for an LLM serving system?' Tier 1. Give the four pillars and make the point that quality is the pillar that catches the failure the others cannot.",
+      "'Your model is producing wrong answers but nothing is alerting. How did you miss it?' A direct probe of the quality-metrics gap; the honest answer names the missing pillar rather than blaming the model.",
+      "'Spend tripled overnight with no deployment.' Retry storm or runaway agent; distinguish them by whether request count or tokens-per-request moved.",
+      "Frequency and companies: Tier 1 at AI-native companies for senior and staff roles, where 'design an LLM serving platform' nearly always carries an operations component; Tier 2 elsewhere and at mid-level. Stability: semi-stable - the observability patterns and incident taxonomy are durable, while specific tooling churns quickly, so anchor answers on the patterns rather than on named products.",
+    ],
+    faq: [
+      {
+        question: "What is a silent model update and how do I protect against it?",
+        answer:
+          "A silent model update is a provider repointing an existing alias at new weights without a version bump - updating what sits behind 'gpt-4o' without announcing it. Output tone, formatting or task accuracy can shift with no error signal on your side, because nothing failed. Three defences, and you want all three. First, specify exact date-stamped version strings in production, which freezes the model until you deliberately move it. Second, run continuous quality evals and alert when scores shift by more than about 3 points with no deployment on your side. Third, subscribe to provider changelogs so the correlation is one lookup rather than an investigation. Floating aliases are fine in development, where seeing the churn early is useful, and not acceptable in production.",
+        category: "incidents",
+      },
+      {
+        question: "What is a retry storm and how do I prevent it?",
+        answer:
+          "A retry storm, or thundering herd, is a self-reinforcing loop: a brief degradation causes timeouts, many clients retry simultaneously, the added load raises latency, more requests time out, and the loop closes. In LLM serving it is usually triggered by a short network blip or provider hiccup. Prevention works at four independent layers. Exponential backoff with jitter desynchronises clients so retries spread rather than arrive as a wavefront. A client-side circuit breaker stops feeding an obviously overloaded dependency and routes to a fallback. Server-side load shedding returns 503 with Retry-After above a queue-depth threshold instead of accepting unbounded queue growth. And a hard cap of three or four retries bounds total amplification. If one is already in progress: shed load immediately, open the breakers, then re-admit traffic gradually.",
+        category: "incidents",
+      },
+      {
+        question: "How do I monitor LLM quality in production without ground-truth labels?",
+        answer:
+          "You need signals that do not require knowing the right answer, because for most production queries you do not. Three complementary approaches, ideally running together. LLM-as-judge routes a 1-5 percent sample of production responses through a fast evaluator scoring helpfulness, accuracy and coherence, and alerts on score drops; it is the most flexible and costs roughly 1-3 percent of serving spend. Downstream task metrics use measurable outcomes as proxies - support ticket resolution rate, whether generated code passes tests, thumbs up and down. Distribution monitoring tracks output length, refusal rate and format compliance, where sudden shifts indicate a behaviour change even when you cannot score correctness. Judge scores tell you quality moved; distribution signals often tell you what moved.",
+        category: "monitoring",
+      },
+      {
+        question: "What is KV cache utilisation and why is it a production metric?",
+        answer:
+          "It is the fraction of VRAM allocated for KV storage that is currently occupied by in-flight sequences. It matters because it is the earliest reliable leading indicator of a latency wave. At 100 percent, new requests cannot allocate cache; in vLLM this triggers preemption rather than an outright error - in-flight sequences are paused and their KV swapped out to host memory, so their latency degrades sharply while the request still eventually succeeds. That is why the symptom appears in your latency panels before it appears in your error panels. Set a warning at 80 percent and a critical alert at 95 percent. Sustained pressure means reducing max batch size, capping max context length, quantising the KV cache, or adding VRAM.",
+        category: "monitoring",
+      },
+      {
+        question: "How do canary and shadow deployments differ, and when do you use each?",
+        answer:
+          "Canary exposes a small fraction of real users to the new version and measures live quality, latency and error signals on that slice. Use it when you are broadly confident and want staged risk reduction - regressions reach few users and rollback is fast. Shadow runs the new version on production traffic but returns only the old version's response, logging the new outputs for offline evaluation. Use it when you cannot accept any user seeing a degraded answer, when you need thousands of diverse examples before committing, or when the candidate is a different model family where even 5 percent is too much exposure. Shadow costs roughly double inference compute and carries zero user risk; canary is nearly free and carries bounded user risk. For a significant upgrade, shadow first for data, then canary for real-behaviour validation.",
+        category: "deployment",
+      },
+      {
+        question: "How do I attribute LLM cost across features and teams?",
+        answer:
+          "Tag every call with feature name, team, environment and a hashed user id, passed as request metadata or captured by a sidecar logging layer. Store input, output and cache-hit token counts next to those tags in a cost ledger keyed by model version - a warehouse table or a time-series store is sufficient. From that, build cost per feature per day, per user cohort and per model version, and set per-feature budgets alerting against a rolling baseline rather than an absolute number. The payoff is that the top few percent of features usually account for a large share of spend, and you cannot optimise what you cannot see. Instrument this before you need it; retrofitting attribution during a cost incident is slow precisely when speed matters most.",
+        category: "cost-management",
+      },
+    ],
+    references: [
+      {
+        source: "blog",
+        attribution: "Hamel Husain, 'Your AI Product Needs Evals' and related evaluation writing (hamel.dev/blog/posts/evals/)",
+        insight: "The definitive practitioner treatment of LLM-as-judge monitoring and the gap between offline evals and production quality, including how to detect silent model updates through eval drift.",
+      },
+      {
+        source: "blog",
+        attribution: "Eugene Yan, 'Patterns for Building LLM-based Systems and Products', guardrails and monitoring sections (eugeneyan.com/writing/llm-patterns/)",
+        insight: "Strong on downstream metric tracking - using product outcomes as quality proxies where no ground truth exists, which is the usual case in production.",
+      },
+      {
+        source: "blog",
+        attribution: "vLLM production deployment documentation (docs.vllm.ai/en/latest/serving/production.html)",
+        insight: "The concrete self-hosted monitoring surface: the Prometheus /metrics endpoint, KV cache tuning knobs, and what preemption looks like in the exported metrics.",
+      },
+      {
+        source: "book",
+        attribution: "Chip Huyen, 'AI Engineering', chapters on the AI platform and LLMOps",
+        insight: "Comprehensive treatment of versioning, canary and shadow deploys, monitoring stack composition and cost attribution, with the organisational framing that most engineering sources omit.",
+      },
+      {
+        source: "blog",
+        attribution: "Google SRE Book, 'Handling Overload' and 'Addressing Cascading Failures' chapters (sre.google/sre-book/handling-overload/)",
+        insight: "The canonical treatment of load shedding, circuit breakers and cascading failure. Predates LLMs entirely and applies to retry storms without modification - worth citing to show the problem is not novel.",
+      },
+    ],
+    practiceProblems: [
+      "INCIDENT DIAGNOSIS. Alert: P99 TTFT rose from 800 ms to 6,000 ms at 14:20. No deployments today. Error rate unchanged at 0.1%. Token usage per request is normal. Give your top three hypotheses in priority order and the first metric you would check for each. ANSWER: (1) Large-context requests causing prefill preemption - check the input token count distribution; a P99 input-length spike confirms it, and the fix is chunked prefill or an input-length guard. (2) Quota exhaustion causing silent queueing - check 429 counts and retries per request; note the error rate can stay flat because retries succeed. (3) KV cache utilisation at capacity causing preemption - check KV util; above 95% reduce max batch size or add capacity. Note that 'token usage per request is normal' argues against a runaway agent and that a flat error rate argues against a hard dependency failure, which is why these three lead.",
+      "MONITORING STACK DESIGN. Design the full monitoring stack for a self-hosted vLLM customer-support bot: five infrastructure metrics with thresholds, three quality metrics with collection method, two cost metrics. ANSWER: Infrastructure - GPU utilisation (below 60% sustained means waste, above 95% means capacity risk), KV cache utilisation (warn 80%, critical 95%), TTFT P99 (alert above 2x baseline), TPOT P99 (alert above 2x baseline), queue depth (alert above 1,000). Quality - LLM-as-judge on a 5% sample (alert on a drop of more than 5 points), ticket resolution rate from the CRM (alert on a drop of more than 10%), thumbs-down rate (alert above 10%). Cost - cost per resolved ticket (alert above 2x baseline, which catches quality and cost regressions together) and daily token spend against the 7-day rolling average (alert above 150%).",
+      "ROLLOUT DESIGN. Plan an upgrade from Llama 3.1 70B to Llama 3.3 70B on self-hosted vLLM: strategy, traffic schedule, success metrics, automated rollback, emergency procedure. ANSWER: Blue/green with load-balancer canary weighting. Day 0 shadow with all outputs logged and no user exposure. Days 1-3 at 5%, days 4-7 at 25%, days 8-14 at 50%, day 15 full cutover. Success metrics: eval within 2 points of baseline, P99 TTFT within 20% of baseline, error rate below 0.5%. Automated rollback: a watcher drops canary weight to 0 if any metric breaches for 15 consecutive minutes. Emergency: flipping canary_weight to 0 takes effect within 30 seconds, and the 3.3 deployment stays running in shadow for 48 hours after rollback so the regression can be investigated against live traffic.",
+      "QUOTA EXHAUSTION VERSUS RETRY STORM. Both present as rising latency with a near-flat error rate. Give the single metric that separates them and explain the direction of causation in each. ANSWER: Request volume at the provider boundary relative to your application's inbound request count. In quota exhaustion, inbound volume is flat or normal while outbound attempts rise modestly and 429 responses appear - the provider is the constraint and your load did not change. In a retry storm, inbound volume is flat but outbound attempts rise sharply with no 429s, because the extra traffic is your own retries amplifying a transient fault. Causation runs opposite ways: quota exhaustion is externally imposed and resolves with a fallback chain or a negotiated limit, whereas a retry storm is self-inflicted and resolves only by breaking the feedback loop with jitter, circuit breakers and load shedding. Adding capacity makes quota exhaustion better and a retry storm worse.",
+      "COST ATTRIBUTION DESIGN. Monthly LLM spend tripled and no one can say which feature caused it. Design the attribution system that would have answered this in minutes, and state what it cannot tell you. ANSWER: Tag every call with feature name, team, environment and hashed user id, passed as request metadata or captured in a sidecar logger. Persist input, output and cache-hit token counts alongside those tags in a cost ledger keyed by model version. Build dashboards for cost per feature per day, per user cohort and per model version, and set per-feature budgets with alerts against a rolling baseline. This answers which feature, which cohort and when, usually within one query. What it cannot tell you is why - whether tokens per request rose because prompts grew, because an agent looped, or because users changed behaviour. For that you also need tokens per request and requests per task tracked as separate series, since their ratio distinguishes a prompt-size regression from a volume increase.",
+    ],
+  },
 ];
 
