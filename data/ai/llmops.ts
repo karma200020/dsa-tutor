@@ -1172,5 +1172,501 @@ export const aiLlmOpsTopics: Topic[] = [
       },
     ],
   },
+  {
+    id: "topic-ai-llmops-batching-throughput",
+    moduleId: "mod-ai-llmops",
+    title: "Batching and Throughput: Static, Dynamic and Continuous Batching, Prefill vs Decode, Chunked Prefill and Disaggregated Serving",
+    complexity: {
+      time: "Throughput = batch_size / latency_per_batch. Latency per batch is nearly flat while decode stays memory-bandwidth-bound, then grows roughly linearly with batch_size once the compute-bound threshold is crossed. The operating point is the largest batch_size whose P99 TTFT and P99 TPOT still sit inside the SLA.",
+      space: "VRAM per replica = model_weights + (batch_size x per_sequence_KV_at_max_context) + activation overhead. In virtually every production deployment the batch is VRAM-bounded long before it is compute-bounded, so max_batch = (VRAM - weights - overhead) / per_sequence_KV.",
+    },
+    intuition:
+      "Batching is the single mechanism that makes LLM serving economically viable. At batch size 1 the GPU drags every weight of the model across the memory bus to produce one token; at batch size 32 that identical weight traffic produces 32 tokens. The cost of the read is amortised across everyone in the batch. But batching buys throughput with latency: a request must wait for a slot, then wait for the whole batch's forward pass. The engineering skill is not 'turn batching on' - it is knowing quantitatively where the memory-bound regime ends, where your SLA cuts the curve, and which of the three batching generations you are actually running.",
+    lesson: [
+      {
+        title: "Why Batching Works: The Amortisation Argument",
+        content:
+          "Topic B3 established that decode is memory-bandwidth-bound: the wall-clock time of a decode step is dominated by streaming model weights and the KV cache from HBM into the compute units, not by the arithmetic itself. That single fact is the whole justification for batching. At batch size 1 you pay the full weight-read cost for one token. At batch size N you pay the same weight-read cost - the weights are read once and reused across all N sequences - and receive N tokens. Throughput therefore scales almost linearly with batch size while the workload remains memory-bound, and it does so at almost no latency cost, because the forward pass takes roughly the same wall-clock time whether one or sixteen sequences ride along.\n\nThat free lunch ends at the compute-bound threshold. Once the arithmetic per step grows large enough to exceed the time spent moving bytes, each additional sequence contributes proportionally to forward-pass duration. Past that point throughput still rises but latency rises with it, and the curve bends. Every batch-sizing decision is a choice of where to sit on that bend.",
+        diagram: asciiDiagram(`
+  THROUGHPUT vs P99 LATENCY - the bend is the whole story
+
+  Throughput   ▲
+  (tok/sec)    │                                    ● b=64
+               │                            ● b=32
+        180 ───┤                     ● b=16
+        120 ───┤              ● b=8
+         72 ───┤        ● b=4
+         38 ───┤    ● b=2
+         10 ───┤● b=1
+               └───┬────┬────┬────┬─────┬──────┬───► P99 TTFT
+                 100  200  400  800  1600   3200 ms
+                   ├─ memory-bound ─┤├─ compute-bound ─┤
+                   near-free scaling  latency pays for
+                                      every extra slot
+
+  ┌──────────────────────────────────────────────────────┐
+  │ SLA boundary: P99 TTFT < 500 ms                      │
+  │ Largest compliant batch  = 8                         │
+  │ Operating point          = 72 tok/sec                │
+  │ Throughput left on table = 120 - 72 = 48 tok/sec     │
+  └──────────────────────────────────────────────────────┘
+`),
+      },
+      {
+        title: "Three Generations: Static, Dynamic, Continuous",
+        content:
+          "Static batching is the naive form: the server collects exactly N requests, runs them together to completion, and returns all N results. Its fatal flaw is the ragged right edge. Output lengths in real traffic vary by an order of magnitude, so a request that finishes in 10 tokens occupies a dead slot for the 340 further steps the longest member of its batch needs. Measured GPU utilisation lands around 20-40 percent.\n\nDynamic batching improves the front edge: batch size varies up to a maximum, and a batch dispatches either when full or when a timeout expires. This removes the wait-for-a-full-batch stall at low traffic but does nothing about the ragged right edge - slots still idle until the whole batch retires.\n\nContinuous batching, introduced as iteration-level scheduling in Orca (OSDI 2022), fixes the right edge. The scheduler runs at the granularity of a single decode step. After every step, any sequence that emitted its stop token is evicted and a waiting request is admitted into the freed slot immediately. The batch never 'finishes'; it turns over continuously. Utilisation rises to 80-95 percent, and on mixed-length traffic this alone delivers three- to five-fold throughput improvement over static batching with no hardware change. Every serious framework - vLLM, TGI, TensorRT-LLM - does this by default, which is why static batching should never appear in a design you propose in an interview.",
+        diagram: asciiDiagram(`
+  STATIC BATCHING (batch = 3)
+  step:   1  2  3  4  5  6  7  8  9 10
+  Req A:  █  █  █  ·  ·  ·  ·  ·  ·  ·   done@3, slot IDLE 7 steps
+  Req B:  █  █  █  █  █  █  █  █  █  █   done@10
+  Req C:  █  █  █  █  █  ·  ·  ·  ·  ·   done@5, slot IDLE 5 steps
+  useful: 3  3  3  2  2  1  1  1  1  1   = 18/30 slot-steps -> 60%
+
+  CONTINUOUS BATCHING (batch = 3, iteration-level scheduling)
+  step:   1  2  3  4  5  6  7  8  9 10
+  slot1:  A  A  A  D  D  D  D  G  G  G   A retires@3, D admitted@4
+  slot2:  B  B  B  B  B  B  B  B  B  B
+  slot3:  C  C  C  C  C  E  E  E  F  F   C retires@5, E admitted@6
+  useful: 3  3  3  3  3  3  3  3  3  3   = 30/30 slot-steps -> ~100%
+
+  ┌───────────────────────────────────────────────────────┐
+  │ Same GPU. Same model. Same batch size.                │
+  │ The only change is WHEN a finished slot gets refilled.│
+  └───────────────────────────────────────────────────────┘
+`),
+      },
+      {
+        title: "Prefill vs Decode: Two Phases That Fight for the Same GPU",
+        content:
+          "Every request runs two phases with opposite hardware profiles. Prefill consumes all input tokens in one wide parallel forward pass; it is compute-bound and its duration scales with input length. Decode emits one token per step; it is memory-bandwidth-bound and its duration scales with output length times TPOT.\n\nIn a shared serving system these two phases compete. When a 32,000-token document-analysis request arrives, its prefill saturates the GPU's compute units for several seconds. During that window every in-flight decode sequence stalls - their TPOT effectively drops to zero - and any newly arriving request waits behind the whole prefill before it sees a first token. The signature in production telemetry is unmistakable and worth memorising: P50 TTFT stays completely normal while P99 TTFT spikes by an order of magnitude, and GPU utilisation pins near 100 percent for the duration. P50 is normal because most requests were never co-located with the prefill; the tail is destroyed because the unlucky few were.\n\nThis is the prefill-preempts-decode problem, and naming it precisely is one of the clearest signals that a candidate has operated a serving system rather than read about one.",
+        diagram: asciiDiagram(`
+  PREFILL PREEMPTS DECODE
+
+  time ───────────────────────────────────────────────────►
+        normal steady state        32K prefill        recovery
+        ┌──────────────────┐┌──────────────────────┐┌────────┐
+  GPU   │ decode decode dec││ PREFILL (compute 100%)││ decode │
+        └──────────────────┘└──────────────────────┘└────────┘
+  user X  tok tok tok tok tok  ▼ STALLED 6.4 s ▼      tok tok
+  user Y  arrives here ────────► first token after 6.4 s
+
+  TELEMETRY SIGNATURE
+    P50 TTFT   400 ms ──────────── 400 ms   (unchanged)
+    P99 TTFT   450 ms ──────────► 6 400 ms  (14x spike)
+    GPU util    72 %  ──────────►    99 %
+        ▲
+        └── P50 flat + P99 exploding = a long prefill, not a capacity problem
+`),
+      },
+      {
+        title: "Chunked Prefill and Disaggregated Serving",
+        content:
+          "There are two established fixes, and they trade complexity against completeness.\n\nChunked prefill slices a long prefill into fixed-size pieces - typically 512 to 1,024 tokens - and interleaves decode steps for all in-flight sequences between chunks. The total prefill work is unchanged: a 32,000-token prefill at 5,000 tokens per second still takes 6.4 seconds end to end. What changes is that no other user ever waits more than one chunk, roughly 100 milliseconds, for the GPU. This is a tail-latency fix, not a throughput fix - a distinction worth stating explicitly, because claiming chunked prefill speeds up prefill is a common and immediately visible error. vLLM exposes it as --enable-chunked-prefill. The cost is a small scheduling overhead, so on homogeneous short-context traffic it is not worth enabling.\n\nDisaggregated serving goes further and separates the phases onto different physical instances. Prefill instances are provisioned for compute density; decode instances are provisioned for memory bandwidth. After prefill completes, the KV cache is shipped to a decode instance over a high-speed interconnect. This eliminates the interference entirely rather than merely distributing it, and lets each pool be scaled and hardware-matched independently. The price is a KV-transfer path that must move gigabytes at low latency, which is why it is standard at hyperscalers and rare in self-hosted deployments.",
+        diagram: asciiDiagram(`
+  CHUNKED PREFILL - same total work, spread out
+
+  WITHOUT: [────────── 32K prefill, 6.4 s ──────────] then decode resumes
+           other users stalled the entire 6.4 s
+
+  WITH (chunk = 512):
+   [c1]d[c2]d[c3]d[c4]d ... [c64]d      64 chunks x 100 ms = 6.4 s total
+     ▲   ▲                               ▲
+     │   └ decode step for every         └ max stall any user sees = 100 ms
+     └ 512-token prefill chunk
+
+  DISAGGREGATED SERVING - separate the phases entirely
+
+   request ──► ┌──────────────┐   KV cache   ┌──────────────┐ ──► tokens
+               │ PREFILL POOL │ ───────────► │ DECODE POOL  │
+               │ compute-dense│  interconnect│ bandwidth-   │
+               │ H100 / TFLOPs│              │ dense, HBM   │
+               └──────────────┘              └──────────────┘
+      scales with input length         scales with output length
+      ┌─────────────────────────────────────────────────────────┐
+      │ interference: eliminated   cost: GB-scale KV transfer   │
+      └─────────────────────────────────────────────────────────┘
+`),
+      },
+    ],
+    examples: [
+      {
+        title: "Continuous vs static batching on mixed-length traffic",
+        input:
+          "100 requests. Output mix: 50% at 50 tokens, 50% at 350 tokens. Batch size 4. TPOT = 20 ms/token. Prefill ignored.",
+        output:
+          "Static: batch time set by longest member = 350 x 20 ms = 7 s. 100/4 = 25 batches. Total = 175 s. Throughput = 0.57 req/sec.\nContinuous: short requests retire after 1 s and free their slot immediately; slots stay full. Total = ~40 s. Throughput = 2.5 req/sec. Improvement = 4.4x.",
+        explanation:
+          "Step 1: In static batching a 50-token request finishes after 1 s but its slot cannot be reused until the 350-token request in the same batch finishes at 7 s. Step 2: That is 6 s of dead slot time per short request, and half of all requests are short. Step 3: Total wasted slot-seconds = 50 x 6 = 300 s of the 700 slot-seconds consumed, i.e. 43% of the GPU is producing nothing. Step 4: Continuous batching refills each slot at the step boundary, converting that dead time into completed work. Step 5: The 4.4x is therefore not an optimisation of the model or the kernel - it is the recovery of idle capacity, which is why it needs no hardware change and should be the first thing verified in any serving stack.",
+      },
+      {
+        title: "Prefill-blocking latency spike and the chunked-prefill fix",
+        input:
+          "Steady state: 200-token contexts, P99 TTFT = 500 ms. A single 32,000-token request arrives. Prefill speed = 5,000 tok/sec.",
+        output:
+          "Unmitigated: prefill = 32,000 / 5,000 = 6.4 s. All concurrent decode stalls for 6.4 s. Any request arriving inside that window sees TTFT >= 6.4 s. P99 TTFT spikes 500 ms -> 6,400 ms.\nChunked prefill at 512 tokens: chunk = 512 / 5,000 = 0.1 s; decode interleaves after each chunk. Max stall = 0.1 s. P99 TTFT stays ~600 ms. Total prefill time unchanged at 64 x 0.1 = 6.4 s.",
+        explanation:
+          "Step 1: The long request needs 6.4 s of compute regardless of scheduling - chunking cannot reduce total prefill work. Step 2: Unchunked, that 6.4 s is one indivisible occupancy of the GPU, so the worst-case wait for any other user equals the full prefill. Step 3: Chunked, the worst-case wait equals one chunk, because the scheduler regains control every 512 tokens. Step 4: P99 improves 10x while mean throughput moves barely at all. Step 5: The correct summary is that chunked prefill redistributes latency rather than removing work - if you describe it as making prefill faster, an interviewer will probe and find the gap.",
+      },
+      {
+        title: "SLA-constrained batch size selection",
+        input:
+          "Benchmarks: b=1 TTFT 100 ms / 10 tok-s; b=4 200 ms / 38; b=8 400 ms / 72; b=16 800 ms / 120; b=32 1600 ms / 180. SLA: P99 TTFT < 500 ms.",
+        output:
+          "Largest compliant batch = 8 (400 ms < 500 ms). Batch 16 violates at 800 ms. Operating point = 72 tok/sec. Throughput forgone versus batch 16 = 48 tok/sec, or 40%.",
+        explanation:
+          "Step 1: Sort the benchmark by batch size and find the last row whose P99 TTFT is under the SLA - that is batch 8. Step 2: Do not stop there; also check P99 TPOT at batch 8, because a batch can satisfy time-to-first-token while delivering visibly stuttery streaming once the compute-bound threshold is crossed. Step 3: Quantify what the SLA costs, here 48 tok/sec of the 120 available. Step 4: Present that number to whoever owns the SLA, because 40% of your serving capacity is being spent on a latency promise and that trade should be an explicit business decision. Step 5: Re-benchmark after any change to hardware, quantisation or context length - the curve is not portable.",
+      },
+    ],
+    tips: [
+      "Say it precisely: batching improves throughput and generally costs per-request latency. 'Batching makes things faster' is the phrasing that gets probed.",
+      "Continuous batching is the default assumption in any modern serving discussion. Static batching is legacy and should not appear in a new design.",
+      "Learn the prefill-preempts-decode signature - P50 flat, P99 exploding, GPU near 100% - because it is the diagnosis question that separates operators from readers.",
+      "Chunked prefill is a tail-latency fix, not a throughput fix. Total prefill work is identical before and after.",
+      "Always benchmark TTFT and TPOT at your target batch size on your own hardware. The throughput-latency curve is non-linear and does not transfer between GPU types.",
+    ],
+    tricks: [
+      "The cheapest doubling of throughput available anywhere in the stack: confirm continuous batching is actually on. On mixed-length traffic it delivers 3-5x over static with zero hardware change.",
+      "Chunk size sweet spot is 512-1,024 tokens. Smaller chunks cut the per-user TTFT spike further but add scheduling overhead; larger chunks reduce overhead and allow bigger spikes. Profile against your real length distribution.",
+      "Compute the VRAM ceiling before any other batch analysis: max_batch = (total_VRAM - model_weights - overhead) / per_sequence_KV_at_max_context. If that number is below your target batch, no scheduler tuning will save you.",
+      "For bimodal traffic - mostly short with a long tail - run two deployments and route by predicted output length: small batch and low TTFT for the short pool, large batch and high throughput for the long pool. This beats any single compromise batch size.",
+      "Watch TPOT, not just TTFT, as you raise batch size. Rising TPOT is the empirical signal that you have crossed the compute-bound threshold, and it is the metric users actually feel while streaming.",
+    ],
+    memoryAids: [
+      "Three generations: Static then Dynamic then Continuous. Each one kills a different kind of idle - full-batch wait, then ragged right edge.",
+      "The dial: turn batch size up, throughput goes up and latency goes up. Set the dial where your SLA cuts the curve, and know what that costs.",
+      "Prefill is greedy - one big compute-bound burst. Decode is patient - one memory-bound token at a time. They fight over the same GPU.",
+      "VRAM ceiling first: max_batch = (VRAM - weights) / per_seq_KV. Batches are VRAM-bounded before they are compute-bounded.",
+      "P50 flat plus P99 exploding equals a long prefill. Capacity problems move both.",
+    ],
+    interviewPatterns: [
+      "'Explain continuous batching and why it beats static batching.' Tier 1 for any inference-serving role - answer at the level of iteration-level scheduling and slot turnover.",
+      "'Does batching improve latency or throughput?' A deliberate misconception check; separate the two and mention the memory-bound region where latency cost is near zero.",
+      "'We see P99 latency spikes when large-context requests arrive - diagnose and fix.' Prefill preemption; fix with chunked prefill, or disaggregation at scale.",
+      "'How would you choose batch size for a P95 TTFT SLA of 200 ms?' They want the systematic method - benchmark the curve, take the last compliant row, verify TPOT, quantify the forgone throughput.",
+      "'What is disaggregated prefill-decode serving?' Advanced; asked at AI-infrastructure teams. Cover independent scaling, per-phase hardware matching and the KV-transfer cost.",
+      "Frequency and companies: near-universal in LLM-serving and AI-infrastructure interviews at OpenAI, Anthropic, NVIDIA, Google, Databricks and Together; a standard follow-up to any KV-cache question elsewhere. Stability: high - the static/dynamic/continuous taxonomy and the prefill-decode tension are settled and unlikely to shift.",
+    ],
+    faq: [
+      {
+        question: "Does batching improve latency?",
+        answer:
+          "Batching improves throughput - total tokens or requests completed per second across all users - and generally costs a little per-request latency, because a request waits for a slot and then for the whole batch's forward pass. The important nuance is that in the memory-bandwidth-bound region the latency cost is close to zero: the forward pass spends its time streaming weights from HBM, and that time barely changes whether one sequence or sixteen ride along. Past the compute-bound threshold the arithmetic starts to dominate and latency grows roughly proportionally with batch size. So the honest one-line answer is: latency-neutral to mildly harmful per request, dramatically beneficial for system throughput.",
+        category: "misconceptions",
+      },
+      {
+        question: "Why can't I just keep increasing batch size?",
+        answer:
+          "Two hard ceilings. The first is VRAM: every in-flight sequence needs its own KV cache, total KV grows linearly with batch size, and it eventually exhausts the card. The second is your latency SLA: bigger batches mean longer queueing and longer forward passes, so P99 TTFT and eventually P99 TPOT breach the SLA. In almost every real deployment VRAM binds first, which is why the ceiling calculation - (total VRAM minus weights minus overhead) divided by per-sequence KV at maximum context - should be the first thing you compute, before any scheduler tuning.",
+        category: "constraints",
+      },
+      {
+        question: "What is chunked prefill and when should I enable it?",
+        answer:
+          "Chunked prefill splits a long prefill into fixed-size pieces, typically 512 to 1,024 tokens, and interleaves decode steps for other in-flight sequences between them. Enable it when your traffic mixes short and long contexts, when P99 TTFT spikes as long-context requests arrive, or when you need consistent tail latency regardless of what else is co-located. Do not enable it on homogeneous short-context traffic, where the scheduling overhead buys nothing. In vLLM it is --enable-chunked-prefill. Note carefully that it does not reduce total prefill work - it redistributes when that work blocks other users.",
+        category: "optimization",
+      },
+      {
+        question: "What is disaggregated serving and who actually runs it?",
+        answer:
+          "Disaggregated serving runs prefill and decode on physically separate GPU pools. Prefill instances are provisioned for compute density, decode instances for memory bandwidth, and the KV cache is transferred between them over a high-speed interconnect once prefill completes. This removes prefill-decode interference entirely rather than merely spreading it, and lets each pool scale independently against a different driver - input length for prefill, output length for decode. It runs in production at Google, Microsoft and the large cloud providers. For self-hosted deployments the gigabyte-scale KV transfer path is usually not worth building, and chunked prefill is the pragmatic substitute.",
+        category: "advanced",
+      },
+      {
+        question: "How do I tell whether my serving system is throughput-bound or latency-bound?",
+        answer:
+          "Read GPU utilisation and P99 TTFT together. High utilisation above 85 percent with acceptable P99 means you are at a healthy throughput-optimised operating point. Utilisation below 50 percent means you are under-batched or over-provisioned - raise batch size or shrink the fleet. High P99 with high utilisation means you are compute-bound at the current batch size, so reduce it or enable chunked prefill. High P99 with low utilisation is the interesting case: it means requests are waiting rather than computing, which points to a queueing problem or a long prefill monopolising the scheduler - check whether continuous batching is genuinely on before anything else.",
+        category: "monitoring",
+      },
+      {
+        question: "Is dynamic batching the same as continuous batching?",
+        answer:
+          "No, and the distinction is frequently tested. Dynamic batching varies the batch size and dispatches when the batch is full or a timeout fires, which fixes the front edge - you no longer wait for a fixed N requests to arrive. But the batch still runs to completion as a unit, so a short sequence's slot stays idle until the longest member finishes. Continuous batching schedules at the granularity of a single decode step: a finished sequence is evicted and a queued request admitted immediately, so the ragged right edge disappears. Dynamic batching is a request-admission policy; continuous batching is an iteration-level scheduling policy, and only the latter gets you to 80-95 percent utilisation.",
+        category: "concepts",
+      },
+    ],
+    references: [
+      {
+        source: "paper",
+        attribution: "Yu et al., 'Orca: A Distributed Serving System for Transformer-Based Generative Models', USENIX OSDI 2022 (usenix.org/conference/osdi22/presentation/yu)",
+        insight: "The original iteration-level (continuous) batching paper. Every production framework implements this idea, so it is the primary source when asked where continuous batching comes from.",
+      },
+      {
+        source: "paper",
+        attribution: "Kwon et al., 'Efficient Memory Management for Large Language Model Serving with PagedAttention', arXiv:2309.06180",
+        insight: "Section 3 shows how iteration-level scheduling is implemented in vLLM alongside paged KV memory, with the GPU-utilisation measurements that justify the 80-95% figure.",
+      },
+      {
+        source: "paper",
+        attribution: "Agrawal et al., 'Sarathi-Serve: Taming Throughput-Latency Tradeoff in LLM Serving via Chunked-Prefills', arXiv:2403.02310",
+        insight: "Formalises chunked prefill, including the analysis showing total prefill work is preserved while tail latency collapses - the point most candidates get wrong.",
+      },
+      {
+        source: "blog",
+        attribution: "vLLM documentation, Chunked Prefill (docs.vllm.ai/en/latest/features/chunked_prefill.html)",
+        insight: "Practical configuration guidance including chunk-size selection and the measured throughput cost of enabling it.",
+      },
+      {
+        source: "note",
+        attribution: "Production serving telemetry patterns, generalised across self-hosted vLLM and TGI deployments.",
+        insight: "The P50-flat / P99-spiking signature of prefill preemption is consistent enough across deployments to be used as a first-pass diagnosis without any profiler.",
+      },
+    ],
+    practiceProblems: [
+      "THROUGHPUT CALCULATION. Continuous batching at batch size 16, TPOT = 25 ms/token, average output = 150 tokens, prefill ignored. (a) Tokens per second? (b) Requests per second? ANSWER: (a) One decode step takes 25 ms and emits one token per occupied slot, so 16 tokens per 0.025 s = 640 tok/sec. (b) 640 / 150 = 4.3 req/sec. Note the assumption that continuous batching keeps all 16 slots full - under static batching the same numbers would overstate throughput by roughly 4x.",
+      "SLA COMPLIANCE AND ITS COST. Benchmarks: b=8 gives P99 300 ms / P95 200 ms / 50 req-s; b=16 gives P99 700 ms / P95 450 ms / 85 req-s; b=32 gives P99 1400 ms / P95 900 ms. SLA: P99 < 500 ms AND P95 < 300 ms. Which batch complies, and what does compliance cost? ANSWER: Batch 8 passes both (300 < 500, 200 < 300). Batch 16 fails P99 and P95. Maximum compliant batch = 8. Cost = 85 - 50 = 35 req/sec forgone, 41% of achievable throughput, spent entirely on the latency promise.",
+      "PREFILL SPIKE DIAGNOSIS. P99 TTFT is normally 400 ms. At 14:22 it hit 7.2 s for 45 seconds. P50 was unchanged. GPU utilisation hit 99%. No deployment occurred. Diagnose and prescribe. ANSWER: A very long prefill monopolised GPU compute. Evidence: P50 unchanged means most requests were untouched, so this is not a capacity or dependency failure; P99 alone spiking means only co-located requests suffered; 99% utilisation rules out a stall or a lock. Duration implies roughly 225,000 tokens of prefill at 5,000 tok/sec, consistent with a batch of long-context requests. Fix: enable chunked prefill at 512 tokens, capping any user's stall at ~100 ms; optionally add an input-length admission limit or route long-context traffic to a separate pool.",
+      "VRAM CEILING. Llama-3-70B in FP8 (70 GB weights) on a single H100 80 GB. Per-sequence KV at 8K context with GQA = 2.6 GB. Activation overhead = 2 GB. What is the maximum batch size, and what does that imply? ANSWER: Available for KV = 80 - 70 - 2 = 8 GB. max_batch = 8 / 2.6 = 3 sequences. A batch of 3 is far below the compute-bound threshold, so this deployment is VRAM-starved rather than compute-starved: throughput will be poor no matter how the scheduler is tuned. Remedies in order of preference - FP8 or INT8 KV cache to halve per-sequence cost, cap max context below 8K, or shard across two GPUs to free VRAM for a usable batch.",
+      "CHOOSING BETWEEN CHUNKED PREFILL AND DISAGGREGATION. A team serves a homogeneous workload of 200-token prompts with no long-context traffic, and P99 TTFT is already within SLA. Should they enable chunked prefill? ANSWER: No. Chunked prefill solves interference from long prefills, which this workload does not have, and it adds per-chunk scheduling overhead that will slightly reduce throughput for no tail-latency benefit. Disaggregation is even less justified - it adds a KV-transfer path to solve a problem that is absent. The correct answer names the precondition (heterogeneous input lengths) and declines the optimisation, which is a stronger response than reciting the technique.",
+    ],
+  },
+  {
+    id: "topic-ai-llmops-inference-acceleration",
+    moduleId: "mod-ai-llmops",
+    title: "Inference Acceleration: Speculative Decoding, Serving Quantisation (FP8, INT8, GPTQ, AWQ), Distillation and Flash Attention",
+    complexity: {
+      time: "Speculative decoding: effective tok/sec = expected_accepted_tokens / (draft_time + verify_time), where expected_accepted = sum(alpha^i) for i = 0..K-1. Quantisation: roughly 1.5-2x throughput per halving of weight bytes while decode stays bandwidth-bound. Flash Attention: 2-4x faster attention, concentrated in prefill.",
+      space: "Quantisation reduces weight VRAM linearly with bit width: BF16 2 bytes/param, FP8 and INT8 1 byte, INT4 0.5 bytes. Speculative decoding adds the draft model's weights on top of the verifier. Flash Attention cuts attention activation memory from O(N^2) to O(N), which is what makes long contexts fit at all.",
+    },
+    intuition:
+      "There are only two ways to make a token arrive sooner: do less work, or do the same work more cleverly. Quantisation and distillation do less work - fewer bytes per weight, fewer weights. Speculative decoding and Flash Attention do the same work more cleverly - one parallelises a computation that looked irreducibly serial, the other restructures memory traffic that was never necessary in the first place. Production systems stack several of these because they attack different bottlenecks, and each carries a different currency of risk: quantisation risks quality, speculation risks wasted compute, Flash Attention risks nothing and should simply be on.",
+    lesson: [
+      {
+        title: "Speculative Decoding: Parallelising the Serial Bottleneck",
+        content:
+          "Autoregressive decode looks irreducibly serial. Token n+1 depends on token n, so no amount of extra hardware speeds up a single sequence. Speculative decoding breaks the constraint by exploiting an asymmetry: generating K tokens is serial, but verifying K already-written tokens is parallel, because every position's input is already known.\n\nA small draft model - typically 1B parameters, and ideally a distillation of the target so it shares the tokeniser and output distribution - proposes K candidate tokens quickly. The large verifier then runs one forward pass over all K positions simultaneously and checks each against its own distribution. Accepted tokens are kept; at the first rejection the verifier's own correction is emitted and speculation restarts. The verification rule is designed so the output distribution is mathematically identical to sampling from the verifier alone - this is lossless acceleration, not an approximation, which is the point candidates most often miss.\n\nThe speedup is governed by the per-token acceptance rate alpha. Expected accepted tokens per round is the geometric sum alpha^0 + alpha^1 + ... + alpha^(K-1), because acceptance of position i requires all preceding positions to have been accepted too. At alpha = 0.70 with K = 5 that sum is about 2.77, not 5 - which is why draft-verifier distributional alignment, not draft model speed, is the variable that decides whether speculation pays.",
+        diagram: asciiDiagram(`
+  SPECULATIVE DECODING
+
+  WITHOUT SPECULATION - strictly sequential
+   [verify t1]──►[verify t2]──►[verify t3]──►[verify t4]
+    100 ms        100 ms        100 ms        100 ms   = 400 ms
+
+  WITH SPECULATION (K = 4)
+   draft (1B, parallel)   [d1  d2  d3  d4]        40 ms
+   verify (70B, ONE pass) [ ✓   ✓   ✗   -]       100 ms
+                            │   │   └── reject, emit verifier's own token
+                            └───┴────── accepted
+   result: 3 tokens in 140 ms  vs  300 ms sequential  ->  ~2.1x
+
+  ACCEPTANCE RATE DRIVES EVERYTHING  (expected accepted = Σ αⁱ, i=0..K-1)
+   α = 0.90, K = 5  ──►  3.99 tok/round  ──►  ~3.8x   worth it
+   α = 0.70, K = 5  ──►  2.77 tok/round  ──►  ~2.0x   worth it
+   α = 0.40, K = 5  ──►  1.66 tok/round  ──►  ~1.2x   overhead may win
+        ▲
+        └── α is set by how closely draft and verifier distributions agree
+`),
+      },
+      {
+        title: "Quantisation for Serving: Two Different Goals",
+        content:
+          "Quantisation reduces the bits used per weight, and sometimes per activation. Fewer bits means less VRAM and less bandwidth consumed per decode step, which in a bandwidth-bound regime converts almost directly into throughput.\n\nThe ladder runs BF16 at 2 bytes per parameter as the quality baseline; FP8 in E4M3 or E5M2 form at 1 byte, natively supported on H100 tensor cores, under 1 percent regression on most tasks, and the default choice for modern hardware; INT8 at 1 byte, similar quality, and the right answer on older GPUs without FP8 units; then GPTQ, a post-training INT4 method using second-order Hessian information to minimise layer-wise reconstruction error; and AWQ, also INT4, which observes that roughly 1 percent of weights are salient - identified through activation magnitudes - and protects those while quantising the rest aggressively.\n\nThe distinction that matters in an interview is purpose. FP8 and INT8 are quantisation for throughput: the model already fits, and you want more tokens per second and more VRAM for the KV cache. GPTQ and AWQ are quantisation for fitting: the model does not fit, and you accept 3-8 percent quality regression to get it onto the hardware you have. Conflating those two is the most common quantisation mistake, and it leads teams to reach for INT4 when FP8 would have delivered the throughput they wanted at no quality cost.",
+        diagram: asciiDiagram(`
+  PRECISION LADDER - Llama-3-70B weights
+
+  BF16   2.0 B/param  ├████████████████████████████████┤ 140 GB  baseline
+  FP8    1.0 B/param  ├████████████████┤                 70 GB   <1% regression
+  INT8   1.0 B/param  ├████████████████┤                 70 GB   <1% regression
+  GPTQ   0.5 B/param  ├████████┤                         35 GB   3-8% regression
+  AWQ    0.5 B/param  ├████████┤                         35 GB   3-5% regression
+
+  ┌─────────────────────────┬──────────────────────────────────┐
+  │ QUANTISE FOR THROUGHPUT │ QUANTISE TO FIT                  │
+  │ FP8 / INT8              │ GPTQ / AWQ (INT4)                │
+  │ model already fits      │ model does not fit               │
+  │ goal: tok/sec + KV room │ goal: get onto the GPU you have  │
+  │ quality cost: ~none     │ quality cost: real, must measure │
+  └─────────────────────────┴──────────────────────────────────┘
+       ▲ picking the right column IS the interview answer
+`),
+      },
+      {
+        title: "Flash Attention: IO-Aware Computation",
+        content:
+          "Standard attention materialises the full N-by-N score matrix in HBM, giving O(N^2) high-bandwidth-memory reads and writes. For long contexts this is catastrophic well before it is merely slow.\n\nFlash Attention, introduced by Dao et al. in 2022, restructures the computation with SRAM tiling. Attention is computed block by block in on-chip SRAM - small but extremely fast - using an online softmax that never requires the complete score matrix to exist anywhere. HBM traffic falls from O(N^2) to O(N), attention computation runs 2-4x faster, and attention activation memory drops by a factor of 10-20. Critically the result is numerically exact; this is not an approximation like sparse or linear attention.\n\nThe practical consequence is that Flash Attention is not an optimisation for long contexts, it is a prerequisite. At 32,000 tokens the standard attention matrix alone would need roughly 4 GB per layer, so a 32-layer model runs out of memory long before throughput becomes interesting. Flash Attention 2 improved thread-block parallelism for roughly a further 2x, and Flash Attention 3 targets H100 tensor cores specifically. It is on by default in vLLM, TGI, TensorRT-LLM and recent PyTorch, so the only real action item is to confirm it has not been disabled.",
+        diagram: asciiDiagram(`
+  STANDARD ATTENTION - materialise the N×N matrix in HBM
+
+    Q ─┐                ┌───────────────────┐
+       ├──► QKᵀ ───────►│  N × N scores     │──► softmax ──► ×V
+    K ─┘                │  lives in HBM     │
+                        └───────────────────┘
+    HBM traffic O(N²)     N = 32 000 ─► 4.1 GB per layer ─► OOM
+
+  FLASH ATTENTION - tile through SRAM, never materialise
+
+    ┌──── HBM (large, slow) ────┐
+    │  Q blocks  K blocks  V    │
+    └───┬────────┬─────────┬────┘
+        ▼        ▼         ▼        stream blocks in, one tile at a time
+    ┌───────────────────────────┐
+    │ SRAM (small, very fast)   │   online softmax keeps running max+sum
+    │  compute tile ─► accumulate│   full N×N never exists
+    └───────────┬───────────────┘
+                ▼
+             output O          HBM traffic O(N)   memory ~256 MB   exact result
+`),
+      },
+      {
+        title: "Distillation and the Combined Acceleration Stack",
+        content:
+          "Knowledge distillation trains a smaller student to reproduce a larger teacher's behaviour. Response distillation trains on teacher-generated outputs and is simple to run; feature distillation matches intermediate hidden states or attention patterns and transfers more structure at greater complexity. In production the payoff is substantial: distilled small models such as the 1B and 3B Llama 3.2 variants handle a large share of routine traffic at a fraction of the serving cost, and they make excellent draft models for speculative decoding precisely because they inherit the teacher's tokeniser and distribution, which is what maximises alpha.\n\nThe techniques compose, and the order in which you apply them matters because each has a different cost-to-benefit ratio. Enable Flash Attention first - it is free and already default. Quantise to FP8 or INT8 second, since that both raises throughput and frees VRAM, which raises the achievable batch size, which raises throughput again. Confirm continuous batching third. Only then consider speculative decoding, because it adds a second model to select, evaluate, store and version, and it helps only in the memory-bound small-batch regime. Distillation sits outside this ladder as a product decision rather than a serving flag: it changes which model you serve, so it needs its own quality evaluation.",
+        diagram: asciiDiagram(`
+  ACCELERATION STACK - apply in this order, effects compound
+
+  1. FLASH ATTENTION      prefill 2-4x      cost: none (default on)
+        │                                   risk: none
+        ▼
+  2. FP8 / INT8 WEIGHTS   decode 1.5-2x     cost: calibration run
+        │                 + frees VRAM      risk: <1% quality
+        ▼
+  3. CONTINUOUS BATCHING  utilisation       cost: none (default on)
+        │                 40% ─► 90%        risk: none
+        ▼
+  4. SPECULATIVE DECODING decode 2-3x       cost: 2nd model to run
+        │                 small batch only  risk: wasted compute if α low
+        ▼
+  5. DISTILLED MODEL      10-50x cheaper    cost: training + full eval
+                          per request       risk: real quality change
+
+  ┌──────────────────────────────────────────────────────────────┐
+  │ Steps 1-3 are configuration. Steps 4-5 are commitments.      │
+  │ Exhaust the configuration before taking on the commitments.  │
+  └──────────────────────────────────────────────────────────────┘
+`),
+      },
+    ],
+    examples: [
+      {
+        title: "Speculative decoding speedup from acceptance rate",
+        input:
+          "Draft (1B) produces 5 tokens in 8 ms. Verifier (70B) forward pass = 100 ms. Per-token acceptance alpha = 0.80, K = 5.",
+        output:
+          "Expected accepted = 1 + 0.8 + 0.64 + 0.51 + 0.41 = 3.36 tokens/round.\nRound time = 8 + 100 = 108 ms.\nEffective throughput = 3.36 / 0.108 = 31.1 tok/sec.\nBaseline = 1 / 0.100 = 10 tok/sec. Speedup = 3.1x.",
+        explanation:
+          "Step 1: Acceptance is sequential, so position i is only reached if positions 0..i-1 were all accepted, giving the geometric sum rather than K x alpha. Step 2: At alpha = 0.80 and K = 5 that is 3.36, well short of the naive 5. Step 3: The draft cost of 8 ms is nearly free against a 100 ms verify, so round time is dominated by the verifier. Step 4: Speedup is therefore approximately the expected-accepted count, 3.1x here. Step 5: Re-run the same arithmetic at alpha = 0.90 to get 3.99 tokens and 3.8x, and at alpha = 0.50 to get 1.97 tokens and about 1.7x - the spread across plausible alphas is larger than the spread across plausible draft models, which is why alignment beats raw draft speed.",
+      },
+      {
+        title: "Quantisation as a VRAM and batch-size decision",
+        input:
+          "Llama-3-70B on one H100 80 GB, batch 8, context 4,096. Compare BF16, INT8 and INT4 (AWQ) weights.",
+        output:
+          "BF16: 140 GB of weights - needs 2 GPUs, single H100 impossible.\nINT8: 70 GB weights + 10.7 GB BF16 KV + 2 GB overhead = 82.7 GB - does NOT fit. With FP8 KV (5.4 GB): 77.4 GB - fits, tightly.\nINT4 AWQ: 35 GB + 10.7 GB KV + 2 GB = 47.7 GB - fits with 32.3 GB spare, enough to run batch 16 (KV 21.4 GB, total 58.4 GB).",
+        explanation:
+          "Step 1: Compute weights as parameters x bytes-per-parameter before anything else; 70B at 2 bytes is 140 GB and immediately rules out one GPU at BF16. Step 2: Add KV cache and activation overhead, because weights alone never determine fit. Step 3: INT8 lands at 82.7 GB against 80 GB, so it fails - and the fix is to quantise the KV cache rather than the weights further, which recovers 5.3 GB. Step 4: INT4 fits comfortably, and the headroom converts into batch size, which is the real throughput lever. Step 5: Weigh that against quality: under 1 percent regression for INT8 versus 3-5 percent for INT4 AWQ. If the task is coding or maths, take the tight INT8 configuration; if it is summarisation or retrieval-grounded answering, the INT4 headroom is usually the better trade.",
+      },
+      {
+        title: "Flash Attention as a feasibility gate for long context",
+        input:
+          "32-layer transformer, d_model 4,096, context 32,000 tokens, A100 40 GB. Standard attention versus Flash Attention.",
+        output:
+          "Standard: 32,000^2 x 4 bytes = 4.1 GB per layer; x32 layers = 131 GB - OOM on a 40 GB card.\nFlash: tiled through SRAM, no N-by-N materialisation; approximately 32,000 x 4,096 x 2 bytes = 256 MB total. Fits easily, and attention runs 2-4x faster.",
+        explanation:
+          "Step 1: The N-by-N score matrix scales quadratically, so a 4x increase in context is a 16x increase in attention memory. Step 2: At 32K context that is 4.1 GB for a single layer, which already exceeds a tenth of the card before any weights are loaded. Step 3: Flash Attention never materialises the matrix, so its footprint scales as O(N x d) instead - three orders of magnitude smaller here. Step 4: The correct framing is feasibility, not speed: beyond roughly 8K context on most hardware, standard attention hits OOM long before throughput matters. Step 5: This is why the speedup and the memory saving should be quoted together - a candidate who mentions only the 2-4x has understated the result.",
+      },
+    ],
+    tips: [
+      "State that speculative decoding is lossless - the verification rule preserves the verifier's exact output distribution. Many candidates describe it as an approximation, which is wrong and easy to probe.",
+      "Know the geometric acceptance formula. Expected accepted tokens is the sum of alpha^i over i = 0..K-1, not K times alpha, and that gap is the standard follow-up question.",
+      "Separate quantisation for fitting (GPTQ, AWQ) from quantisation for throughput (FP8, INT8). Naming the goal before the format shows you understand why the format was chosen.",
+      "Flash Attention in one sentence: SRAM tiling with an online softmax avoids ever materialising the N-by-N matrix in HBM, cutting traffic from O(N^2) to O(N) exactly.",
+      "Distillation and quantisation compose - a distilled model can be quantised again - so present them as multiplicative rather than alternative cost reductions.",
+    ],
+    tricks: [
+      "Speculation is worth enabling only when three conditions hold together: the workload is decode-latency-bound rather than prefill-bound, draft and verifier come from the same family and tokeniser, and batch sizes are small. At large batches the verifier is already compute-bound and there is little bandwidth headroom left for speculation to reclaim.",
+      "Break-even sanity check for K = 1: you need alpha > 1 / (1 + draft_time/verify_time). At 10 ms draft against 100 ms verify that is 0.91, which is unrealistically high - so always speculate with K greater than 1, where the geometric sum lowers the threshold to roughly 0.4.",
+      "AWQ over GPTQ when you are quantising fresh and quality matters, because protecting salient weights preserves more. Use GPTQ when a trusted pre-quantised checkpoint already exists for your model - the ecosystem advantage usually outweighs the small quality edge.",
+      "On H100, FP8 is nearly always the right default: identical memory saving to INT8, better numerics, native tensor-core support and a single flag in vLLM. Reach past it only when the model still does not fit.",
+      "For 'speed up a 70B on a limited GPU budget', answer in layers and note that they are independent and cumulative: INT4 AWQ to fit on fewer GPUs, FP8 KV cache to buy batch size, Flash Attention 2 for prefill, speculative decoding with a 1B draft for decode. Then say which you would measure first.",
+    ],
+    memoryAids: [
+      "Speculative decoding: a fast model proposes, a slow model verifies in parallel. Same distribution, K times faster when alpha is high enough.",
+      "Precision ladder BF16 to FP8 to INT8 to INT4 - each step halves memory, and quality drops accelerate sharply below INT8.",
+      "Flash Attention: SRAM tiling eliminates the N-squared HBM materialisation, exactly.",
+      "Distillation is compression through imitation - the student learns the teacher's behaviour without the teacher's size.",
+      "Order by impact and by risk: Flash Attention, then quantisation, then continuous batching, then speculation. Configuration before commitment.",
+    ],
+    interviewPatterns: [
+      "'How does speculative decoding work?' Tier 1 at AI-infrastructure companies. Cover the parallel-verification asymmetry, the geometric acceptance sum, and that it is lossless.",
+      "'What is INT8 quantisation and how does it affect quality and performance?' Tier 1. Give the byte arithmetic, the sub-1-percent regression figure, and the task-dependence caveat.",
+      "'Speed up inference for a 70B model on a limited GPU budget.' A layered design question combining quantisation, KV-cache precision, batching and speculation.",
+      "'What problem does Flash Attention solve?' Tier 2. Answer with the O(N^2) to O(N) HBM reduction and the fact that it gates long-context feasibility, not just speed.",
+      "'Name two situations where speculative decoding would not help.' Tests depth past the headline: low acceptance from mismatched families, large batches already compute-bound, very short outputs, and prefill-dominated workloads.",
+      "Frequency and companies: very high at NVIDIA, OpenAI, Anthropic, Together, Fireworks and Databricks; moderate at general product companies, where quantisation appears but speculative decoding usually does not. Stability: Flash Attention and the quantisation ladder are stable; specific speculative-decoding variants such as Medusa and EAGLE churn, so anchor on the acceptance-rate model rather than on any one implementation.",
+    ],
+    faq: [
+      {
+        question: "Does quantisation always hurt quality?",
+        answer:
+          "Not meaningfully at the precisions you would actually deploy for throughput. INT8 and FP8 show under 1 percent regression on standard language benchmarks, which is inside normal evaluation noise for most tasks. INT4 via GPTQ or AWQ is a different matter: 3-8 percent on standard benchmarks, and worse on complex reasoning, long-context recall and low-resource languages. The degradation is strongly task-dependent - coding and mathematics are far more sensitive than question answering or summarisation, because they have less redundancy to absorb rounding error. The rule: FP8 and INT8 can be deployed on the strength of published results, INT4 requires you to evaluate on your own task before it ships.",
+        category: "tradeoffs",
+      },
+      {
+        question: "When does speculative decoding not help?",
+        answer:
+          "Four situations. First, low acceptance - when draft and verifier come from different families or different fine-tunes, their distributions diverge, most drafted tokens are rejected, and the draft model's cost exceeds the savings. Second, large batch sizes - at high batch the verifier is already compute-bound rather than memory-bound, and speculation exists precisely to reclaim idle memory bandwidth that is no longer idle. Third, very short outputs, where per-round setup overhead is a large fraction of total work. Fourth, prefill-dominated workloads, since speculation accelerates decode only and does nothing for time-to-first-token on a long prompt.",
+        category: "tradeoffs",
+      },
+      {
+        question: "What is the difference between GPTQ and AWQ?",
+        answer:
+          "Both are post-training INT4 methods requiring a small calibration set of roughly 128 samples. GPTQ uses second-order Hessian information to choose the quantisation that minimises layer-wise reconstruction error - it optimises the whole layer uniformly. AWQ starts from the observation that roughly 1 percent of weights are salient, identifiable from input activation magnitudes, and protects those at higher precision while quantising the rest more aggressively. Because it preserves the weights that matter most to the output, AWQ generally produces better quality at the same compression. For new work prefer AWQ; when a trusted pre-quantised GPTQ checkpoint already exists for your model, the ecosystem advantage usually outweighs the small quality gap.",
+        category: "techniques",
+      },
+      {
+        question: "Is Flash Attention the same thing as PagedAttention?",
+        answer:
+          "No - they are orthogonal, and vLLM runs both at once. Flash Attention optimises how attention is computed: SRAM tiling with an online softmax means the N-by-N score matrix is never materialised in HBM, cutting memory traffic from O(N^2) to O(N), speeding up prefill 2-4x and collapsing attention activation memory. PagedAttention optimises how KV cache memory is allocated: OS-style paging removes the internal fragmentation caused by pre-allocating contiguous buffers for maximum context, and enables copy-on-write sharing of common prefixes. Computation versus allocation. Conflating them is one of the most common errors in serving interviews.",
+        category: "concepts",
+      },
+      {
+        question: "Should I reach for speculative decoding or quantisation first?",
+        answer:
+          "Quantisation, clearly. FP8 or INT8 is a configuration change with essentially no quality risk, it directly reduces VRAM which raises the achievable batch size, and it introduces no new artefact to manage. Speculative decoding requires you to select, evaluate, store, version and monitor a second model, and it only pays in the memory-bound small-batch regime. The full ordering is: confirm Flash Attention is on, quantise weights and then the KV cache to FP8 or INT8, confirm continuous batching is on, and only then evaluate speculation if decode latency at small batch is still the binding constraint. The first three are configuration; speculation is an operational commitment.",
+        category: "implementation",
+      },
+      {
+        question: "If speculative decoding is lossless, why isn't it always on?",
+        answer:
+          "Losslessness is about output quality, not about cost. The verification rule guarantees the emitted tokens are distributed exactly as if sampled from the verifier alone, so quality is genuinely unaffected. What it costs is compute: every rejected draft token represents work the draft model did that is thrown away, plus the draft's forward passes themselves. When acceptance is high that waste is far smaller than the serial decode time it saves; when acceptance is low, or when the verifier is already compute-saturated at high batch, the waste dominates and total system throughput falls even though individual-request latency might improve slightly. It is a latency optimisation that spends throughput, which is exactly the wrong trade for a throughput-limited service.",
+        category: "tradeoffs",
+      },
+    ],
+    references: [
+      {
+        source: "paper",
+        attribution: "Leviathan et al., 'Fast Inference from Transformers via Speculative Decoding', arXiv:2211.17192",
+        insight: "The original speculative decoding result from Google, including the proof that the accepted-token distribution matches the target model exactly - the basis for calling it lossless.",
+      },
+      {
+        source: "paper",
+        attribution: "Chen et al., 'Accelerating Large Language Model Decoding with Speculative Sampling', arXiv:2302.01318",
+        insight: "DeepMind's concurrent formulation with the formal acceptance-rate analysis; the cleanest source for the geometric expected-accepted-tokens derivation.",
+      },
+      {
+        source: "paper",
+        attribution: "Dao et al., 'FlashAttention: Fast and Memory-Efficient Exact Attention with IO-Awareness', arXiv:2205.14135, and Dao, 'FlashAttention-2', arXiv:2307.08691",
+        insight: "The IO-aware tiling result and its follow-up. Emphasises exactness, which distinguishes it from approximate attention methods that trade quality for speed.",
+      },
+      {
+        source: "paper",
+        attribution: "Lin et al., 'AWQ: Activation-aware Weight Quantization', arXiv:2306.00978, and Frantar et al., 'GPTQ', arXiv:2210.17323",
+        insight: "The two INT4 post-training methods. AWQ's finding that roughly 1 percent of weights are salient explains why it beats GPTQ at equal compression.",
+      },
+      {
+        source: "blog",
+        attribution: "NVIDIA TensorRT-LLM precision documentation (nvidia.github.io/TensorRT-LLM/precision.html) and vLLM quantisation guides",
+        insight: "Practical FP8 calibration workflow, supported model coverage, and measured throughput against BF16 on H100 - the numbers to quote when asked what FP8 actually buys.",
+      },
+    ],
+    practiceProblems: [
+      "SPECULATIVE DECODING ANALYSIS. Draft produces 4 tokens in 12 ms; verifier pass = 80 ms; alpha = 0.85; K = 4. (a) Expected accepted per round? (b) Effective throughput? (c) Speedup? ANSWERS: (a) 1 + 0.85 + 0.72 + 0.61 = 3.18 tokens. (b) 3.18 / (0.012 + 0.080) = 34.6 tok/sec. (c) Baseline 1/0.080 = 12.5 tok/sec, so 2.77x. Note that halving the draft time to 6 ms moves throughput only to 37.0 tok/sec, while raising alpha to 0.95 moves it to 40.3 - confirming that draft-verifier alignment dominates draft speed.",
+      "QUANTISATION SELECTION UNDER A QUALITY BUDGET. Deploy Llama-3-70B on one A100 80 GB, batch 4, context 4,096, with at most 2 percent quality regression. Which precision? ANSWER: INT8 weights = 70 GB; KV at batch 4 / 4K with GQA in BF16 = 5.4 GB; overhead 2 GB; total 77.4 GB - fits, but with under 3 GB of margin. Switching the KV cache to FP8 drops it to 2.7 GB for a total of 74.7 GB and a safer margin. Quality: INT8 is under 1 percent, inside the budget. INT4 AWQ would fit far more comfortably at 42.4 GB and permit batch 16, but its 3-5 percent regression breaches the 2 percent budget. RECOMMENDATION: INT8 weights plus FP8 KV cache. If a second A100 is available, BF16 across two GPUs removes the quality question entirely.",
+      "ACCELERATION STACK DESIGN. Mistral-7B, BF16, naive serving on an A10G. Current P99 TTFT 800 ms, TPOT 30 ms. Targets: TTFT under 300 ms, TPOT under 15 ms. Design the stack. ANSWER: Step 1 - confirm Flash Attention 2 is enabled; expect roughly 30 percent off prefill and therefore TTFT. Step 2 - quantise weights to FP8 or INT8: 14 GB becomes 7 GB, and since decode is bandwidth-bound, TPOT falls from about 23 ms toward 12 ms at 600 GB/s, meeting the 15 ms target. Step 3 - enable continuous batching for utilisation. Step 4 - cache the static system prompt so its prefill is not repeated, which removes a fixed cost from every TTFT and brings short queries under 200 ms. Step 5 - only if TPOT still misses, add speculative decoding with a 1B draft. The first four steps are configuration changes; the fifth adds an operational commitment, so it goes last.",
+      "WHEN NOT TO SPECULATE. A service runs batch size 64 on H100s, serving 2,000-token prompts with 30-token answers, and P99 is dominated by prefill. Would speculative decoding help? ANSWER: No, on three independent grounds. At batch 64 the verifier is already compute-bound, so there is no idle bandwidth for speculation to reclaim - speculation targets the memory-bound regime. Outputs of 30 tokens are short enough that per-round setup overhead is a significant fraction of the work. And latency here is prefill-dominated, while speculation accelerates only decode. The right interventions are chunked prefill and prompt caching. Correctly declining a technique is a stronger answer than applying it everywhere.",
+      "FLASH ATTENTION VERSUS PAGEDATTENTION. An interviewer asks whether these are the same optimisation. Answer and justify. ANSWER: No - they are orthogonal and vLLM runs both simultaneously. Flash Attention optimises the attention computation: SRAM tiling with an online softmax avoids materialising the N-by-N score matrix, cutting HBM traffic from O(N^2) to O(N) and speeding up prefill while slashing activation memory. PagedAttention optimises KV cache allocation: OS-style paging removes internal fragmentation from over-provisioned contiguous allocations and enables copy-on-write sharing of common prefixes. One is about how attention is computed, the other about how its memory is allocated. Conflating them is common, and separating them cleanly is a strong depth signal.",
+    ],
+  },
 ];
 
