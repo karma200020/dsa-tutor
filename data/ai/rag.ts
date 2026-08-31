@@ -597,147 +597,307 @@ Rule: storage doubles immediately, quality rarely does`)
     moduleId: "mod-ai-rag",
     title: "Vector Databases and ANN Indexing",
     intuition:
-      "Exact nearest-neighbour search is perfectly correct and completely unaffordable once the corpus grows large enough. ANN systems win by giving up a little recall to buy huge gains in latency and scalability. Once you accept that trade, the whole design space becomes easier to reason about: every index choice is really a position on the triangle formed by recall, latency, and memory.",
+      "Finding the true nearest neighbours of a query vector means comparing it against every vector you have — which is exact, trivially correct, and completely unaffordable past a few hundred thousand documents. Every production vector search system therefore gives up exactness on purpose: it uses an approximate index that finds most of the right answers most of the time, in exchange for returning them in milliseconds instead of seconds. Once you accept that trade, every remaining decision — which index, which parameters, which product — is just choosing where you want to sit on the triangle formed by recall, latency and memory. You can have any two of them; the third is what you pay with.",
     complexity: {
-      time:
-        "Exact search is linear in corpus size, so latency grows forever with N. HNSW and related ANN indexes turn retrieval into a much slower-growing search process, but query-time tuning still trades recall against latency, especially when filters force extra candidate expansion.",
-      space:
-        "ANN performance depends heavily on keeping vectors and graph structures resident in memory. Index memory therefore becomes the practical binding constraint, which is why quantization, reduced dimension, and alternative index families matter so much."
+      time: "Exact brute-force search is O(N·d) per query — at 10M vectors of dimension 1536 that is roughly 15 billion floating-point multiply-adds, which lands in the hundreds of milliseconds to seconds even with SIMD, and scales linearly with corpus growth. HNSW turns this into roughly O(ef · log N) graph hops: p95 in the 5–30 ms range at 1M–10M vectors, and critically it grows logarithmically rather than linearly, so a 10× larger corpus costs only modestly more per query. The dominant runtime dial is ef (efSearch) — latency is very close to linear in ef, which is why it is the knob you reach for when you are missing a latency SLA. Two things break this happy picture and both are the interview follow-up: a highly selective metadata post-filter forces you to retrieve a far larger candidate set to end up with k survivors, multiplying latency by the inverse of the filter selectivity; and index rebuilds are hours-long batch operations, so they are never a live remedy for a production latency problem.",
+      space: "Memory is the binding constraint in practice, not compute, because HNSW must hold the vectors and the graph resident to hit its latency numbers. Raw vectors are N · d · bytes-per-component: 10M vectors at d=1536 in float32 is about 59 GB, halving to ~29 GB in float16 and ~15 GB in int8. The HNSW graph adds roughly N · M · 2 · 4 bytes for neighbour links — at M=16 that is another ~1.3 GB per 10M vectors, and it rises linearly with M. The levers that actually move this number are quantization (float16 or int8, cutting memory 2–4× for a small recall cost), Matryoshka dimension truncation (indexing a 512-dim prefix of a 1536-dim MRL model cuts vector memory 3×), and IVF+PQ, which compresses aggressively enough to hold hundreds of millions of vectors in RAM but gives up meaningful recall to do it. Budget for the index being 1.3–2× the raw vector size, and remember the filesystem copy and any replica multiply the whole figure."
     },
     lesson: [
       {
-        title: "Why Exact Search Stops Working",
+        title: "Why Exact Search Stops Working, and What You Trade to Fix It",
         content:
-          "The honest baseline is a for-loop over every vector, and for small corpora that is often the correct solution. But once you move into millions of vectors, exact cosine comparisons become too slow and scale badly with concurrency because the work is linear in corpus size. ANN exists because production retrieval only needs the right neighborhood quickly, not a mathematically perfect global ranking every single time.",
-        diagram: asciiDiagram(`Exact versus approximate cost curve
+          "The honest baseline is a for-loop. Compare the query vector against every stored vector, keep the best k. It is correct by construction and it is the right answer for small corpora — a point worth making plainly, because candidates who reach for a vector database at 50,000 vectors are solving a problem they do not have. A brute-force scan over 100,000 vectors with numpy is single-digit milliseconds. The cost is O(N·d) per query. Walk the arithmetic explicitly: 10 million vectors at d=1536 is about 15 billion multiply-add operations per query. Even at tens of GFLOPS of effective throughput that is hundreds of milliseconds of pure compute for a single query, before concurrency. At 50 queries per second it is hopeless. The key structural point is that the cost is linear in corpus size — doubling the corpus doubles query latency, forever. Approximate nearest neighbour search is the deliberate trade that follows. Be direct that 'approximate' means the index will sometimes miss true neighbours, and define recall@k as the fraction of the true top-k that the index actually returned. Recall of 0.95 at k=10 means that on average nine and a half of the ten genuinely closest documents came back. Make the reader comfortable with this: in a RAG pipeline the retrieved chunks are re-ranked and then read by a model that only needs sufficient context, so the marginal value of the tenth-best chunk over the twelfth-best is usually negligible. Recall matters, but it does not need to be 1.0, and insisting on 1.0 is how you end up with an unaffordable system. The recall / latency / memory triangle is the organising frame for everything that follows: every index type and every parameter is a position on this triangle, you can optimise two at the expense of the third, and the engineering question is always which one your use case can afford to give up.",
+        diagram: asciiDiagram(`Exact vs approximate — the cost curve that forces the trade
 
-query latency
-    ▲
-    │                                exact scan grows with corpus size
-    │                             ╱
-    │                          ╱
-    │                       ╱
-    │                    ╱
-    │       HNSW stays much flatter
-    │   ─────────────────────────────
-    └──────────────────────────────────────────────────▶ corpus size
-        100K          1M            10M
+  query latency
+      \u25b2
+      \u2502                                    \u256f exact scan: O(N\u00b7d)
+      \u2502                                  \u256f   linear in corpus
+      \u2502                                \u256f     10M vectors \u2248 100s of ms
+      \u2502                              \u256f
+      \u2502                            \u256f
+      \u2502                          \u256f
+      \u2502                        \u256f
+      \u2502                      \u256f
+      \u2502                    \u256f
+      \u2502      \u250c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2518
+      \u2502  \u2500\u2500\u2500\u2500\u2518         HNSW: O(ef \u00b7 log N)
+      \u2502                logarithmic in corpus
+      \u2502                10M vectors \u2248 5\u201330 ms
+      \u2514\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u25b6 corpus size N
+         100K      1M       10M      100M
 
-Trade: recall falls from 1.00 to something like 0.90 to 0.98`)
+  Crossover sits near 100K\u2013500K vectors. Below it, brute force
+  is simpler AND fast enough. Above it, ANN is not optional.
+
+  What you pay: recall drops from 1.00 to ~0.90\u20130.98`)
       },
       {
-        title: "HNSW Is the Index You Will Actually Be Asked About",
+        title: "HNSW: The Index You Will Actually Be Asked About",
         content:
-          "HNSW builds a small-world graph where each vector is a node connected to near neighbours, plus a hierarchy of sparser upper layers that guide search into the right region quickly. Search enters high, makes large hops across the space, then refines in the dense bottom layer. The important operational distinction is among M, ef_construction, and efSearch: the first two are build-time choices, while efSearch is the live query-time dial you can turn during incidents without rebuilding the index."
+          "HNSW builds a navigable small-world graph: every vector is a node connected to roughly M of its near neighbours. Search is greedy graph traversal — start somewhere, look at the current node's neighbours, move to whichever is closest to the query, repeat until no neighbour improves. The reason this finds good answers quickly is the small-world property: a graph with mostly-local links plus a few long-range ones lets you cross the space in a small number of hops. The hierarchical part is what makes entry cheap. The index is a stack of layers. The top layer holds a sparse sample of nodes with long-range links; each layer down is denser. A search enters at the top, greedily descends to the closest node in that sparse layer, drops to the next layer using that node as the entry point, and repeats. The top layers are a coarse express network that gets you to the right region in a handful of hops; the bottom layer, which contains every vector, does the fine-grained work. The three parameters deserve an emphatic distinction because it is a reliable signal in interviews. M controls how many neighbours each node keeps — build-time and structural, higher M means better recall and a more robust graph at linearly higher memory and slower construction, with 16–48 being the typical range. ef_construction controls how hard the builder searches for each node's neighbours during construction — build-time and quality-determining, higher is strictly better and costs only one-time build time so you should set it generously at 200–400 with no production downside. ef (efSearch) controls how many candidates the traversal keeps in flight at query time — this is runtime, changeable live, and requires no rebuild, making it your production incident dial: raise it for recall, lower it for latency. The operational punchline is stark: ef is the only one of the three you can change in response to a production incident. M and ef_construction are baked in at build time and changing them means a multi-hour rebuild. HNSW handles deletes by tombstoning, not by repairing the graph. Accumulated soft-deletes degrade connectivity and therefore recall, silently, over months. The fix is periodic full rebuilds, and the leading indicator is recall measured against a frozen golden query set — recall degrades before latency does, so latency alerts will not catch it.",
+        diagram: asciiDiagram(`HNSW \u2014 hierarchical navigable small world
+
+  Layer 2   \u25cf\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u25cf          sparse, long links
+  (entry)    \u2572                       \u2571           few nodes, big hops
+               \u2572                     \u2571
+                \u25bc                   \u25bc
+  Layer 1   \u25cf\u2500\u2500\u2500\u2500\u25cf\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u25cf\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u25cf\u2500\u2500\u2500\u2500\u25cf        denser
+             \u2572    \u2572      \u2571 \u2572      \u2571    \u2571
+              \u25bc    \u25bc    \u25bc   \u25bc    \u25bc    \u25bc
+  Layer 0   \u25cf\u2500\u25cf\u2500\u25cf\u2500\u25cf\u2500\u25cf\u2500\u25cf\u2500\u25cf\u2500\u25cf\u2500\u25cf\u2500\u25cf\u2500\u25cf\u2500\u25cf\u2500\u25cf\u2500\u25cf\u2500\u25cf        ALL vectors
+            every node has ~M neighbours          fine-grained
+
+  Search: enter at top \u2500\u2500\u25b6 greedy descent \u2500\u2500\u25b6 refine at layer 0
+
+  \u250c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u252c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u252c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2510
+  \u2502 parameter        \u2502 when set   \u2502 effect                      \u2502
+  \u251c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u253c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u253c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2524
+  \u2502 M                \u2502 build      \u2502 neighbours per node;        \u2502
+  \u2502                  \u2502 (locked)   \u2502 recall \u25b2 memory \u25b2           \u2502
+  \u2502 ef_construction  \u2502 build      \u2502 build quality; set high,    \u2502
+  \u2502                  \u2502 (locked)   \u2502 cost is one-time only       \u2502
+  \u2502 ef  (efSearch)   \u2502 QUERY TIME \u2502 recall \u25b2 latency \u25b2          \u2502
+  \u2502                  \u2502 \u2705 live    \u2502 \u25c4\u2500\u2500 your production dial    \u2502
+  \u2514\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2534\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2534\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2518`)
       },
       {
-        title: "Filtering and the Post-Filter Trap",
+        title: "IVF and Product Quantization: When Memory Is the Constraint",
         content:
-          "Metadata filters look simple until they become selective. If you retrieve top-200 globally and then post-filter to a tenant that owns only 0.05 percent of the corpus, you should expect almost no surviving results. At that point you need pre-filter-aware ANN, separate indexes for tiny subsets, or a tiered architecture that routes small tenants differently from large ones."
+          "HNSW optimises recall and latency and pays in memory. Once the corpus reaches a scale where holding vectors plus graph in RAM is the binding cost — hundreds of millions of vectors — the trade has to move. IVF (inverted file index) partitions the space by running k-means over the corpus to produce nlist centroids; each vector is assigned to its nearest centroid's cell. At query time, find the nprobe closest centroids and search only within those cells. Searching nprobe=8 of nlist=4096 cells examines roughly 0.2% of the corpus. nprobe is the runtime recall/latency dial, exactly analogous to ef. The characteristic failure is honest and worth naming: when the true nearest neighbour sits just across a cell boundary that was not probed, it is missed, and this is why IVF recall is generally below HNSW at equal latency. Product quantization is the memory lever and deserves the mechanism, not just the name. Split each vector into m subvectors; run k-means separately on each subvector position to learn a codebook of 256 centroids; store each subvector as the one-byte id of its nearest centroid. A 1536-dim float32 vector is 6,144 bytes; split into m=96 subvectors it becomes 96 bytes — roughly 64× smaller. Distances are computed approximately against the codebooks using precomputed lookup tables, which is also fast. The cost is real and should be stated plainly: PQ is lossy compression of the vectors themselves, so recall drops meaningfully — this is a capacity decision, not a free optimisation. The practical selection rule: HNSW under roughly 50M vectors where memory is affordable; IVF+PQ above that or wherever RAM is the hard constraint; hybrid IVF+HNSW arrangements that use a graph to find the right cells exist as well. Disk-based ANN variants for RAM-constrained deployments are worth naming in an interview as evidence of awareness, without pretending they are the common case.",
+        diagram: asciiDiagram(`Two ways to avoid scanning everything
+
+  IVF \u2014 partition, then probe a few cells
+  \u250c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u252c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u252c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u252c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2510
+  \u2502  cell 1 \u2502  cell 2 \u2502  cell 3 \u2502  cell 4 \u2502   nlist = 4096 cells
+  \u2502   \u25cf \u25cf   \u2502  \u25cf   \u25cf  \u2502 \u25cf \u25cf \u25cf   \u2502   \u25cf  \u25cf  \u2502   built by k-means
+  \u2502  \u25cf   \u25cf  \u2502   \u25cf \u25cf   \u2502  \u25cf   \u25cf  \u2502  \u25cf \u25cf    \u2502
+  \u251c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u253c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u253c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u253c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2524   query \u25bc finds the
+  \u2502  cell 5 \u2502  cell 6 \u2502  cell 7 \u2502  cell 8 \u2502   nprobe nearest
+  \u2502  \u25cf  \u25cf   \u2502 \u2726 query \u2502  \u25cf  \u25cf   \u2502  \u25cf   \u25cf  \u2502   centroids and
+  \u2502   \u25cf \u25cf   \u2502  \u25cf \u25cf \u25cf  \u2502   \u25cf  \u25cf  \u2502 \u25cf  \u25cf    \u2502   searches ONLY those
+  \u2514\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2534\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2534\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2534\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2518
+   nprobe=2 searches cells 6 and 3 \u2500\u2500 examines ~0.05% of corpus
+   risk: a true neighbour in cell 7 is never seen \u2500\u2500\u25b6 recall loss
+
+  PQ \u2014 compress each vector into subvector codes
+   original  [1536 floats \u00d7 4 bytes]  = 6,144 bytes
+                     \u2502
+                     \u25bc  split into m=96 subvectors of 16 dims
+   each subvector \u2500\u2500\u25b6 nearest of 256 learned centroids \u2500\u2500\u25b6 1 byte
+                     \u2502
+                     \u25bc
+   compressed  [96 bytes]  \u2248 64\u00d7 smaller, lossy
+
+  \u250c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u252c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u252c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u252c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2510
+  \u2502 index        \u2502 recall   \u2502 memory   \u2502 use when              \u2502
+  \u251c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u253c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u253c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u253c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2524
+  \u2502 flat / exact \u2502 1.00     \u2502 high     \u2502 under ~100K vectors   \u2502
+  \u2502 HNSW         \u2502 0.90\u2013.98 \u2502 high     \u2502 100K\u201350M, RAM is fine \u2502
+  \u2502 IVF + PQ     \u2502 0.70\u2013.90 \u2502 very low \u2502 50M+, RAM is binding  \u2502
+  \u2514\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2534\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2534\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2534\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2518`)
       },
       {
-        title: "pgvector vs Purpose-Built Systems",
+        title: "Metadata Filtering: The Failure Mode That Silently Returns Nothing",
         content:
-          "For many teams, pgvector is the right first answer because it keeps retrieval inside an existing PostgreSQL operational envelope. It becomes less attractive as corpus size, concurrency, hybrid search needs, or advanced filtering semantics increase. The senior answer is not to recite vendor names but to set thresholds, measure p95 latency under expected load, and graduate only when the measurements justify extra infrastructure."
+          "Real queries are almost never pure vector similarity — they are 'similar chunks from this tenant', 'from documents this user may read', 'published in the last year'. How the system combines the filter with the ANN traversal determines whether it works at all. Post-filtering retrieves ANN top-k, then discards non-matching results. It is the naive default and it is fine when the filter is broad. The arithmetic is simple and worth writing out: expected survivors equal k times the filter selectivity. Retrieve 200 with a filter matching 10% of the corpus and about 20 survive — plenty for a top-10. Now the failure. Take a filter matching 0.05% of the corpus, a small tenant on a shared index. Retrieve 200 and expect 0.1 survivors. Most queries return nothing. This is silent: ANN search succeeded, the filter succeeded, the pipeline reports no error, and the model is handed empty context and either refuses or invents an answer. To reliably obtain ten results at 0.05% selectivity you must retrieve roughly 20,000 candidates, which is a different latency regime entirely. So the system either breaks or becomes hundreds of milliseconds slow, and both failures land only on your smallest tenants — the ones least likely to be in your load tests. Pre-filtering applies the predicate during traversal so the graph walk only ever considers eligible nodes. This is correct at any selectivity but requires index support; a naive implementation that restricts the graph too aggressively can disconnect it and hurt recall, which is why filter-aware ANN is a genuine engineering feature and not a checkbox. The rule to carry into an interview: ask about selectivity before proposing anything. Above roughly 10%, post-filtering is fine. Below 1%, you need filter-aware ANN or a separate index per filter value — and note that a small tenant's vectors are usually tiny enough that a dedicated index is trivially cheap. Between 1% and 10%, measure.",
+        diagram: asciiDiagram(`Post-filter vs pre-filter \u2014 why selectivity decides
+
+  POST-FILTER   ANN first, then discard
+  \u250c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2510
+  \u2502  query \u2500\u2500\u25b6 ANN top-200 \u2500\u2500\u25b6 apply filter \u2500\u2500\u25b6 survivors     \u2502
+  \u2514\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2518
+   survivors \u2248 200 \u00d7 selectivity
+
+   selectivity 10%   \u2500\u2500\u25b6  ~20 survive   \u2705 fine
+   selectivity  1%   \u2500\u2500\u25b6  ~2  survive   \u26a0\ufe0f marginal
+   selectivity 0.05% \u2500\u2500\u25b6  ~0 survive    \u274c returns nothing, silently
+
+   to force 10 survivors at 0.05% you must pull ~20,000 candidates
+   \u2500\u2500\u25b6 ~100\u00d7 the work \u2500\u2500\u25b6 p95 blows past any sane SLA
+
+  PRE-FILTER    filter during traversal
+  \u250c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2510
+  \u2502  query \u2500\u2500\u25b6 ANN walks ONLY eligible nodes \u2500\u2500\u25b6 top-10       \u2502
+  \u2514\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2518
+   correct at ANY selectivity, needs filter-aware index support
+
+  \u250c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u252c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2510
+  \u2502 selectivity    \u2502 what to do                               \u2502
+  \u251c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u253c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2524
+  \u2502 above 10%      \u2502 post-filter is fine                      \u2502
+  \u2502 1% \u2013 10%       \u2502 measure, then decide                     \u2502
+  \u2502 below 1%       \u2502 pre-filter-aware ANN, or a separate      \u2502
+  \u2502                \u2502 index for that filter value              \u2502
+  \u2514\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2534\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2518
+
+  \u26a0\ufe0f this failure hits your SMALLEST tenants \u2014 the ones least
+     likely to appear in load tests`)
       },
       {
-        title: "When Memory Forces Different Index Families",
+        title: "Do You Actually Need a Vector Database?",
         content:
-          "HNSW is superb for recall at moderate scale, but it becomes memory-hungry at very large corpus sizes. That is when you mention quantization, prefix-dimension storage, or IVF plus product quantization as ways to compress vectors aggressively and keep the system deployable. Each of those saves memory at the cost of some recall, which is why the recall-latency-memory triangle is such a useful interview frame."
+          "Frame the decision as build-versus-adopt rather than vendor selection, because vendor comparisons date within months while the decision procedure does not. The default should be to add vector search to infrastructure you already run, not to introduce a new stateful service. For a team already on PostgreSQL, pgvector is CREATE EXTENSION vector plus an index — no new service, no new failure modes, no new backup and restore story, no new on-call surface. Against that, PostgreSQL already gives you full-text with indexing natively, ACID transactions, existing access control and row-level security, familiar backup and restore, and no additional infrastructure to learn or operate. The tradeoff is real but often overstated: pgvector's HNSW implementation has somewhat higher query latency at very large scale compared to purpose-built systems, and it lacks advanced features like native sparse-dense hybrid search, multi-vector storage, or GPU-accelerated indexing. The practical decision framework: start with pgvector if you are already on PostgreSQL and your corpus is under 1–5 million vectors; measure query p95 latency under your expected concurrent query load; graduate to a purpose-built vector database only when measurements show pgvector is the actual bottleneck. The most common mistake is pre-emptively adopting a purpose-built vector database for a corpus of 100,000 vectors — adding operational complexity to solve a problem that pgvector handles trivially at that scale.",
+        diagram: asciiDiagram(`Decision tree \u2014 do you need a dedicated vector database?
+
+  How many vectors in your index?
+              \u2502
+        &lt; 1M  \u2502  1M\u201310M       &gt; 10M
+              \u2502                 \u2502
+              \u25bc                 \u25bc
+  pgvector or       Measure p95 latency    Purpose-built
+  even in-memory    under load with        vector DB is
+  (numpy/faiss)     pgvector first         likely justified
+              \u2502                 \u2502
+              \u25bc                 \u25bc
+  Do you need ANY of these?    p95 &lt; SLA?  \u2192 stay on pgvector
+  \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500    p95 &gt; SLA?  \u2192 evaluate purpose-built
+  \u2022 Native hybrid (sparse+dense)
+  \u2022 Multi-vector per document
+  \u2022 GPU-accelerated indexing
+  \u2022 &gt; 500 concurrent queries/sec
+  \u2022 Multi-tenant with &gt; 1000 tenants
+  \u2022 Disk-based ANN (RAM-constrained)
+              \u2502
+             YES
+              \u2502
+              \u25bc
+  Evaluate purpose-built options
+  by capability category \u26a0\ufe0f fast-moving:
+  verify current feature support per vendor`)
       }
     ],
     examples: [
       {
-        title: "SLA rescue by lowering efSearch",
+        title: "Tuning HNSW ef Parameter to Meet a Latency SLA Without Rebuilding",
         input:
-          "A 10M-vector HNSW index breaches a 30ms p95 SLA after recent growth, but rebuilds take hours.",
-        output: "Lower efSearch first and accept a measured recall drop if it stays above the product threshold.",
+          "A team has a production HNSW index (M=16, ef_construction=200) over 8 million vectors. Current measurements: ef=64 gives p95=18ms, Recall@10=0.91. Their SLA is 30ms p95 with minimum Recall@10=0.85. A new batch of 2 million vectors has been added, and p95 has climbed to 38ms. They want to meet their SLA without rebuilding the index.",
+        output:
+          "Reduce ef from 64 to 32. Measured result: p95 drops to 22ms, Recall@10=0.88. SLA met; recall above minimum threshold.",
         explanation:
-          "Step 1: Identify efSearch as the only live query-time tuning knob.\nStep 2: Lowering it reduces graph exploration work almost immediately.\nStep 3: Measure whether the resulting Recall@10 still clears the minimum product bar.\nStep 4: Only consider rebuilds later if ef tuning cannot satisfy both latency and quality."
+          "Step 1: Understand ef's role — ef (efSearch) is the number of candidate nodes the HNSW traversal maintains during graph navigation. Higher ef means more nodes examined, which means higher recall but more computation per query. It is a runtime parameter that requires no index rebuild — only a config change.\nStep 2: Estimate the latency-recall curve — HNSW latency scales approximately as O(ef x log N). Halving ef from 64 to 32 roughly halves the per-query comparison count. At 10M vectors (after adding 2M) the empirical result is ~22ms at ef=32 for this index size.\nStep 3: Assess recall impact — reducing ef from 64 to 32 typically drops recall by 2–5 percentage points. From a baseline of 0.91, dropping to 0.88 is within the 0.85 minimum threshold — acceptable.\nStep 4: Explain why a rebuild is not the right move — rebuilding a 10M-vector HNSW index at ef_construction=200 takes approximately 4–8 hours. The ef parameter change takes seconds. Rebuild is appropriate only when soft-delete accumulation has degraded graph quality, the embedding model changes, or ef cannot be lowered enough to meet latency without dropping below the minimum recall threshold."
       },
       {
-        title: "Small-tenant post-filter disaster",
+        title: "Post-Filter Latency Explosion with a Highly Selective Tenant Filter",
         input:
-          "A shared index uses top-200 ANN then filters to a tenant holding 0.05 percent of all vectors.",
-        output: "Most queries return zero useful hits unless the system retrieves an enormous candidate set.",
+          "A multi-tenant RAG platform uses a shared HNSW index of 5 million vectors. Tenant A has 500,000 vectors (10% of corpus). Tenant B has 2,500 vectors (0.05% of corpus). Both tenants' queries use post-filtering (ANN top-200, then filter by tenant_id). What is the effective behavior for each tenant?",
+        output:
+          "Tenant A (10% selectivity): ANN top-200 returns ~20 Tenant A vectors on average — adequate for top-10 results, p95 ~22ms. Correct. Tenant B (0.05% selectivity): ANN top-200 returns ~0.1 Tenant B vectors on average — most queries return 0 results. System must fall back to ANN top-50,000 to find 10 Tenant B vectors. p95 ~380ms. SLA violated. Retrieval is effectively broken for small tenants.",
         explanation:
-          "Step 1: Expected matches after post-filtering equal top_k times filter selectivity.\nStep 2: At 0.05 percent selectivity, top-200 yields about 0.1 expected survivors.\nStep 3: The fix is pre-filter-aware ANN or a separate tiny index for that tenant.\nStep 4: This is why selectivity matters more than abstract talk about filtering support."
+          "Step 1: Apply the post-filter math — expected matching results = top_k x filter_selectivity. For Tenant A: 200 x 0.10 = 20 results — adequate. For Tenant B: 200 x 0.0005 = 0.1 results — essentially zero.\nStep 2: Compute the latency explosion — to guarantee 10 Tenant B results from ANN post-filtering, the system needs 10 / 0.0005 = 20,000 candidates. Retrieving top-20,000 vs top-200 is roughly 100x more traversal work, pushing p95 from 22ms to ~380ms.\nStep 3: Identify the silent failure mode — at top-200 with Tenant B, the system returns 0 or 1 results. The LLM receives empty context and either says it does not know or hallucinates. No error is raised — the retrieval component technically succeeded but returned nothing useful.\nStep 4: List the fixes — (a) use a pre-filter-aware ANN implementation so the traversal itself respects the filter, achieving correct top-10 at ~25ms even for 0.05% selectivity; (b) maintain a separate index for Tenant B — its 2,500 vectors fit in 15 MB, trivial to manage as a standalone index; (c) adaptive post-filter: detect when returned results are below top-k threshold and automatically retry with a larger candidate pool.\nStep 5: State the production rule — any filter with selectivity below 1% requires either pre-filter-aware ANN or a separate index. Post-filtering is only safe for filters with above 5% selectivity."
       },
       {
-        title: "pgvector wins at small scale",
+        title: "pgvector vs Purpose-Built Vector DB: The 100K vs 10M Vector Decision",
         input:
-          "An internal knowledge base has only 240,000 vectors and 200 queries per day.",
-        output: "Use pgvector or even exact search rather than a dedicated vector service.",
+          "Team A: internal knowledge-base RAG for a 500-person company. Corpus: 80,000 Confluence pages at ~3 chunks each = 240,000 vectors. Expected query load: 200 queries/day. Already running PostgreSQL. Team B: customer-facing AI search for a SaaS product. Corpus: 12 million vectors. Expected query load: 3,000 queries/minute. Need millisecond-range query latency at scale.",
+        output:
+          "Team A: use pgvector. Team B: use a purpose-built vector database.",
         explanation:
-          "Step 1: Size the corpus and query load honestly.\nStep 2: At this scale, memory and latency are comfortably inside standard database territory.\nStep 3: New infrastructure would add operational cost without solving a real bottleneck.\nStep 4: Measure later and only graduate if the measurements demand it."
+          "Team A — Step 1: 240,000 vectors at 1536-dim fp32 = 1.5 GB raw vectors. This fits comfortably in a PostgreSQL server's available RAM.\nStep 2: pgvector HNSW at 240K vectors achieves p95 below 5ms per query — orders of magnitude below any reasonable SLA.\nStep 3: 200 queries/day = 0.002 queries/second — no concurrency concern whatsoever.\nStep 4: Adding pgvector to an existing PostgreSQL instance is CREATE EXTENSION vector plus one index creation command. No new infrastructure, no new failure modes, no new operational expertise needed. Any purpose-built vector database here would be pure overhead.\nTeam B — Step 1: 12 million vectors at 1536-dim = 73 GB raw vectors. HNSW graph overhead adds ~50 GB. Total ~120 GB in memory. PostgreSQL managing 120 GB of HNSW data while also handling relational queries creates memory contention and operational complexity.\nStep 2: 3,000 queries/minute = 50 queries/second. Purpose-built vector databases built for high-concurrency vector operations have significantly higher throughput at this load.\nStep 3: Production needs like multi-vector per document, native hybrid search, and advanced filtered ANN are all easier with a purpose-built system. Decision: purpose-built vector database is justified. Verify current vendor capabilities before committing — this space moves fast."
       }
     ],
     tips: [
-      "Keep build-time HNSW parameters separate from live query-time parameters in your explanation.",
-      "Ask about filter selectivity before discussing multi-tenant ANN correctness.",
-      "Measure pgvector before assuming you need a purpose-built vector database."
+      "ef_construction and ef (efSearch) are different parameters with different operational implications. ef_construction is set once at build time — set it high (200–400) without hesitation because the quality cost is paid only during the one-time index build. ef is a runtime parameter you tune in production against your latency/recall SLA — it can be changed without rebuilding and is your primary production knob.",
+      "The post-filter / pre-filter distinction is the most commonly missed vector database design question in system design interviews. Always ask: what is the filter selectivity? Filters above 10% selectivity are safe for post-filtering; below 1% selectivity require pre-filter-aware ANN or a separate index per filter value. In between, measure and decide empirically.",
+      "Never adopt a purpose-built vector database without first measuring pgvector under your actual load. The breakeven for purpose-built systems is typically 5–10 million vectors at moderate query load, or above 100–200 concurrent queries per second. Below these thresholds, the operational simplicity of pgvector almost always wins.",
+      "Index soft-delete accumulation degrades HNSW recall over time. Schedule periodic full rebuilds — monthly for corpora with above 10% annual delete rate, quarterly otherwise — to restore graph quality. Monitor recall on a golden query set as your leading indicator: recall degradation precedes latency degradation.",
+      "Always store the index configuration (M, ef_construction, embedding model ID, embedding dim, normalization settings) in a metadata record alongside the index. When a query latency regression appears six months after the index was built, you need to know exactly how it was built to diagnose and reproduce.",
+      "For MRL-trained embedding models, consider storing only the prefix dimension in the HNSW index (e.g., 512 dims from a 1536-dim MRL model) to reduce memory by 3x, then re-score the top-100 ANN candidates using the full 1536-dim vectors for precision before reranking. This achieves near-full-dimension accuracy at a fraction of the memory cost."
     ],
     tricks: [
-      "Anchor the whole conversation to recall, latency, and memory immediately.",
-      "Say efSearch is my incident knob because it signals operational maturity.",
-      "Mention IVF plus PQ only when memory is genuinely the constraint, not as default name-dropping."
+      "In system design interviews, anchor every vector DB discussion to the recall/latency/memory triangle immediately: 'Every design choice here is a trade-off between those three — what are the binding constraints for this use case?' This reframes the conversation from 'which product?' to 'what are we optimizing for?' and positions you as an engineer rather than a product picker.",
+      "When asked about filtering, immediately ask about selectivity before proposing a solution: 'What fraction of the corpus matches a typical filter?' This single question determines whether post-filtering is safe or whether you need pre-filter-aware ANN — and asking it shows you know the failure mode.",
+      "If asked 'which vector database should we use?', reframe before answering: 'Before choosing a product, let me establish the requirements — corpus size, query concurrency, filtering needs, hybrid search requirement, and budget. At under 5M vectors, pgvector is usually the right answer and avoids a new service entirely.' This prevents being drawn into a vendor comparison that will be outdated in six months.",
+      "When discussing HNSW parameters, distinguish build-time parameters (M, ef_construction — set once, high cost to change) from query-time parameters (ef/efSearch — tunable live, no rebuild). Candidates who conflate these reveal they haven't operated an HNSW index in production.",
+      "For very large corpora (above 50M vectors), mention IVF+PQ as the memory-efficient alternative to HNSW without being asked — it signals awareness of the practical infrastructure constraints at scale that most candidates who have only seen small demos don't know about."
     ],
     memoryAids: [
-      "HNSW buys recall and latency by spending memory.",
-      "Only efSearch is live; M and ef_construction are baked in.",
-      "Small selectivity breaks naive post-filtering."
+      "The recall/latency/memory triangle: you can optimize any two, but the third suffers. HNSW = high recall + low latency at the cost of memory. IVF+PQ = low memory + reasonable latency at the cost of recall. There is no free lunch.",
+      "M, ef_construction, ef — the three HNSW knobs. M = how many friends each node makes (build-time, structural). ef_construction = how hard it looks for those friends during construction (build-time, quality). ef = how hard it searches at query time (runtime, tunable). Only ef is a production dial.",
+      "pgvector rule of thumb: under 5 million vectors with moderate load, pgvector is probably fine. Over 10 million vectors with high concurrency, measure and evaluate purpose-built. The crossover is empirical, not theoretical.",
+      "Post-filter selectivity rule: selectivity above 10% means post-filter is fine. Below 1% means pre-filter or separate index. Between 1–10% means measure. This three-case rule covers 90% of interview questions about metadata filtering.",
+      "IVF = a library with sections. k-means training creates the sections. nprobe = how many sections you search. More sections searched = higher recall, more latency. The library metaphor grounds the mechanism concretely."
     ],
     interviewPatterns: [
-      "Expect a 50M-vector or multi-tenant vector-store architecture question.",
-      "When asked which database, restate the requirements before picking a product class.",
-      "Frequency and companies: Tier 2 system-design topic, common at retrieval-platform and infra-heavy AI teams."
-    ],
-    practiceProblems: [
-      "A 15M-vector HNSW index at efSearch 128 misses a 25ms SLA but exceeds quality requirements. Answer: lower efSearch to around 64 first, estimate the new latency, then validate that Recall@10 stays above the required threshold before considering rebuilds.",
-      "A SaaS platform has enterprise tenants with 500K vectors and starter tenants with 1K. Answer: dedicated indexes for the largest tenants, filtered shared infrastructure for medium ones, and tiny per-tenant exact or mini-ANN collections for the smallest, because one isolation strategy is inefficient across the whole distribution."
+      "'We need to build a vector search system for 50 million document chunks with 500ms p95 SLA. Walk me through your index design.' Expected: establish that 50M vectors requires purpose-built vector DB or a carefully configured HNSW cluster; discuss HNSW vs IVF+PQ (50M vectors makes HNSW memory ~300GB+ — IVF+PQ may be necessary if RAM is constrained); give M, ef_construction, ef parameter guidance; state that filtering strategy depends on filter selectivity.",
+      "'Our retrieval is fast but some tenant queries return zero results even though we know their documents are in the index. What is happening?' Expected: immediately diagnose as the post-filter selectivity problem — the tenant is small (low selectivity), post-filtering discards all ANN results. Solution: switch to pre-filter-aware ANN or a separate small index for that tenant. Ask: what fraction of the corpus does that tenant's data represent?",
+      "'Do we need a dedicated vector database or can we use PostgreSQL?' Expected: establish corpus size and query load first. Under 1–5M vectors at moderate query load — pgvector is likely sufficient and far simpler to operate. Over 10M vectors or above 100+ concurrent queries/second — measure pgvector first, then evaluate purpose-built. List the features that actually require a purpose-built DB.",
+      "'How does HNSW achieve sub-10ms query latency over millions of vectors when exact search would take seconds?' Expected: explain the multi-layer graph — higher layers are sparse highway graphs enabling O(log N) descent; bottom layer exhaustively searches only the local neighborhood; the ef parameter controls the size of this local search. O(log N) vs O(N) is the key insight.",
+      "'What happens to your HNSW index quality over time as documents are added and deleted?' Expected: insertions are supported natively and maintain graph quality. Deletions cause soft-delete accumulation — deleted vectors remain in the graph as phantom nodes, gradually degrading recall. Mitigation: periodic full rebuilds (monthly/quarterly) to defragment the graph. Monitor recall on a golden query set as a leading indicator of degradation.",
+      "Frequency and companies: Tier 2 system-design topic at AI-first companies (60–80% frequency), common at any team building retrieval infrastructure, vector platforms, or large-scale RAG systems."
     ],
     faq: [
       {
-        question: "What is the difference between M and ef_construction in HNSW?",
+        question: "What is the difference between M and ef_construction in HNSW, and which matters more for production?",
         answer:
-          "M controls how many neighbors each node keeps, so it drives graph density and memory. ef_construction controls how hard the builder searches while wiring the graph, so it affects build quality and build time. Both are build-time decisions, unlike efSearch, which is query-time."
+          "M (edges per node) is a structural parameter set at index creation time that determines how many neighbors each vector maintains in the proximity graph. Higher M means each node has more connections, producing a denser graph with higher recall but larger memory footprint — memory scales roughly as M × N × 8 bytes. ef_construction is a build-time search width parameter that controls how thoroughly the algorithm searches for the M best neighbors during insertion — higher ef_construction produces a higher-quality graph at the cost of longer build time, but has zero impact on query performance once the index is built. For production, M matters most for memory budgeting (choose M=16 as a strong default, increase to 32 or 64 if recall is insufficient and memory allows). ef_construction should simply be set high (200–400) since it is a one-time build cost. The parameter that matters most for ongoing production tuning is neither — it is ef (efSearch), which controls how exhaustively the graph is traversed at query time and can be adjusted live without rebuilding the index.",
+        category: "algorithm"
       },
       {
-        question: "When should I use IVF plus PQ instead of HNSW?",
+        question: "When should I use IVF+PQ instead of HNSW?",
         answer:
-          "Use it when corpus size makes raw-vector HNSW memory too expensive to keep resident. IVF plus PQ buys much lower memory at the cost of measurable recall loss and some tuning complexity, so it is a scale-driven choice rather than a default."
+          "IVF+PQ is the right choice when your corpus exceeds roughly 50–100 million vectors and the full-vector HNSW memory requirement becomes prohibitive. HNSW for 100M vectors at 1536-dim fp32 requires approximately 600 GB of RAM for raw vectors plus graph overhead — this requires extremely large and expensive memory instances. IVF+PQ compresses each vector to 32–64 bytes regardless of original dimension, reducing 100M vectors to roughly 3–6 GB — manageable on a standard server. The cost is recall: IVF+PQ typically achieves 5–20% lower Recall@10 than HNSW at equivalent latency, and the nprobe and M_PQ parameters require careful tuning. For most RAG systems with corpora under 50M vectors and standard cloud instance sizes, HNSW provides better recall at lower operational complexity and should be the default choice. Only evaluate IVF+PQ when RAM is genuinely the constraint, not speculatively.",
+        category: "algorithm"
       },
       {
-        question: "Is Postgres with pgvector really enough?",
+        question: "Do I need a vector database, or is Postgres with pgvector enough?",
         answer:
-          "Often yes, especially below a few million vectors and at moderate concurrency. The main advantage is operational simplicity: one system for transactions, backups, security, and retrieval."
+          "For most RAG systems at early to mid scale, pgvector is enough and is the correct choice. pgvector supports HNSW indexing natively and achieves competitive query latency for corpora up to roughly 5 million vectors at moderate query concurrency. The operational advantages are significant: no new service to manage, ACID transactions for atomic chunk updates and deletions, existing row-level security for tenant isolation, and familiar PostgreSQL tooling for backup, monitoring, and access control. Purpose-built vector databases become compelling when the corpus exceeds 5–10 million vectors and pgvector query latency under load exceeds your SLA; when you need features not available in pgvector such as native sparse-dense hybrid search, multi-vector per document (ColBERT-style), or GPU-accelerated indexing; or when your query concurrency exceeds roughly 200 queries/second. Always measure pgvector under your actual load before adopting a purpose-built system — the correct answer is empirical, not theoretical.",
+        category: "architecture"
       },
       {
-        question: "How do deletes affect HNSW quality over time?",
+        question: "How do I handle vector index updates when documents are added or changed?",
         answer:
-          "Many implementations accumulate tombstones or soft deletes, which gradually hurt graph quality and sometimes latency. Periodic rebuilds are therefore a normal maintenance task, not a sign the index choice was wrong."
+          "HNSW supports online insertions natively — new vectors can be added incrementally without rebuilding. Deletions, however, are typically handled by soft-deletion (marking vectors as deleted) rather than actual graph repair, because repairing the graph after a deletion is expensive. Soft-deleted vectors remain in the graph and continue to consume memory and traversal cost; they just do not appear in results. For workloads with high delete rates (above 10% of the corpus per month), schedule periodic full index rebuilds to defragment the graph and reclaim the space and quality lost to phantom nodes. Monitor recall on a fixed golden query set monthly — recall degradation is the leading indicator that a rebuild is needed, and it appears before latency degradation does, so latency SLA alerts alone will not catch it in time.",
+        category: "operations"
       },
       {
-        question: "Why can filtering ruin ANN performance?",
+        question: "What is the recall/latency tradeoff in HNSW and how do I tune it?",
         answer:
-          "Because the graph was built over the full corpus, but a selective filter may discard almost every candidate the traversal finds. If too few valid vectors survive, the system has to search far wider or restructure how filtered retrieval is done."
+          "The primary tuning knob is ef (also called efSearch): the number of candidate nodes the HNSW traversal maintains during graph navigation at query time. Higher ef means more nodes are examined before returning results — higher recall, higher latency. Lower ef means the traversal terminates sooner — lower latency, lower recall. The relationship is approximately: doubling ef roughly doubles latency and increases recall by 2–8 percentage points depending on the corpus and M value. The practical tuning procedure: start with ef=64 and measure both p95 latency and Recall@10 on a representative query set. If latency is within SLA and recall is above threshold, increase ef until one constraint binds. If latency exceeds SLA at ef=64, try ef=32 or ef=16 and verify recall stays above your minimum acceptable threshold — typically 85–90% for production RAG. ef can be changed at query time with no index rebuild — treat it as an operational dial, not a build-time decision.",
+        category: "algorithm"
+      },
+      {
+        question: "How does metadata filtering interact with ANN search accuracy?",
+        answer:
+          "Metadata filtering introduces a correctness challenge specific to ANN indexes: the approximate graph traversal was built assuming all vectors are candidates, but filtering at query time restricts which results are valid. Post-filtering (run ANN, then discard non-matching results) is simple but breaks for highly selective filters — if only 0.1% of vectors match a filter, retrieving top-200 from ANN yields on average 0.2 matching results, making it impossible to return top-10. The solution depends on filter selectivity: above 5–10%, post-filtering with moderate over-retrieval (top-500) is safe; below 1%, use a pre-filter-aware ANN implementation that guides traversal to prefer matching nodes, or maintain a separate index for the filtered subset. Most production-grade vector databases implement ACORN-style filtered ANN that handles low-selectivity filters without the latency explosion of naive post-filtering.",
+        category: "algorithm"
       }
+    ],
+    practiceProblems: [
+      "**Problem 5.1 — HNSW parameter tuning for a latency SLA.** A team has an HNSW index: Corpus 15 million vectors at dimension 1536 fp32, build parameters M=32 ef_construction=200, current runtime ef=128, measured p95 latency=42ms Recall@10=0.95, SLA requires p95 at or under 25ms with minimum Recall@10 at or above 0.88. (a) What parameter change do you make first and why? (b) Estimate the new latency. (c) What is the expected recall impact? (d) If recall drops below 0.88, what next option avoids a full rebuild? (e) Calculate total memory at M=32. **Answer:** (a) Reduce ef from 128 to 64. ef is the only runtime parameter — no rebuild required. 42ms x (64/128) = ~21ms, within the 25ms SLA with headroom. (b) ~21ms at ef=64. ef=48 would yield ~15.75ms with more recall cost; ef=64 is the better balance. (c) Reducing ef from 128 to 64 at M=32 drops Recall@10 by roughly 2–5pp, from 0.95 to approximately 0.91–0.93. Well within the 0.88 minimum. Validate on a golden query set before deploying. (d) Run a two-phase query: ANN at ef=48 (~15ms) retrieves top-200 candidates, then exact cosine re-score of those 200 full vectors (~200 dot products, ~5–8ms additional). Total ~22ms with recall restored to ~0.95 — within SLA with no rebuild. (e) Raw vectors: 15M x 1536 x 4 bytes = 92.2 GB. Graph edges: M=32 x 2 x 4 bytes x 15M = 3.84 GB. Higher layers negligible (~0.5 GB). Total approximately 96.5 GB.",
+      "**Problem 5.2 — Multi-tenant vector store architecture.** A SaaS RAG platform serves 2,000 tenants: 10 enterprise tenants at 500,000 vectors each (5M total), 190 business tenants at 50,000 vectors each (9.5M total), 1,800 starter tenants at 1,000 vectors each (1.8M total), 16.3M total. All tenants must only retrieve their own vectors. SLA: 200ms p95. Peak: 2,000 queries/minute. Design the vector store architecture addressing index isolation, filtering approach per tier, memory estimate, and update strategy. **Answer:** Index isolation: Enterprise (10 x 500K) gets dedicated HNSW per tenant — 500K vectors is large enough to justify a standalone index (~6 GB with HNSW overhead per tenant, 61 GB total for 10 tenants). Business (190 x 50K = 9.5M total) uses a shared HNSW index — 50K/9.5M = 0.53% selectivity is too low for post-filtering, so pre-filter-aware ANN (ACORN-style) is required. Starter (1,800 x 1K = 1.8M total) uses per-tenant brute-force in-memory collections — at 1K vectors, exact search takes under 1ms and no ANN overhead is needed. Filtering by tier: Enterprise = no filter (dedicated index). Business = pre-filter-aware ANN (selectivity below 1%). Starter = exact search on dedicated 1K-vector collection (no filter needed). Memory: Enterprise 61 GB + Business shared HNSW 116 GB (fp16: 58 GB) + Starter 11 GB = 188 GB (or 130 GB with fp16 for business tier) — requires a 256 GB memory-optimized instance. Update strategy: Enterprise = incremental HNSW inserts with monthly full rebuild when soft-delete accumulation exceeds 5%. Business = hot-warm architecture: new documents go into a small hot shard, nightly merge into warm index. Starter = full rebuild on every update (under 10ms at 1K vectors, no soft-delete complexity needed)."
     ],
     references: [
       {
         source: "paper",
-        attribution: "Malkov and Yashunin — HNSW (2018) - https://arxiv.org/abs/1603.09320",
-        insight: "Canonical source for the layered small-world graph design used in modern ANN search."
+        attribution: "Malkov, Y. and Yashunin, D. (2018) — Efficient and robust approximate nearest neighbor search using Hierarchical Navigable Small World graphs. IEEE TPAMI. arXiv:1603.09320 - https://arxiv.org/abs/1603.09320",
+        insight: "The original HNSW paper. Explains the multi-layer graph construction, the efSearch parameter semantics, and the O(log N) query time derivation. Essential for understanding why HNSW dominates practical ANN benchmarks."
       },
       {
         source: "paper",
-        attribution: "Johnson, Douze, and Jegou — Billion-scale similarity search with GPUs (2019) - https://arxiv.org/abs/1702.08734",
-        insight: "Helpful reference for IVF and PQ when memory becomes the dominant scaling constraint."
+        attribution: "Johnson, J., Douze, M., and Jegou, H. (2019) — Billion-scale similarity search with GPUs. IEEE TBIG. arXiv:1702.08734 - https://arxiv.org/abs/1702.08734",
+        insight: "The FAISS paper from Meta AI. Covers IVF, PQ, and IVF+PQ implementations. The reference for memory-efficient ANN at very large scale (100M+ vectors)."
       },
       {
         source: "blog",
-        attribution: "pgvector project documentation - https://github.com/pgvector/pgvector",
-        insight: "Practical reference for using vector retrieval inside PostgreSQL."
+        attribution: "pgvector — Open-source vector similarity search for Postgres. GitHub, 2024 - https://github.com/pgvector/pgvector",
+        insight: "Reference implementation and documentation for pgvector. The HNSW support added in v0.5.0 is what makes pgvector a production-viable option for corpora up to ~5M vectors."
+      },
+      {
+        source: "blog",
+        attribution: "Patel, P. (2023) — Not All Vector Databases Are Made Equal. towardsdatascience.com - https://towardsdatascience.com/milvus-pinecone-vespa-weaviate-vald-gsi-what-unites-these-vector-databases-49b7e47cc8a3",
+        insight: "Practical comparison of vector database architectures by category — storage model, indexing support, filtering approach, and scaling characteristics."
+      },
+      {
+        source: "blog",
+        attribution: "Qdrant Documentation — Filterable HNSW. qdrant.tech, 2024 — verify current implementation - https://qdrant.tech/articles/filtrable-hnsw/",
+        insight: "Explains the ACORN-style filtered ANN approach — how pre-filter-aware HNSW traversal achieves correct results for low-selectivity filters without the latency explosion of naive post-filtering."
+      },
+      {
+        source: "blog",
+        attribution: "ANN Benchmarks — ann-benchmarks.com — approximate nearest neighbor benchmarks - https://ann-benchmarks.com",
+        insight: "The standard recall/latency benchmark for ANN algorithms. Use to compare HNSW vs IVF+PQ vs other algorithms at specific dataset sizes and recall targets before committing to an index type."
       }
     ]
   },
