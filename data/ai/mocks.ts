@@ -1751,7 +1751,7 @@ export const aiMockTopics: Topic[] = [
       }
     ]
   },
-  {
+{
     id: "topic-ai-mocks-llm-serving-round",
     moduleId: "mod-ai-mocks",
     title: "Mock Round: LLM Serving and Inference Platform",
@@ -1996,6 +1996,457 @@ export const aiMockTopics: Topic[] = [
   key insight is that LoRA weights are tiny (rank-16 adapters for a 7B model
   are ~50MB vs 14GB base), so you can serve many fine-tuned variants from a
   single GPU instance by swapping adapters between requests rather than
+  loading separate checkpoints.`,
+        codeExample: `
+  [16:00–22:00 — HIGH-LEVEL ARCHITECTURE]
+
+  CANDIDATE: "Let me sketch the serving architecture."
+
+    User request (HTTPS, streaming via SSE)
+        │
+        ▼
+    API Gateway
+    (auth, rate limiting, request routing)
+        │
+        ▼
+    Request Queue
+    (priority queue: interactive over batch)
+        │
+        ▼
+    Load Balancer
+    (routes to least-loaded inference node)
+        │
+        ▼
+    Inference Node (H100)
+    ├── vLLM serving engine
+    │   ├── Continuous batching scheduler
+    │   ├── PagedAttention KV cache manager
+    │   └── 70B INT4 model weights
+    │
+    └── Streaming response (SSE) back to client
+        │
+        ▼
+    Observability
+    (TTFT, TPOT, token counts, cost per request)
+
+  ━━━ MARGIN NOTE ━━━
+  ✅ Named vLLM specifically as the serving engine — shows awareness of
+    the production tooling landscape.
+  ✅ Named PagedAttention explicitly in the architecture — shows understanding
+    of KV cache management, not just that a cache exists.
+  ✅ Priority queue for interactive vs batch — good operational instinct.
+    Batch jobs should not block interactive user requests.
+  ✅ Observability as a first-class component, not an afterthought.
+
+  [22:00–28:00 — CONTINUOUS BATCHING DEEP DIVE]
+
+  INTERVIEWER: "You mentioned continuous batching. Can you explain how it
+  differs from static batching and why it matters?"
+
+  CANDIDATE: "Static batching groups N requests into a batch, runs the
+  full generation for all N until every request in the batch has finished,
+  then starts the next batch. The problem: requests have different output
+  lengths. If one request finishes at token 50 and another needs 800
+  tokens, the GPU sits idle in the first request's slot for the remaining
+  750 tokens, waiting for the slow request to finish before it can start
+  a new request. GPU utilisation is typically 30–50% with static batching.
+
+  Continuous batching — implemented in vLLM, TGI, and SGLang — replaces
+  finished requests with new ones in the same batch, mid-generation. As
+  soon as request A finishes at token 50, request D joins the batch
+  immediately. The GPU always operates at maximum concurrent capacity.
+  GPU utilisation rises to 70–90%.
+
+  Anyscale published benchmarks in 2023 showing 23× throughput improvement
+  over the HuggingFace Transformers baseline using continuous batching.
+  That's the most cited result for why any production LLM serving
+  deployment should use continuous batching."
+
+  ━━━ MARGIN NOTE ━━━
+  ✅ Named the specific problem with static batching (idle slots while
+    waiting for the slowest request).
+  ✅ Named the specific metric (GPU utilisation 30-50% vs 70-90%).
+  ✅ Cited the Anyscale result with specific numbers (23×, 2023). Citing
+    real benchmarks with numbers is a staff-level signal.
+  ✅ Named three frameworks (vLLM, TGI, SGLang) by name, not generically.
+
+  [28:00–35:00 — KV CACHE DEEP DIVE]
+
+  INTERVIEWER: "You sized the KV cache earlier using 8 KV heads for the
+  70B model. Why 8 rather than 64?"
+
+  CANDIDATE: "This is the grouped query attention distinction. The 70B
+  Llama-3 model uses 64 attention heads — one query head per attention head
+  — but only 8 KV heads. With grouped query attention, multiple query heads
+  share a single KV head: 64 query heads are grouped into 8 groups of 8,
+  and each group shares one KV head pair.
+
+  The KV cache stores only the K and V projections, not the Q projections.
+  Q is computed fresh at each decode step and not cached — it's used once
+  to attend to K and V and then discarded. So the KV cache is proportional
+  to KV heads, not to attention heads.
+
+  Using 64 instead of 8 would overestimate the KV cache by 8×. At 2,600
+  tokens and 30 H100s: 8× larger KV = 8 × 0.78 GB = 6.25 GB per request.
+  Available KV per H100: 43 GB. Max concurrent: floor(43 ÷ 6.25) = 6.
+  Total for 362 concurrency: 61 GPUs instead of 7. An 8× hardware cost
+  error from one wrong parameter."
+
+  ━━━ MARGIN NOTE ━━━
+  ✅ Explained WHY Q is not cached (computed fresh each decode step) —
+    not just that Q is different from KV. This level of mechanism
+    understanding is a strong staff-level signal.
+  ✅ Quantified the cost of the error: 61 GPUs vs 7 GPUs from one wrong
+    parameter. Making the cost of a mistake concrete is a professional habit.
+  ✅ Connected back to the GQA architecture decision earlier in the
+    interview — shows coherent understanding, not isolated facts.
+
+  INTERVIEWER: "What happens if a single long request comes in with
+  128,000 input tokens? Does your current architecture handle it?"
+
+  CANDIDATE: "Not cleanly with current sizing. Let me recalculate.
+  128,000 + 500 output = 128,500 tokens.
+  KV per request = 320 KB × 128,500 = 39.7 GB.
+  Available KV per H100: 43 GB. So one request takes up 92% of the KV
+  budget — at most 1 request per H100.
+
+  Two options. First: handle 128K-context requests on dedicated nodes
+  sized for it, with a context-length router at the gateway layer. Short
+  requests go to the standard 30-GPU fleet. Long requests go to a separate
+  smaller fleet with more generous KV budget configuration.
+
+  Second: use INT8 KV quantisation — halves KV memory to 160 KB/token.
+  KV per 128K request = 160 KB × 128,500 = 19.85 GB. Now fits with room
+  for 2 concurrent requests per H100.
+
+  I'd do both: INT8 KV cache as a baseline (it applies to all requests
+  with near-zero quality impact) and context-length routing as a second
+  layer for the extreme long-context cases."
+
+  ━━━ MARGIN NOTE ━━━
+  ✅ Recalculated on the fly correctly (320 KB × 128,500 = 39.7 GB).
+    Doing arithmetic under time pressure without a calculator is expected
+    at staff level. Showing the work matters.
+  ✅ Proposed two complementary solutions rather than one. The routing
+    plus quantisation combination is the production-realistic answer.
+  ✅ Named INT8 KV quantisation specifically — many candidates know about
+    weight quantisation but not KV cache quantisation.`
+      },
+      {
+        title: "Phase 3: Failure Modes, Evaluation, and Trade-offs [36:00–45:00]",
+        content: `The closing phase tests operational maturity — can the candidate reason
+  about what goes wrong and how to detect it before users complain?
+
+  The KV cache OOM (out-of-memory) failure mode is the most important one
+  to know for LLM serving. It happens when a long-context request exhausts
+  the GPU's available KV cache memory, causing either an OOM crash or
+  excessive swapping to CPU. The mitigation is a combination of maximum
+  context length enforcement at the API gateway, KV cache eviction policies
+  (evict shortest remaining requests first), and CPU offloading for KV
+  cache blocks that don't fit in GPU VRAM.
+
+  The token budget explanation closes the cost reasoning loop. At $0.002 per
+  1,000 input tokens (GPT-4o pricing as baseline), a 2,048-token request
+  costs $0.004. At 10,000 queries/day that is $40/day or $14,600/year — before
+  output tokens. A candidate who can articulate the cost model, identify that
+  input tokens are 5–10× cheaper than output tokens, and design a caching
+  layer for repeated system prompts (prefix caching in vLLM cuts input costs
+  by 40–60% for chatbot workloads with large repeated system prompts) is
+  demonstrating Staff-level economic awareness.
+
+  The evaluation discussion — latency P50/P95 dashboards, TTFT alert at 300ms,
+  TPS monitoring per GPU to detect thermal throttling — shows the candidate
+  has thought about the production telemetry that separates a research demo
+  from a service with an SLA.`,
+        codeExample: `
+  [36:00–40:00 — FAILURE MODES AND SCALING]
+
+  INTERVIEWER: "What breaks first if traffic doubles overnight?"
+
+  CANDIDATE: "Three things stress simultaneously.
+
+  First: output token throughput. We need 50,000 tok/s instead of 25,000.
+  Currently at 18 H100s (throughput-bound). Need 36 for 2× traffic.
+  With 30 GPUs at 65% utilisation, we are already at 30/0.65 × 18 capacity.
+  30 GPUs at 65% cap = effective 19.5 GPU equivalents used. At 2× traffic,
+  we'd be at 130% utilisation — KV cache starts thrashing and p99 TTFT
+  explodes.
+
+  Mitigation: the pre-warmed standby nodes (2 GPUs) activate immediately
+  and absorb the first burst. Autoscaler triggers on queue depth, not
+  on p99 latency — because cold-start is 35 GB ÷ 1.5 GB/s from S3 ≈ 23
+  seconds, which is too slow for reactive scaling on latency spikes.
+
+  Second: TTFT p99. At 130% utilisation, the queue fills. M/M/1 model:
+  wait time = ρ / (1 - ρ) × service_time. At ρ = 1.3 the queue is
+  theoretically unstable — p99 becomes unbounded. In practice, requests
+  time out at the gateway (30-second hard timeout) before this is visible
+  to users as infinite wait, but they do see 30-second timeouts, which is
+  a product failure.
+
+  Third: cost. 2× traffic at GPT-4o rates would be... but wait, we are
+  self-hosting, so marginal cost is near zero. The cost impact is the
+  capacity expansion cost: 10 more H100s at $1,400/GPU/month = $14,000/month."
+
+  ━━━ MARGIN NOTE ━━━
+  ✅ Applied the M/M/1 queuing model by name with the formula. This is the
+    expected staff-level framework for degradation analysis.
+  ✅ Calculated the cold-start time for the model (23 seconds from S3) and
+    used it to justify the pre-warmed standby strategy. Connecting the
+    cold-start calculation to the autoscaling design shows system thinking.
+  ✅ Noted that we are self-hosting and therefore marginal cost is near zero
+    — a sharp observation that distinguishes this architecture from an
+    API-based serving system.
+  ❌ Did not mention: KV cache OOM as a specific failure mode at 2× load.
+    At 130% utilisation, new requests would be queued but existing requests
+    would also have their KV caches evicted if the cache fills — this causes
+    recomputation and degrades TPOT, not just TTFT. A strong staff answer
+    names this specifically.
+
+  [40:00–43:00 — EVALUATION]
+
+  INTERVIEWER: "How do you know the serving platform is healthy?"
+
+  CANDIDATE: "I'd monitor four SLO tiers.
+
+  Tier 1 — Latency SLOs: TTFT p50, p95, p99. TPOT p50, p95, p99.
+  PagerDuty alert if TTFT p99 exceeds 1 second or TPOT p99 exceeds 50ms
+  for more than 2 consecutive minutes. These are the user-facing metrics.
+
+  Tier 2 — Infrastructure health: GPU utilisation per node, KV cache
+  utilisation per node, queue depth, request queue age. Alert if any node
+  exceeds 85% KV cache utilisation — that's the leading indicator for
+  OOM before it happens.
+
+  Tier 3 — Cost: tokens per second ingested and generated per request.
+  Daily cost report per request type (interactive vs batch). Alert if
+  daily cost per request increases more than 20% week-over-week — this
+  catches prompt inflation or model changes.
+
+  Tier 4 — Quality: output token count per request and token distribution.
+  If average output length suddenly increases by 30%, the model may be
+  becoming more verbose — either a model regression or a prompt change
+  that is increasing cost without user benefit. Sample 1% of completions
+  for human review weekly."
+
+  ━━━ MARGIN NOTE ━━━
+  ✅ Four-tier structure is well-organized and covers all the right axes.
+  ✅ Named KV cache utilisation as a leading indicator for OOM — shows
+    operational maturity, not just theoretical knowledge.
+  ✅ Output token distribution monitoring is an unusual but very real
+    production signal. Token inflation (model getting more verbose)
+    directly increases cost and TPOT without improving quality.
+  ✅ Weekly human review of a 1% sample — connects the infrastructure
+    monitoring to actual quality, not just latency metrics.
+
+  [43:00–45:00 — TRADE-OFFS]
+
+  CANDIDATE: "The three trade-offs that defined this design:
+
+  One: INT4 versus BF16 for the 70B model. INT4 fits on a single H100,
+  eliminates tensor parallelism complexity, and halves TPOT compared to
+  BF16 on 2× A100. The quality cost is 2–3% on benchmarks, which we said
+  was acceptable. If quality benchmarks had rejected INT4, we'd need 2×
+  H100s per request (tensor parallelism) and the GPU count doubles.
+
+  Two: self-hosting versus API. At 1M requests/day × $0.007/request
+  (GPT-4o pricing) = $7,000/day = $210,000/month. Self-host TCO for 30
+  H100s: roughly $30,000/month hardware plus $15,000/month engineering =
+  $45,000/month. Self-hosting saves $165,000/month — a clear justification
+  at this volume. The crossover is around 40,000 requests/day. We are at
+  1M, well above it.
+
+  Three: continuous batching versus static batching. Static is simpler to
+  implement and reason about. Continuous batching adds scheduling complexity
+  but delivers 3–5× throughput improvement — meaning 3–5× fewer GPUs for
+  the same QPS. At $1,400/GPU/month that is roughly $84,000/month in
+  hardware savings. The engineering complexity is worth it."
+
+  INTERVIEWER: "Strong walkthrough. Let me ask one more thing: how would
+  you support multiple customers who each want a custom fine-tuned adapter
+  on top of the base model?"
+
+  ━━━ MARGIN NOTE ━━━
+  This is a curveball on multi-LoRA serving. How the candidate handles it
+  indicates Staff vs Principal calibration.
+
+  CANDIDATE: "Multi-LoRA serving is a solved problem in modern inference
+  frameworks. The pattern: keep one copy of the 70B base model weights
+  in VRAM (35 GB for INT4). Each customer has a LoRA adapter — typically
+  50–200 MB in rank-16 to rank-64. Load the top-K most frequently used
+  adapters into VRAM simultaneously. At 200 MB per adapter, 20 adapters
+  = 4 GB — fits comfortably in the remaining 43 GB budget.
+
+  For adapter selection per request: the request header includes the
+  customer's adapter_id. vLLM supports LoRA batching natively — requests
+  with different adapters can be batched together with different rank-1
+  adapter weights applied per sequence in the batch.
+
+  For adapters not currently in VRAM: load from object storage on demand
+  (200 MB = 0.13 seconds from local NVMe). Accept slightly higher TTFT for
+  the first request after a cold adapter load. LRU cache manages which
+  adapters stay in VRAM. If the number of distinct active adapters exceeds
+  20, the LRU eviction starts and cold loads become more frequent — at that
+  point scale the adapter VRAM budget."
+
+  ━━━ MARGIN NOTE ━━━
+  ✅ Named the architecture correctly (base model in VRAM, adapters as
+    small supplements) — shows production LoRA knowledge.
+  ✅ Calculated adapter memory (200 MB × 20 = 4 GB) and verified it fits.
+  ✅ Named vLLM's LoRA batching support by name.
+  ✅ Identified the LRU eviction as the scaling pressure point and named
+    the signal that triggers a capacity increase.
+  This response pushed the candidate to the Staff side of the calibration.
+
+  OVERALL ASSESSMENT:
+  Strong signal throughout. Capacity estimation (E1/E2/E4 methods applied
+  correctly, both constraints checked, binding constraint identified) is
+  exceptional. Deep dives (continuous batching, KV cache, GQA distinction)
+  all show production knowledge. Multi-LoRA handling was confident and
+  specific.
+
+  Missing: KV cache OOM under load (the eviction/recomputation failure
+  mode). Would be the 'strong hire' vs 'hire' discriminator at Staff level.
+
+  LEVEL CALIBRATION:
+  As delivered: Staff SWE bar, hire.
+  For Principal: would expect: (1) multi-region serving architecture with
+    latency-based routing, (2) model update/rollout strategy (blue-green
+    with traffic splitting), (3) cost attribution system for multi-tenant
+    GPU clusters.`
+      }
+    ],
+
+    examples: [
+      {
+        title: "Sizing a 7B model deployment for 10,000 queries/day",
+        input: "Your team is deploying Llama-3 7B for an internal code assistant. 10,000 queries/day, average 1,000 input tokens, 200 output tokens, P95 TTFT target 300ms.",
+        output: "Single A100 80GB with vLLM continuous batching. KV cache: ~60GB available after weights. Peak concurrent ~60 requests. Actual peak at 5× average is 0.58 req/s, comfortably within capacity. Speculative decoding with a 1B draft model to meet the 300ms TTFT target.",
+        explanation: "Step 1: GPU memory budget — 7B × 2 bytes = 14GB weights; 80 − 14 = 66GB available. KV cache per token for 7B: 2 × 32 layers × 32 heads × 128 head_dim × 2 bytes = 0.5MB per token. At 1,200 token context, 1 concurrent request needs 600MB. So 66GB / 0.6GB = ~110 theoretical concurrent requests. Step 2: throughput check — 10K/day ÷ 86,400 = 0.12 QPS avg; peak at 5× = 0.58 QPS. At 200 output tokens each: 0.58 × 200 = 116 tokens/sec output. A100 achieves ~3,000 tokens/sec for 7B at FP16 — massively under-utilised. Step 3: latency — TTFT = weights_GB ÷ HBM_bandwidth × overhead = 14 / 2,000 × 1.3 × 1,000 = ~9ms (compute) + queue wait. At 0.58 QPS, queue is negligible. Add speculative decoding (1B draft, K=4) to push further under 300ms. Step 4: recommendation — 1× A100 80GB, vLLM, FP16, speculative decoding. Add a second for HA."
+      },
+      {
+        title: "Explaining why continuous batching beats static batching 23x",
+        input: "An interviewer asks: 'You mentioned vLLM achieves 23× higher throughput than naive static batching. Walk me through why.'",
+        output: "Static batching: GPU waits for all requests in a batch to finish before starting the next batch. If one request generates 500 tokens and others generate 50, the GPU idles waiting for the long request. Continuous batching inserts new requests into vacated slots every forward pass, keeping utilisation near 100%.",
+        explanation: "Step 1: visualise static batching — batch of 4 requests; request A finishes at token 40, B at 60, C at 120, D at 180. GPU is idle for A from token 40–180 (78% of A's possible compute contribution wasted). Step 2: continuous batching — when A finishes at token 40, the scheduler immediately inserts request E into A's slot. The GPU never waits. Step 3: PagedAttention enables this — KV cache is stored in non-contiguous pages (like OS virtual memory), so new requests can be slotted in without contiguous memory pre-allocation. Step 4: quantify — in the Anyscale benchmark on LLaMA-13B, continuous batching raised throughput from ~350 to ~8,000 tokens/sec (23×) because the benchmark workload had highly variable response lengths typical of chat applications."
+      }
+    ],
+
+    tips: [
+      "Show the arithmetic for every number you state. 'TPOT = model_GB ÷ HBM_BW_GBps × 1.3 × 1000 = 13.6ms' is infinitely stronger than 'TPOT is about 14ms'.",
+      "Check both constraints (throughput AND memory) before stating a GPU count. They are different calculations that sometimes give different answers. Throughput almost always binds at high QPS.",
+      "The GQA distinction (8 KV heads vs 64 attention heads for 70B Llama-3) is the most common LLM serving estimation error. State it explicitly and use the right number.",
+      "Name continuous batching with the Anyscale 23× throughput benchmark — it demonstrates that you know the production evidence, not just the concept.",
+      "Cold-start time for model weights (model_GB ÷ storage_BW_GBps) should be calculated when discussing autoscaling. It determines whether reactive scaling works or whether pre-warmed standby is required."
+    ],
+
+    tricks: [
+      "TPOT FORMULA DELIVERY: 'Model GB divided by HBM bandwidth in GB/s times 1.3 for overhead times 1000 for ms. Write it left to right on the whiteboard with units at each step.'",
+      "LITTLE'S LAW DELIVERY: 'QPS times request duration equals concurrent requests. Request duration is TTFT plus TPOT times output tokens. Write both formulas before plugging in numbers.'",
+      "TWO-CONSTRAINT PATTERN: 'Check throughput: output_tok/s_needed ÷ output_tok/s_per_GPU = GPU_for_throughput. Check memory: peak_concurrency ÷ slots_per_GPU = GPU_for_memory. Report both, take the max.'",
+      "UTILISATION CAP: 'Divide the throughput-bound GPU count by 0.65 to get the sized fleet. This absorbs 3× spikes without the queue growing.'",
+      "GQA REMINDER: 'Before KV calc: ask — does this model use GQA? 70B Llama-3: yes, 8 KV heads. Use 8, not 64. State it explicitly.'"
+    ],
+
+    memoryAids: [
+      "ESTIMATION SEQUENCE: 'QPS, then duration (TTFT + TPOT × N_out), then concurrency (Little's Law), then GPU check (throughput AND memory), then cap (÷0.65), then standby (+2).'",
+      "KV FORMULA: '2 × L × H_kv × D × P × S × B. The H_kv term is where GQA lives. Always use num_KEY_VALUE_heads.'",
+      "CONTINUOUS BATCHING: 'Static: wait for slowest. Continuous: replace finished immediately. 30-50% vs 70-90% GPU util. 23× throughput improvement (Anyscale 2023).'",
+      "COLD START: 'Model GB ÷ storage bandwidth GB/s = seconds. 35 GB INT4 from S3 at 1.5 GB/s = 23 seconds. Too slow for reactive scaling. Use pre-warmed standby.'",
+      "MULTI-LORA PATTERN: 'Base model in VRAM (fixed). Adapters as small supplements (200 MB each). LRU cache for top-K active adapters. vLLM handles batching across adapters.'"
+    ],
+
+    interviewPatterns: [
+      "'Walk me through the GPU sizing' → work it in three steps: QPS and request duration, then two-constraint GPU count (throughput and memory), then utilisation cap and standby. Show arithmetic.",
+      "'Why 8 KV heads and not 64?' → GQA explanation: Q is computed fresh each decode step, not cached. KV cache stores only K and V projections, proportional to H_kv, not H_attn.",
+      "'What happens under 2× traffic?' → apply M/M/1: queue wait = ρ/(1-ρ) × service_time. At 130% utilisation (ρ = 1.3), queue is unstable. Pre-warmed standby absorbs first burst; cold-start calculation justifies pre-warming.",
+      "Follow-up: 'handle a 128K-token request' → recalculate KV (320 KB × 128,500 = 39.7 GB). Options: context-length routing to dedicated nodes, INT8 KV quantisation (halves to 19.8 GB). Apply both.",
+      "Follow-up: 'multi-tenant with custom adapters per customer' → multi-LoRA: base model in VRAM, top-K adapters in LRU cache, vLLM LoRA batching for cross-adapter batches."
+    ],
+
+    faq: [
+      {
+        question: "What is the difference between static and continuous batching, and why does continuous batching improve throughput so dramatically?",
+        answer: "Static batching fixes the batch size at the start of each generation step: N requests enter the batch together and the batch is not released until all N have generated their final token. Because requests have variable output lengths, the GPU must wait for the longest-running request before starting new ones. If batch=16 and 14 requests finish at 50 tokens but 2 require 800 tokens, the GPU is effectively serving only 2 active requests (at 25% of its capacity) for 750 decode steps while 14 completed requests sit idle in VRAM. Continuous batching eliminates this waste: when any request completes, a new request is immediately inserted into the freed slot. The GPU operates at its configured maximum batch size continuously. The throughput improvement is proportional to the reduction in idle slots: in the extreme case above, static batching wastes 87% of decode steps; continuous wastes near 0%. The Anyscale 2023 benchmark measured 23× throughput improvement over the HuggingFace Transformers static batching baseline for a mixed-length workload. All major production inference frameworks (vLLM, TGI, SGLang, TensorRT-LLM) implement continuous batching.",
+        category: "batching",
+        sourceLinks: [{ label: "Anyscale Continuous Batching (2023)", url: "https://www.anyscale.com/blog/continuous-batching-llm-inference" }]
+      },
+      {
+        question: "How does KV cache eviction work when memory is full, and what is the performance impact?",
+        answer: "When the KV cache is full and a new request arrives, the serving system must either reject the request (queue it) or evict an existing KV cache entry to make room. vLLM uses a priority-based eviction policy: the KV cache pages of the request that has been waiting the longest without generating tokens (i.e., preempted requests) are written to CPU memory or storage. If the preempted request resumes, its KV pages must be reloaded — this recomputation cost (re-running the prefill for the evicted portion) adds significant latency to the affected request. In practice, KV cache eviction only becomes common when GPU utilisation exceeds 85–90% and the system is truly saturated. The operational signal that eviction is occurring: TPOT for a subset of requests increases 2–5× (the recomputation overhead) while the hardware metrics look healthy. vLLM's KV cache utilisation metric is the leading indicator: alert at 85% to provision capacity before eviction begins.",
+        category: "kv-cache"
+      },
+      {
+        question: "Why does the TPOT formula use memory bandwidth rather than FLOPs for decode?",
+        answer: "During the decode phase, each forward pass generates exactly one output token. The dominant operation is loading all model weight matrices from HBM into the GPU cores and computing a matrix-vector multiplication (the query attends to key-value pairs). Matrix-vector multiplication has very low arithmetic intensity: for a 70B INT4 model, each decode step loads 35 GB of weights and performs approximately 35 × 10^9 multiply-accumulate operations. The arithmetic intensity = 35e9 FLOPs ÷ 35e9 bytes = 1 FLOP/byte. The H100's compute-to-bandwidth ratio is 989 TFLOPs ÷ 3.35 TB/s ≈ 295 FLOP/byte. Since the actual arithmetic intensity (1 FLOP/byte) is far below the crossover point (295 FLOP/byte), the operation is limited by how fast the GPU can read data from HBM, not by how fast it can compute. The GPU reads 35 GB at 3.35 TB/s = 10.4ms per decode step — this is the TPOT floor. No amount of additional compute would change this; only faster memory bandwidth does.",
+        category: "hardware"
+      },
+      {
+        question: "What is multi-LoRA serving and how does it work architecturally?",
+        answer: "Multi-LoRA serving enables a single base model deployment to serve multiple customers with different fine-tuned adapters simultaneously. LoRA (Low-Rank Adaptation) adds pairs of small matrices (rank r, typically 16–64) to the base model's weight matrices. For inference, the adapter weights are merged with the base weights at the matrix multiplication level: effective_output = base_weight @ input + lora_B @ lora_A @ input. The base weight (35 GB for 70B INT4) stays fixed in VRAM. Each adapter adds approximately r × (d_in + d_out) × num_layers × 2 bytes — for r=16 and a 70B model, roughly 50–200 MB per adapter. In multi-LoRA serving: (1) the base model is loaded once into VRAM; (2) the top-K most-used adapters are also loaded into VRAM simultaneously (K=20 adapters at 200 MB = 4 GB); (3) incoming requests include an adapter_id; (4) the scheduler batches requests with the same adapter_id where possible (more efficient) but can also handle cross-adapter batches by applying different adapter weights to different sequences in the batch — vLLM supports this natively as of v0.3.0. Adapters not in VRAM are loaded on demand from local storage with a cold-start penalty of 0.1–0.5 seconds.",
+        category: "multi-tenant",
+        sourceLinks: [{ label: "vLLM LoRA Documentation", url: "https://docs.vllm.ai/en/latest/models/lora.html" }]
+      },
+      {
+        question: "How do you perform a zero-downtime model update (e.g., deploying a new version of the 70B model)?",
+        answer: "Zero-downtime model updates require a blue-green deployment strategy adapted for GPU serving. The steps: (1) Provision a new set of GPU nodes (green fleet) equal in capacity to the existing fleet (blue fleet). Load the new model weights onto the green fleet — cold-start time is 20–30 seconds from fast NVMe storage. (2) Once the green fleet is warm and serving test traffic, begin a traffic split: route 5% of production traffic to green, monitor TTFT and TPOT for 15 minutes. Compare against baseline metrics. (3) Gradually increase green traffic (5% → 20% → 50% → 100%) over a 2–4 hour window, monitoring quality metrics (output distribution, error rate) and latency metrics at each stage. (4) Once green is at 100% and stable, decommission the blue fleet. The main cost: 2× GPU hardware cost during the transition window. For a 30-GPU fleet at $1,400/GPU/month: $42,000/month hardware × (4 hours ÷ 720 hours) = $233 for the transition. The second option — rolling update within the same fleet — is cheaper but risks serving mismatched model versions during the transition, which can produce inconsistent outputs for multi-turn conversations. Blue-green is preferred when output consistency is important.",
+        category: "operations"
+      }
+    ],
+
+    practiceProblems: [
+      `PRACTICE: Time yourself for 45 minutes answering: "Design the inference
+  serving infrastructure for a 13B parameter model serving a consumer
+  coding assistant with 500K daily active users. Request profile: 1,500
+  input tokens (code context), 100 output tokens (code suggestion). TTFT
+  target: 75ms (autocomplete feel). TPOT target: 5ms."
+
+  Self-evaluate against these criteria:
+  (1) Did you calculate TPOT for 13B INT4 and verify it against the 5ms SLA?
+      (13B INT4: 6.5 GB. TPOT = 6.5/3350 × 1.3 × 1000 = 2.5ms ✓)
+  (2) Did you calculate TTFT for 1,500 input tokens and verify against 75ms?
+      (Prefill: 2 × 13e9 × 1500 / 989e12 × 1000 = 39ms + overhead = ~65ms ✓)
+  (3) Did you apply Little's Law correctly?
+      (DAU 500K × 20 req/user / 86400 × 4 peak = 463 QPS.
+       Duration = 65ms + 2.5ms × 100 = 315ms.
+       Concurrency = 463 × 0.315 = 146 requests.)
+  (4) Did you check both memory and throughput constraints?
+  (5) Did you reach the evaluation and trade-off steps before time expired?
+
+  CHALLENGE VARIANT: The product manager says 75ms TTFT is too slow for
+  autocomplete — users want under 30ms. What model and hardware change
+  achieves this? (Answer: switch to a 3B INT4 model on L40S-48GB.
+  3B INT4: 1.5 GB. TPOT = 1.5/864 × 1.3 × 1000 = 2.3ms.
+  Prefill for 1500 tokens on L40S: 2 × 3e9 × 1500 / 362e12 × 1000 = 25ms.
+  TTFT with overhead = ~35ms. Still over 30ms target — need H100 or further
+  model reduction. 3B on H100: prefill = 2×3e9×1500/989e12×1000 = 9ms + overhead
+  = ~25ms. ✓ The constraint is prefill compute, not TPOT, at this output length.)`
+    ],
+
+    references: [
+      {
+        source: "blog",
+        attribution: "Anyscale — How Continuous Batching Enables 23x Throughput in LLM Inference (2023) - https://www.anyscale.com/blog/continuous-batching-llm-inference",
+        insight: "Static vs continuous batching throughput comparison; GPU utilisation measurement; real workload benchmarks"
+      },
+      {
+        source: "blog",
+        attribution: "Kwon et al. (2023) — Efficient Memory Management for Large Language Model Serving with PagedAttention - https://arxiv.org/abs/2309.06180",
+        insight: "PagedAttention design; KV cache fragmentation analysis; throughput improvement over static allocation"
+      },
+      {
+        source: "blog",
+        attribution: "vLLM Documentation — Supported Models, LoRA Adapters, Production Deployment - https://docs.vllm.ai",
+        insight: "Multi-LoRA serving implementation; PagedAttention configuration; continuous batching scheduler details"
+      },
+      {
+        source: "blog",
+        attribution: "NVIDIA — Mastering LLM Techniques: Inference Optimization - https://developer.nvidia.com/blog/mastering-llm-techniques-inference-optimization/",
+        insight: "KV cache memory analysis; GQA impact on cache size; throughput vs latency trade-off curves"
+      }
+    ]
+  },
+
   // ─────────────────────────────────────────────────────────────────────────
   // M3: Mock Round — Agent Design Round
   // ─────────────────────────────────────────────────────────────────────────
