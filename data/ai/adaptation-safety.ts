@@ -865,5 +865,702 @@ export const aiAdaptationSafetyTopics: Topic[] = [
         insight: "Describes Anthropic's layered safety approach including model-level safety training, Constitutional AI, and API-level policies."
       }
     ]
+  },
+  {
+    id: "topic-ai-adaptation-rag-vs-finetune",
+    moduleId: "mod-ai-adaptation-safety",
+    title: "RAG vs Fine-Tuning vs Prompt Engineering: The Decision Framework",
+
+    intuition: `Prompting shapes what the model does with knowledge it already
+  has; RAG gives it the right facts at inference time without touching the
+  weights; fine-tuning permanently rewires the weights to change behaviour,
+  format, or tone. The single most common interview mistake — and the most
+  expensive real-world mistake — is reaching for fine-tuning to teach the model
+  new facts, when the correct tool for knowledge is RAG and the correct tool
+  for changing how the model behaves is fine-tuning.`,
+
+    complexity: {
+      time: "Prompting: zero extra latency beyond the model's own generation. RAG: adds one retrieval round-trip (typically 20-200 ms for a vector search) plus longer input context increasing TTFT proportionally. Fine-tuning: no inference-time latency change vs. the base model, but a one-time training job of hours to days before deployment.",
+      space: "Prompting: no additional storage. RAG: vector index storage scales with corpus size (~1 GB per 1M embedded chunks at 1536-d float32). Fine-tuning full: a second full model copy (~14 GB for 7B in FP16); fine-tuning via LoRA: ~50-200 MB adapter delta stored alongside the shared base."
+    },
+
+    lesson: [
+      {
+        title: "What Each Technique Actually Changes (and What It Cannot)",
+        content: `Prompting operates entirely inside the context window. The
+  system prompt, few-shot examples and chain-of-thought instructions are
+  processed at inference time and can tell the model to adopt a persona,
+  follow a format, reason step by step or change its tone — but only within
+  the limits of what the model already knows. Prompting cannot add knowledge
+  the model was never trained on, and it cannot permanently change default
+  behaviour, because the next request starts fresh.
+
+  RAG resolves the knowledge gap at inference time. A retrieval step fetches
+  relevant chunks from an external store and injects them into the prompt; the
+  weights never change. Knowledge can therefore be updated as often as the
+  index is rebuilt — hourly if necessary — without any retraining. RAG is the
+  right tool whenever the answer depends on facts that are dynamic,
+  proprietary, or too voluminous to fit in the weights.
+
+  Fine-tuning continues gradient descent on the model's weights using labelled
+  input-output pairs. The permanent effect is a reshaped probability
+  distribution over tokens, and that distribution change is what makes
+  fine-tuning reliable for behaviour, style and format: train on 500 examples
+  of terse technical prose and the model's default output shifts toward terse
+  technical prose without needing that instruction in every prompt.
+
+  What fine-tuning does not reliably do is inject facts. Facts are not stored
+  at discrete addresses in a neural network; they are patterns distributed
+  across billions of parameters. Inserting a specific product name or policy
+  number via fine-tuning is like painting a new road onto a photograph — it
+  may appear, but it will not be consistently reliable, and it will be stale
+  the moment the underlying fact changes. Anyscale's formulation is the
+  clearest available: fine-tuning is for form, not facts. Every decision in
+  this topic flows from that distinction.`,
+        diagram: asciiDiagram(`
+  WHAT EACH TECHNIQUE CHANGES
+  ─────────────────────────────────────────────────────────────────────
+  Dimension        │ Prompting      │ RAG              │ Fine-tuning
+  ─────────────────┼────────────────┼──────────────────┼───────────────
+  Knowledge        │ None           │ ✅ Dynamic facts │ ❌ Unreliable
+  Behaviour/tone   │ Fragile (lost  │ None             │ ✅ Durable
+                   │  next request) │                  │
+  Output format    │ Moderate       │ None             │ ✅ Very strong
+  Latency cost     │ Zero           │ +retrieval RTT   │ Zero post-train
+  Update cadence   │ Instant        │ Re-index corpus  │ Retrain, redeploy
+  Data required    │ 0-5 examples   │ Corpus + chunks  │ 200-5,000 labelled
+  Infra complexity │ Lowest         │ Medium           │ Highest
+  ─────────────────────────────────────────────────────────────────────
+
+        form ──▶ fine-tuning          facts ──▶ RAG
+        swapping these two is the expensive mistake
+`),
+      },
+      {
+        title: "The Decision Tree: A Procedure Interviewers Want to See",
+        content: `Candidates who answer "it depends" and stop there fail.
+  Candidates who produce a procedure pass. Walk the tree out loud.
+
+  Step 1 asks whether you have genuinely tried prompting. If not, improve the
+  system prompt and add few-shot examples first. Fine-tuning is never step 1.
+
+  Step 2 asks whether the failure is missing knowledge — the model does not
+  know a fact, a policy or a product spec. If the knowledge is dynamic,
+  changing daily or weekly, the answer is RAG with no further discussion. If
+  it is static but large, RAG again. If it is static and small, try putting it
+  in the system prompt, and consider fine-tuning only if the context cost is
+  prohibitive at your query volume.
+
+  Step 3 handles the case where knowledge is present but the output is wrong —
+  tone, format, verbosity or persona. This is the legitimate fine-tuning case,
+  conditional on having labelled examples of good behaviour. If you do not
+  have them, creating 200 to 500 examples is the prerequisite work.
+
+  Step 4 is the hybrid. Use both only when the model needs changed behaviour
+  and dynamic knowledge simultaneously — a support bot that must answer in a
+  specific brand voice and look up live order status. Do not default to hybrid
+  "just in case"; each layer adds cost, maintenance and eval surface.`,
+        diagram: asciiDiagram(`
+  START: an AI product quality problem. Which technique?
+  │
+  ├─ Step 1: Have you tried PROMPTING first?
+  │    NO  ──▶ better system prompt + few-shot examples FIRST
+  │            fine-tuning is never step 1
+  │    YES ──▶ continue
+  │
+  ├─ Step 2: Is the failure MISSING KNOWLEDGE?
+  │    │
+  │    ├─ YES ──▶ Is the knowledge DYNAMIC?
+  │    │            ├─ YES ──▶ RAG. Always. Full stop.
+  │    │            └─ NO  ──▶ Is it LARGE?
+  │    │                         ├─ YES ──▶ RAG
+  │    │                         └─ NO  ──▶ system prompt first
+  │    │
+  │    └─ NO (knowledge fine, OUTPUT wrong) ──▶ continue
+  │
+  ├─ Step 3: Is the failure BEHAVIOURAL or STYLISTIC?
+  │    │
+  │    ├─ YES ──▶ Have LABELED examples?
+  │    │            ├─ NO  ──▶ build 200-500 examples, then fine-tune
+  │    │            └─ YES ──▶ fine-tune (SFT) — the legitimate case
+  │    │
+  │    └─ NO  ──▶ injecting SPECIFIC NEW FACTS into weights?
+  │                 └─ YES ──▶ DON'T. Use RAG. This is the trap.
+  │
+  └─ Step 4: HYBRID (fine-tune + RAG)
+       only when BOTH behaviour AND dynamic knowledge are wrong
+       each layer costs maintenance — never add one "just in case"
+`),
+      },
+      {
+        title: "The Economics: When Fine-Tuning Actually Saves Money",
+        content: `Many candidates assume fine-tuning is automatically cheaper
+  than prompting at scale. The truth is nuanced and the arithmetic matters.
+
+  The compression argument is the real one. A 2,000-token system prompt
+  multiplied across 50M requests per month is a genuine line item. Fine-tuning
+  bakes the prompt's behaviour into the weights and can reduce the live system
+  prompt to 50 tokens. At $2.50 per million input tokens, a 1,950-token
+  reduction across 50M requests removes 97.5 billion tokens of input — a
+  saving that only pays off if the fine-tuning cost is below the ongoing
+  savings, which at high volume it comfortably is.
+
+  The model-size argument is stronger still. Fine-tuning is most compelling
+  when it lets you switch from a large API model to a much smaller
+  self-hosted one — a frontier model replaced by a 7B open-weight model that
+  needed fine-tuning to match quality on your specific task. The smaller model
+  is dramatically cheaper per token, and this is the highest-ROI scenario for
+  fine-tuning economics.
+
+  The trap runs the other way. Fine-tuned models on provider platforms often
+  carry higher per-token output rates than the base model, and for generative
+  tasks output tokens dominate cost. If you compress 1,950 input tokens but
+  pay a 50% premium on 500 output tokens, you can end up spending more. Always
+  run both sides of the arithmetic, not just the input side.`,
+      },
+      {
+        title: "When Fine-Tuning Gets Worse: 'We Fine-Tuned and It Regressed'",
+        content: `This is a recurring production failure that interviewers
+  probe directly, and there are three root causes worth knowing in order of
+  frequency.
+
+  The first is training on the wrong objective. The team fine-tuned for task
+  A, but users also rely on tasks B and C; the fine-tune improved A while
+  degrading the others through catastrophic forgetting. The fix is to evaluate
+  general capability retention, not only task accuracy — your eval set must
+  include the tasks you did not train on.
+
+  The second is data quality worse than the base model. Ten thousand noisy
+  examples scraped from production logs contain outputs the base model would
+  never have produced, and training on them can leave the model worse than
+  doing nothing. Filter ruthlessly: 500 excellent examples beat 10,000
+  mediocre ones, which is the practical lesson of the LIMA result.
+
+  The third is fine-tuning on facts rather than form. The team tried to teach
+  new product information, and the model learned to sound confident about
+  those products rather than to be accurate about them. At test time it
+  produces confident wrong answers — strictly more dangerous than the
+  uncertainty it replaced. The fix is to move product knowledge to RAG and
+  keep the fine-tune, if at all, only for the stylistic improvement.`,
+      },
+      {
+        title: "Hybrid Patterns and When They Are Worth the Complexity",
+        content: `Two hybrids are worth knowing precisely.
+
+  RAG plus prompting is the most common production pattern and involves no
+  fine-tuning at all: a well-engineered system prompt with few-shot examples
+  handles behaviour while RAG handles knowledge. This is the right starting
+  point for the large majority of AI product features, and saying so is a
+  stronger answer than reaching for training.
+
+  RAG plus fine-tuning is appropriate when retrieval already handles knowledge
+  correctly but tone, format or structure still fails despite good prompting.
+  The canonical example is a legal research assistant that retrieves relevant
+  case law and must present it in a house memo format with specific hedging
+  language. The critical detail — and the thing interviewers probe — is that
+  the fine-tune is trained on examples that include retrieved context as
+  input. The model learns to synthesise retrieved text into the target format;
+  it is not being taught law.
+
+  Warn explicitly against layering both techniques for safety. Each layer
+  multiplies maintenance cost, debugging surface and eval requirements, and
+  a hybrid means maintaining two independent eval sets — one for retrieval
+  quality and one for generation quality. Add the second technique only when
+  you have measured that the first fails at its specific role.`,
+      },
+      {
+        title: "The Most Common Interviewer Follow-Ups",
+        content: `Three probes follow the main decision-tree answer often
+  enough to prepare for directly.
+
+  "What if I have both a knowledge problem and a behaviour problem?" Solve
+  them sequentially, not simultaneously. Confirm RAG solves the knowledge
+  problem in isolation, then re-evaluate whether behaviour is still wrong. If
+  it is, fine-tune on top of the RAG-augmented system so the training data
+  reflects the inputs the model will actually see in production.
+
+  "How much data do I need?" Cite LIMA: 1,000 carefully curated examples beat
+  52,000 noisy ones. Start at 500 to 1,000 for a style or format fine-tune.
+  Anyone answering "millions" is describing pre-training, not fine-tuning.
+
+  "It scores well offline but worse in production — what do you investigate?"
+  Three things, in order: distribution shift between eval and production
+  traffic, general capability regression on tasks outside the fine-tuning
+  distribution, and contamination between training data and the eval set. The
+  third explains suspiciously high offline scores more often than teams
+  expect, because the eval set was drawn from the same source as training.`,
+      },
+    ],
+
+    examples: [
+      {
+        title: "Choose RAG, Fine-Tune, or Prompt for Each Scenario",
+        input: "Scenario A: E-commerce chatbot answers 'Is item X in stock?' across 2M SKUs with hourly price and inventory updates. Scenario B: Internal HR assistant over 300 pages of policy updated quarterly, no labelled Q&A data. Scenario C: Support bot is factually correct but writes in a formal, legalistic tone; prompting 'be friendly' works about 20% of the time. Scenario D: Startup with a 2,000-token system prompt, 40M requests/month, $5 per 1M input tokens, wants lower cost.",
+        output: "A → RAG only. B → RAG only. C → prompting first, then fine-tune if it persists. D → fine-tune for prompt compression, justified on economics alone.",
+        explanation: "Step 1: Classify A. Inventory and pricing change hourly, so no retraining cadence can keep up, and no behaviour change is needed — this is purely a knowledge problem, so retrieval against the live product API is the only correct architecture.\nStep 2: Classify B. The absence of labelled Q&A data rules out fine-tuning immediately, before any other consideration. Policy documents chunk and embed cleanly, and quarterly updates are handled by re-indexing rather than retraining.\nStep 3: Classify C. Content is already correct and only tone is wrong, so this is a genuine behaviour problem — the legitimate fine-tuning case. But try five in-context examples of friendly rephrasings first; if inconsistency survives real prompt iteration, fine-tune on about 500 human-curated examples.\nStep 4: Classify D and do the arithmetic. 40M requests × 2,000 tokens ÷ 1M × $5 = $400,000 per year in system-prompt tokens alone. Compressing the live prompt to about 50 tokens saves 1,950 tokens per request, roughly $390,000 per year, against a one-time training cost far below that.\nStep 5: Note the pattern. A and B are knowledge problems, C is a behaviour problem, and D is not a quality problem at all — it is a cost-compression case, which is a legitimate but separate reason to fine-tune.",
+      },
+      {
+        title: "The Product Catalog Fine-Tune That Made Hallucinations Worse",
+        input: "A company fine-tuned a small model on 8,000 question-answer pairs from their product catalog, e.g. 'What RAM does the ProBook X450 have?' → '16 GB DDR5, upgradeable to 64 GB.' Offline task accuracy improved 18 points. Three weeks later production reports: confident specs quoted for discontinued models, an old $1,299 price quoted for a product repriced to $999, and an invented 'ProBook X450 Pro'.",
+        output: "Classic fine-tuning-for-facts failure. The model learned the confident style of catalog answers, not the catalog. Fix: move product knowledge to RAG over the live catalog; drop or narrow the fine-tune to formatting only.",
+        explanation: "Step 1: Recognise what was actually learned. Fine-tuning reshapes the output distribution, so training on catalog answers taught the model to produce confident, declarative product prose — it did not install a product database in the weights.\nStep 2: Explain the invented product. Asked about a product absent from training, the model extrapolates within the style it learned, generating a plausible-sounding 'ProBook X450 Pro' with the same confidence as a real entry.\nStep 3: Explain the stale price. The weights were frozen at training time while the catalog moved on. The world moved on but the weights didn't — and no amount of additional accuracy at training time changes that.\nStep 4: Explain why the 18-point gain was misleading. The eval set was drawn from the same FAQ as the training data, so it measured historical accuracy on overlapping content rather than ongoing production accuracy.\nStep 5: Note the compounding harm. A well-aligned base model hedges when uncertain; this fine-tune trained declarative delivery, so the model lost its uncertainty signal and now projects equal confidence on memorised and confabulated facts.\nStep 6: State the fix. Product knowledge moves to RAG over a live database, the model's job becomes retrieve-then-format, and fine-tuning is retained only if the formatting genuinely needed it.",
+      },
+      {
+        title: "When RAG and Fine-Tuning Together Are Both Justified",
+        input: "A legal research platform must retrieve relevant case law from a 10M-document corpus updated weekly, and present findings in the firm's house memo style: plain-English executive summary, then structured Issue / Rule / Analysis / Conclusion sections, with hedging language such as 'courts have generally held' rather than 'the law says'.",
+        output: "Both — for different, non-overlapping jobs. RAG owns the knowledge problem; fine-tuning owns the presentation problem, trained on examples that include retrieved context as input.",
+        explanation: "Step 1: Assign the knowledge problem. Ten million documents cannot fit in context and the corpus changes weekly, so re-indexing is both faster and more accurate than retraining. Retrieval is the correct tool.\nStep 2: Assign the style problem. IRAC structure and specific hedging language are stylistic requirements; prompting can partially enforce them but drifts across long outputs, which is exactly the failure mode fine-tuning fixes durably.\nStep 3: Constrain what the fine-tune is trained on. The training examples include retrieved case text as input, so the model learns to synthesise supplied context into IRAC format rather than to memorise legal facts. This distinction is the whole reason the hybrid is safe.\nStep 4: State the architecture in order. Query, retrieve relevant case chunks, inject into the prompt, then the fine-tuned model generates the memo from that retrieved content.\nStep 5: Answer the follow-up before it is asked. The interviewer will probe what each component is responsible for; naming the boundary explicitly — RAG is not doing style, fine-tuning is not doing knowledge — is what separates a justified hybrid from belt-and-suspenders.",
+      },
+    ],
+
+    tips: [
+      "Say 'form not facts' out loud in your answer. It is a signal phrase that communicates the core distinction immediately, and if the interviewer does not know the framing they will ask you to elaborate, which is your opening.",
+      "Always propose prompting first, even when the question is explicitly about fine-tuning. 'I'd improve the system prompt and few-shot examples before committing to a fine-tune' signals engineering maturity.",
+      "Ask how often the information changes before recommending anything. Freshness is the single most diagnostic question, and anything changing more than monthly is a RAG problem by default.",
+      "Quantify the economics whenever the interviewer mentions request volume in the millions. Candidates who run the token arithmetic out loud stand out sharply from those who talk abstractly.",
+      "When proposing a hybrid, state the job of each component explicitly. 'RAG handles knowledge, fine-tuning handles output format' is a complete answer; 'both, to be safe' is not.",
+      "Memorise the three root causes of post-fine-tune regression — catastrophic forgetting, noisy data, and facts-not-form — so you can diagnose 'we fine-tuned and it got worse' without hesitating.",
+    ],
+
+    tricks: [
+      "The oracle test: paste the correct fact into the context window and ask again. If the model now answers correctly, it is a knowledge problem and RAG automates that provision. If it still fails, it is a behaviour problem. Five minutes, unambiguous classification.",
+      "The 'what changes when the world changes?' test: after proposing an architecture, ask what breaks when the underlying facts change next month. If the answer is 'retrain the model', you have solved a knowledge problem with fine-tuning.",
+      "The 80% heuristic: before recommending fine-tuning for style, estimate how much a well-engineered five-shot prompt already resolves. If it gets you 80% there, the marginal gain may not justify the training and maintenance cost.",
+      "Hybrid means two eval sets. Saying so unprompted — one for retrieval quality, one for generation quality, both maintained forever — demonstrates operational maturity that most candidates never reach.",
+      "Cite LIMA (arXiv:2305.11206) for any 'how much data?' question: 1,000 curated examples beat 52,000 noisy ones. It is specific, citable, and ends 'more data is always better' on the spot.",
+    ],
+
+    memoryAids: [
+      "'Form not facts' — fine-tuning reshapes form (style, tone, format, behaviour); RAG delivers facts. Never swap them.",
+      "The three-question filter: is it knowledge? is it dynamic? is it style? Knowledge means RAG, dynamic knowledge means RAG always, style means fine-tune.",
+      "'Prompting is free, RAG is an index, fine-tuning is surgery' — cost and irreversibility increase left to right, so choose the least invasive intervention that works.",
+      "'LIMA: 1,000 beats 52,000' — the anchor pair of numbers for any data-quantity question.",
+      "'The world moved on but the weights didn't' — the one phrase that diagnoses every fine-tuned-facts failure in production.",
+    ],
+
+    interviewPatterns: [
+      "'Would you use RAG or fine-tuning for this feature? Walk me through your reasoning.' — expects the full decision tree, and watches whether you ask about knowledge vs behaviour, freshness, data availability and cost.",
+      "'We fine-tuned on our documentation and now it confidently gives wrong answers. What happened?' — expects the facts-not-form diagnosis, the mechanism, and the fix of moving knowledge to RAG.",
+      "'How would you reduce inference cost for a feature with a 3,000-token system prompt at 100M requests/month?' — expects prompt compression framed as an economics case, with the arithmetic shown.",
+      "'When would you use both RAG and fine-tuning?' — the failing answer is 'both for safety'; the passing answer names what each component owns.",
+      "'How many training examples do you need?' — expects LIMA, 500 to 1,000 as a starting point, and quality over quantity rather than 'millions'.",
+      "'Your fine-tuned model scores great offline but worse in production. What do you investigate first?' — expects distribution shift, capability regression from catastrophic forgetting, and train/eval contamination.",
+      "Frequency and companies: extremely high frequency — this is the single most common opening question in applied-AI and ML-engineer interviews at OpenAI, Anthropic, Google, Meta, Scale, and essentially every AI product company. It is used as a filter because the wrong answer (fine-tune for facts) is both common and expensive.",
+    ],
+
+    faq: [
+      {
+        question: "Can I use fine-tuning to teach the model my company's internal facts — product names, policies, prices?",
+        answer: "This is the most common fine-tuning mistake. Fine-tuning does not inject facts reliably. What it does is teach the model to sound confident when discussing topics that appeared in training. When those facts change — and they will — the model continues producing the old information with the same confidence, which is more dangerous than the uncertainty it replaced. Use RAG for any knowledge that is proprietary, specific, or subject to change. Fine-tuning is appropriate when the goal is changing how the model communicates information it already has access to, not what information it knows.",
+        category: "decision",
+        source: "Anyscale, 'Fine-tuning is for Form, Not Facts'",
+      },
+      {
+        question: "How do I know whether my problem is a knowledge problem or a behaviour problem?",
+        answer: "Give the model the answer in its context window and ask again. If it answers correctly when the fact is explicitly provided in the prompt, it is a knowledge retrieval problem and RAG automates that provision. If it still answers incorrectly, or in the wrong format, even when handed the correct information, it is a behaviour or reasoning problem and prompting or fine-tuning is the lever. This oracle test takes five minutes and unambiguously classifies most practical problems, which is why it is worth doing before any architecture discussion.",
+        category: "decision",
+      },
+      {
+        question: "At what request volume does fine-tuning for prompt compression start making economic sense?",
+        answer: "The crossover depends on token price and the size of the prompt being compressed. At $2.50 per million input tokens, a 2,000-token system prompt costs about $5,000 per month at 1M requests. Compressing it to 50 tokens saves roughly $4,875 per month, so if the fine-tuning job costs $500 to $2,000 as a one-time expense, ROI is positive inside the first month. Below roughly 500,000 requests per month at that price, the savings are modest enough that further prompt engineering is a better investment than a fine-tuning project. Always check the output-token rate too, since a fine-tuned model that charges more per output token can erase the input savings entirely.",
+        category: "economics",
+      },
+      {
+        question: "Is it ever correct to fine-tune before trying RAG?",
+        answer: "Yes, when the problem is definitively behavioural rather than informational. If a model consistently produces the wrong format, tone or structure despite well-engineered prompts, and you already have labelled examples of correct behaviour, fine-tuning before building a RAG pipeline is appropriate — RAG would add retrieval infrastructure that addresses nothing. The sequencing rule is to exhaust prompting first, then add the technique that addresses the specific failure mode you have actually measured. The bias toward trying RAG first applies only to problems that could plausibly be knowledge-related.",
+        category: "decision",
+      },
+      {
+        question: "What does catastrophic forgetting mean here, and how does it cause regression?",
+        answer: "Catastrophic forgetting is when gradient updates on a narrow fine-tuning dataset shift the weight distribution far enough from pre-training that general capabilities degrade. A model fine-tuned on Python at a high learning rate for many epochs can lose general English coherence, SQL ability and instruction-following — all of which surface as production regressions on tasks outside the fine-tuning distribution, and none of which appear in a task-specific eval. The mitigations are a lower learning rate (under 5e-5 for full fine-tuning), fewer epochs (two or three is standard), and mixing in 10-20% general instruction-following examples. LoRA prevents it almost entirely because the base weights stay frozen.",
+        category: "failure-modes",
+      },
+      {
+        question: "Can I update a fine-tuned model when my data changes, without full retraining?",
+        answer: "Not reliably. If the change requires new facts baked into weights you must retrain, which is itself the argument against fine-tuning for facts. If the change is adding new style examples, you can run incremental fine-tuning from the existing checkpoint, but that risks catastrophic forgetting of the earlier training data unless you mix in a sample of the original set. This is precisely where RAG is operationally superior: updating an index requires touching no model weights, needs no eval re-run of general capability, and can happen continuously rather than on a release cadence.",
+        category: "maintenance",
+      },
+      {
+        question: "What is the right first step when starting any new AI feature?",
+        answer: "Always start with prompting. A strong system prompt with three to five carefully chosen few-shot examples resolves a larger fraction of quality problems than most engineers expect. Only after prompting has been genuinely attempted and measured should you evaluate RAG or fine-tuning. This is not only an efficiency argument: starting with prompting forces you to articulate exactly what correct behaviour looks like, and that articulation becomes the specification for your eval set and, if you proceed, your training data. Skipping straight to fine-tuning is a reliable sign of premature optimisation.",
+        category: "process",
+      },
+    ],
+
+    practiceProblems: [
+      "Retailer wants an LLM to answer 'Is item X in stock?' and 'What is the current price of Y?' across 2M SKUs updated hourly. Which technique? ANSWER: RAG. Inventory and pricing are dynamic facts changing hourly, and no fine-tuning cadence can keep up. The model already has the language capability; it needs current facts injected at inference. Fine-tuning would bake stale data into weights and require a re-run on every catalog change.",
+      "A company wants emails in their brand voice: short sentences, no em-dashes, first-name salutations, sign-off 'Best,'. Rules are stable. Which technique? ANSWER: prompting first, fine-tuning if that is insufficient. Try a system prompt with three to five in-context examples; for most style constraints this suffices. If the model persistently breaks specific rules (em-dashes are notoriously hard to suppress by prompting), fine-tune on about 500 curated emails. No RAG — there is no knowledge requirement.",
+      "A hospital wants a triage chatbot that never suggests specific medications and always recommends consulting a physician, even under adversarial pressure. Which technique? ANSWER: prompting plus fine-tuning. The system prompt encodes the rule, but for a safety-critical constraint, prompt-only enforcement is fragile under adversarial input. Preference tuning on safe/unsafe response pairs bakes the behaviour into the weights and hardens it against jailbreaks. This is the legitimate safety use case for fine-tuning.",
+      "A team uses a model at $2.50/1M input and $10/1M output, with a 1,800-token system prompt, 30M requests/month, 300 input and 250 output tokens per request. Should they fine-tune to compress the prompt to 40 tokens? ANSWER: yes, on economics alone. Current input is 30M × 2,100 = 63B tokens = $157,500/month, plus $75,000 output, totalling $232,500. After compression input is 30M × 340 = 10.2B tokens = $25,500, plus unchanged $75,000 output, totalling $100,500. Saving is $132,000/month, so a $5,000-20,000 training job pays back within the first month. Caveat: run a 200-example pre/post eval, because the savings are illusory if quality drops.",
+      "A team fine-tuned a 7B model on a 5,000-product FAQ. Offline accuracy rose from 67% to 91%. Three weeks later production reports invented product names, wrong prices, and a product line that does not exist — all stated confidently. Diagnose and fix. ANSWER: three compounding failures. (1) Fine-tuning on facts not form: the model learned the confident style of product prose and extrapolates to products it never saw. (2) Eval contamination: the eval set came from the same FAQ as training, so 91% measured historical overlap, not ongoing accuracy. (3) Lost uncertainty calibration: training on declarative FAQ answers removed the model's hedging, so it projects equal confidence on real and confabulated facts. Fix: move all product knowledge to RAG over a live database so the model retrieves then formats, and keep the fine-tune only if the formatting genuinely improved.",
+    ],
+
+    references: [
+      {
+        source: "blog",
+        attribution: "Anyscale, 'Fine-tuning is for Form, Not Facts'. https://www.anyscale.com/blog/fine-tuning-is-for-form-not-facts",
+        insight: "The clearest available formulation of the central distinction in this topic, and the origin of the phrase worth saying out loud in an interview. Argues from experiments that fine-tuning reshapes output distribution rather than installing retrievable knowledge.",
+      },
+      {
+        source: "paper",
+        attribution: "Zhou et al., 'LIMA: Less Is More for Alignment', arXiv:2305.11206 (2023).",
+        insight: "1,000 carefully curated examples outperform 52,000 noisy ones. The citable anchor for every 'how much fine-tuning data do I need?' question, and the empirical basis for quality-over-quantity filtering.",
+      },
+      {
+        source: "paper",
+        attribution: "Lewis et al., 'Retrieval-Augmented Generation for Knowledge-Intensive NLP Tasks', arXiv:2005.11401 (2020).",
+        insight: "The original RAG paper, establishing that non-parametric memory (a retrieval index) handles knowledge-intensive tasks better than parametric memory alone — the formal statement of why facts belong in an index rather than in weights.",
+      },
+      {
+        source: "note",
+        attribution: "OpenAI fine-tuning guide. https://platform.openai.com/docs/guides/fine-tuning",
+        insight: "Provider documentation that itself recommends prompting and retrieval before fine-tuning, and gives concrete guidance on example counts and epoch settings. Useful because it shows the vendor with the strongest incentive to sell fine-tuning still advises trying it last.",
+      },
+      {
+        source: "paper",
+        attribution: "Hu et al., 'LoRA: Low-Rank Adaptation of Large Language Models', arXiv:2106.09685 (2021).",
+        insight: "Underpins the cost side of the fine-tuning decision: adapters of 50-200 MB against a full model copy, with base weights frozen, which both lowers the economic barrier to fine-tuning and largely prevents catastrophic forgetting.",
+      },
+    ],
+  },
+  {
+    id: "topic-ai-adaptation-peft-lora",
+    moduleId: "mod-ai-adaptation-safety",
+    title: "Parameter-Efficient Fine-Tuning: LoRA and QLoRA",
+
+    intuition: `Instead of updating all 7 billion weights in a model — which
+  requires 80+ GB of GPU memory for optimiser states alone — LoRA freezes the
+  original weights and trains only two tiny matrices whose product
+  approximates the update. The practical result: fine-tuning a 7B model on a
+  single consumer GPU instead of four data-centre GPUs, and in production,
+  serving a hundred per-customer fine-tunes for the same memory cost as one.`,
+
+    complexity: {
+      time: "LoRA training on a 7B model with 1,000 examples: 30-60 min on one A100 80 GB; QLoRA on the same hardware: 45-90 min due to dequantisation overhead. Inference latency with a merged adapter: identical to the base model. Inference with an unmerged hot-swapped adapter: +2-5 ms per request for the adapter matrix multiplication.",
+      space: "Full fine-tune (7B, FP16): ~80 GB peak (weights + gradients + Adam states). LoRA rank-16 (7B, FP16 frozen base): ~16 GB frozen + ~200 MB adapter + ~400 MB optimiser = ~17 GB. QLoRA rank-16 (7B, INT4 frozen base): ~4-5 GB frozen + ~400 MB adapter and states = ~5-6 GB total, fitting a 24 GB consumer GPU."
+    },
+
+    lesson: [
+      {
+        title: "The Problem: Why Full Fine-Tuning Is Prohibitively Expensive",
+        content: `Start with the memory arithmetic, because the numbers are
+  what motivate the technique. A 7B-parameter model at FP16 occupies 14 GB for
+  its weights alone. Full fine-tuning also requires gradients (another 14 GB),
+  Adam optimiser states (two moments per parameter at FP32, about 56 GB), and
+  activation checkpoints on top. The total lands between 70 and 85 GB, which
+  spans three or four A100 80 GB GPUs and costs thousands of dollars per
+  training run. Full fine-tuning is therefore accessible only to teams with a
+  substantial GPU budget.
+
+  The second problem is serving. If you want to offer per-customer fine-tuned
+  models — one for each of 500 enterprise clients — you would need 500 × 14 GB
+  = 7 TB of GPU memory to serve them simultaneously. That is not a deployment
+  option; it is a reason the product cannot exist.
+
+  LoRA solves both problems at once. It dramatically reduces training memory,
+  and it produces adapters small enough to cache by the hundreds on a single
+  GPU for serving. The insight that makes it work is empirical: the weight
+  updates needed to adapt a pre-trained model to a new task have a much lower
+  effective dimensionality than the full parameter space. You do not need to
+  move all 7B parameters — a low-rank approximation of the update captures
+  nearly all of the useful change.`,
+      },
+      {
+        title: "What LoRA Actually Does to the Weights",
+        content: `LoRA freezes the original weight matrix W and adds the
+  product of two small matrices A and B alongside it, so a LoRA'd layer
+  computes h = Wx + (A·B)x — the frozen base contribution plus a low-rank
+  adapter contribution. During training only A and B receive gradient updates;
+  W never changes. That frozen base is also why LoRA largely avoids the
+  catastrophic forgetting that full fine-tuning risks.
+
+  The rank r is the inner dimension of A and B, and it is the parameter that
+  controls everything. For a weight matrix of size 4096 × 4096 — about 16M
+  parameters — the adapter pair A (4096 × r) and B (r × 4096) holds 2·d·r
+  parameters. At r=16 that is 131,072 values, roughly 0.8% of the original
+  matrix. At r=64 it is about 3.3%.
+
+  The alpha parameter scales the adapter's contribution, which is applied as
+  (α/r)·A·B·x. Setting α = 2r — so α=32 at r=16 — is the standard default, and
+  intuitively it controls how loudly the adapter is heard over the base
+  model's default behaviour.
+
+  Which matrices should carry adapters? The original paper targeted only the
+  query and value projections in attention layers. Current practice targets
+  all linear layers, which improves quality at the same rank because the
+  adapter covers more of the computational graph — typically 1-3% better on
+  downstream tasks than query-and-value only.`,
+        diagram: asciiDiagram(`
+  FULL FINE-TUNE:
+    W (4096 × 4096)  ──▶  ΔW (4096 × 4096)   16M trainable parameters
+
+  LORA:
+    W frozen.  Output += A × B × input
+               A: (4096 × r)     B: (r × 4096)
+
+    r = 4   ──▶    32,768 params   (0.2% of matrix)
+    r = 16  ──▶   131,072 params   (0.8% of matrix)
+    r = 64  ──▶   524,288 params   (3.3% of matrix)
+
+  SCALING:  contribution = (α / r) · A · B · x
+            α = 2r is the standard default (α=32 at r=16)
+
+  INFERENCE OPTIONS:
+    Merged:   W' = W + A·B  ──▶  standalone model, zero overhead
+    Unmerged: compute W·x + A·B·x at runtime  ──▶  enables hot-swap
+`),
+      },
+      {
+        title: "QLoRA: Fitting 7B Fine-Tuning on a Consumer GPU",
+        content: `QLoRA adds one step before LoRA: quantise the frozen base
+  model to 4-bit precision. Because the base weights are frozen and never
+  receive gradients, they do not need full precision — they only need to be
+  accurate enough for the forward pass. Four-bit quantisation takes the frozen
+  base from 14 GB to roughly 3.5 GB, while the adapter matrices stay in BF16
+  so gradients remain accurate.
+
+  The quality cost is smaller than intuition suggests. The original QLoRA
+  paper showed that QLoRA-trained models matched 16-bit full fine-tune
+  performance on the Vicuna benchmark, a result that surprised the field
+  because it demonstrated quantisation noise in the frozen base is tolerable
+  when the adapter is trained at higher precision. For most practical tasks
+  the gap between QLoRA and full LoRA is 1-2%.
+
+  On interview depth: you are not expected to explain NF4 quantisation, double
+  quantisation or paged optimisers, which are the three technical innovations
+  in the QLoRA paper. "Quantise the frozen base to 4-bit, keep adapters in
+  BF16, which enables single-consumer-GPU fine-tuning" is the right level for
+  a software engineering role, and it is entirely reasonable to say that the
+  quantisation internals are ML-engineering depth.`,
+        diagram: asciiDiagram(`
+  MEMORY COMPARISON — 7B MODEL
+  ─────────────────────────────────────────────────────────────────
+  Method           Frozen base  Adapters+states  Total   Min GPU
+  ─────────────────────────────────────────────────────────────────
+  Full fine-tune   n/a (all        ~66 GB        ~80 GB  4× A100
+                   trainable)
+  LoRA  (FP16)      14 GB          ~600 MB       ~15 GB  1× A100 40GB
+  QLoRA (INT4)       3.5 GB        ~600 MB        ~5 GB  1× RTX 4090
+  ─────────────────────────────────────────────────────────────────
+
+     full ──▶ LoRA   : 5× less memory, base stays FP16
+     LoRA ──▶ QLoRA  : 3× less again, base quantised to 4-bit
+                       quality cost typically 1-2%
+`),
+      },
+      {
+        title: "Adapter Serving and Hot-Swapping",
+        content: `In production, LoRA's most powerful application is
+  multi-tenant serving. One copy of the base model sits in GPU memory shared
+  by every user, and each customer's personalisation lives in a small adapter
+  file of 50-200 MB that is combined with the base at request time.
+
+  There are two modes and the choice is straightforward. Merged mode computes
+  W' = W + A·B offline and saves a standalone model, giving zero inference
+  overhead — correct when there is one fine-tune per deployment and no need to
+  switch. Hot-swap mode keeps the base model resident alongside an LRU cache
+  of adapters, computing W·x + A·(B·x) per request at a cost of 2-5 ms —
+  correct when you have hundreds or thousands of per-customer adapters.
+
+  The arithmetic is what makes this compelling. Serving 500 separately
+  fine-tuned models would need 500 × 14 GB = 7,000 GB. Serving 500 LoRA
+  adapters needs 14 GB for the base plus 500 × 100 MB, about 64 GB — which
+  fits on two A100 80 GB cards with room left for KV cache. An entire product
+  category exists because of that ratio.
+
+  vLLM's LoRA support, LoRAX and TGI implement this natively. With an LRU
+  cache, the most active customers incur no swap overhead at all, while the
+  long tail of rarely-used adapters pays roughly 50 ms to load from SSD on
+  first request.`,
+        diagram: asciiDiagram(`
+  MERGED MODE (fixed deployments)
+    offline:  W' = W + A·B  ──▶  save as standalone model
+    latency:  zero overhead vs base
+    use when: one fine-tune per deployment, no switching
+
+  HOT-SWAP MODE (multi-tenant)
+    deploy:   base model resident + LRU adapter cache
+    runtime:  W·x + A·(B·x) per request
+    latency:  ~2-5 ms adapter compute; cached adapters free
+    use when: hundreds or thousands of per-customer adapters
+
+  MULTI-TENANT MEMORY — 500 customers
+  ┌──────────────────────────────────────────────────────────┐
+  │ 500 full fine-tunes : 500 × 14 GB = 7,000 GB  impossible │
+  │ 500 LoRA adapters   : 14 GB base + 500 × 100 MB = 64 GB  │
+  │                       ──▶ fits on 2× A100 80GB           │
+  └──────────────────────────────────────────────────────────┘
+`),
+      },
+      {
+        title: "Choosing Rank: A Practical Reference",
+        content: `Rank is the single most consequential LoRA hyperparameter
+  and the one interviewers ask about most. Treat it as a capacity budget for
+  the transformation you are asking for: a shallow change such as tone needs
+  very little capacity, while a deep domain shift needs more.
+
+  The defaults worth memorising are r=16 with α=32. From there the tuning
+  procedure is empirical and cheap. If training loss plateaus early despite
+  sufficient data and epochs, the rank is too low — double it. If a run at
+  half the rank produces indistinguishable loss and downstream quality, the
+  rank is higher than necessary — halve it and save the memory.
+
+  Beyond about r=128 you are into diminishing returns, and at that point the
+  honest answer in an interview is that if you genuinely need that much
+  capacity, you should reconsider whether a full fine-tune is the better
+  instrument. Knowing where a technique stops being the right one is a
+  stronger signal than defending it indefinitely.`,
+        diagram: asciiDiagram(`
+  RANK SELECTION GUIDE
+  ───────────────────────────────────────────────────────────────
+  Task                          Rank r   Alpha α   Notes
+  ───────────────────────────────────────────────────────────────
+  Style / tone fine-tune         4-8      8-16     minimal shift
+  Instruction-following tweak    8-16     16-32    prompt compression
+  Task-specific fine-tuning      16-32    32-64    good default
+  Domain adaptation              32-64    64-128   larger change
+  Near-full-fine-tune quality    128+     256+     diminishing returns
+                                                   consider full FT
+  ───────────────────────────────────────────────────────────────
+  Default if uncertain: r=16, α=32
+
+  DIAGNOSING RANK
+    loss plateaus early, data is fine   ──▶  rank too LOW,  double it
+    half the rank performs identically  ──▶  rank too HIGH, halve it
+`),
+      },
+    ],
+
+    examples: [
+      {
+        title: "Sizing a LoRA run against a full fine-tune",
+        input: "A team wants to fine-tune a 7B model on 1,000 curated examples to enforce a house writing style. Available hardware: one RTX 4090 with 24 GB. They ask whether they need to rent A100s.",
+        output: "No. Full fine-tuning needs ~80 GB, LoRA ~17 GB, QLoRA ~5-6 GB. LoRA at r=8 fits the 4090 directly; QLoRA leaves headroom for a larger batch.",
+        explanation: "Step 1: Compute the full fine-tune budget. Weights at FP16 are 7B × 2 bytes = 14 GB, gradients another 14 GB, and Adam keeps two FP32 moments per parameter, which is 7B × 8 bytes = 56 GB. That totals about 84 GB before activations — three or four A100s.\nStep 2: Compute the LoRA budget. The base stays frozen at 14 GB, the rank-16 adapter is roughly 200 MB, and optimiser state now covers only adapter parameters, about 400 MB. Total is about 15-17 GB, because Adam state scales with trainable parameters, not model size — that is the actual source of the saving.\nStep 3: Check it against the hardware. 17 GB fits inside 24 GB, so a single 4090 is sufficient with a modest batch size.\nStep 4: Consider QLoRA for headroom. Quantising the frozen base to 4-bit takes it from 14 GB to about 3.5 GB, bringing the total to 5-6 GB and leaving room for longer sequences or larger batches, at a typical quality cost of 1-2%.\nStep 5: Pick the rank for the task. This is a style fine-tune, the shallowest category, so r=8 with α=16 is appropriate — spending r=64 here would consume memory without improving the result.",
+      },
+      {
+        title: "Serving 500 per-customer fine-tunes on two GPUs",
+        input: "A SaaS product wants each of 500 enterprise customers to have a model fine-tuned on their own tone and terminology. Naive plan: 500 separately fine-tuned 7B models. Question: what does this cost to serve, and is there an alternative?",
+        output: "The naive plan needs 7,000 GB and is impossible. With LoRA hot-swapping it is 14 GB base + 500 × 100 MB ≈ 64 GB, which fits on two A100 80 GB cards with room for KV cache.",
+        explanation: "Step 1: Price the naive approach. Each fully fine-tuned 7B model at FP16 is 14 GB, and 500 of them is 7,000 GB of GPU memory to serve concurrently — roughly 88 A100s doing nothing but holding weights.\nStep 2: Recognise what is redundant. Every one of those 500 models is the same base model with a small task-specific delta. Storing 500 near-identical copies is the waste LoRA removes.\nStep 3: Price the LoRA approach. One shared base is 14 GB, each customer's adapter is about 100 MB at rank 16, so 500 adapters add 50 GB, totalling 64 GB.\nStep 4: Place it on hardware. 64 GB fits on two A100 80 GB cards with meaningful headroom left for KV cache, which is the resource that actually limits concurrency.\nStep 5: Account for the runtime cost. Hot-swap mode computes W·x + A·(B·x) per request, costing 2-5 ms, and an LRU cache means the most active customers pay nothing at all while rare adapters pay about 50 ms to load from SSD on first use.\nStep 6: Note the product consequence. Per-customer fine-tuning is only a viable business model because of this ratio — without adapter serving, the feature could not be priced.",
+      },
+      {
+        title: "Diagnosing a rank that is too low",
+        input: "A team fine-tunes a 7B model for a domain adaptation task at r=4, α=8, on 3,000 examples for 3 epochs. Training loss falls quickly then plateaus well above where they expected, and downstream quality is only marginally better than the base model.",
+        output: "Rank is the constraint, not data or epochs. Double to r=16, then r=32 if needed; α tracks at 2r. Domain adaptation typically needs r=32-64.",
+        explanation: "Step 1: Rule out the usual suspects first. There are 3,000 examples and 3 epochs, which is adequate for a domain fine-tune, so data volume and training duration are not the limiting factors.\nStep 2: Read the loss curve correctly. A loss that drops then plateaus early, with quality barely moving, is the signature of insufficient adapter capacity — the low-rank approximation cannot represent the update the task requires.\nStep 3: Match rank to task class. r=4 belongs to the style and tone band. Domain adaptation is a much larger behavioural change and sits at r=32-64 in the standard guidance, so the run was under-provisioned by roughly an order of magnitude.\nStep 4: Re-run with r=16, α=32 and compare the loss curve. If the plateau moves down meaningfully, the diagnosis is confirmed and it is worth trying r=32, α=64.\nStep 5: Find the ceiling from the other direction. When a run at half the rank performs indistinguishably, you have passed the point of useful capacity and should step back down — this bracketing is cheaper than guessing.\nStep 6: Also check the target modules. If the run targeted only query and value projections, switching to all linear layers typically gains another 1-3% at the same rank, and is worth trying before pushing rank higher.",
+      },
+    ],
+
+    tips: [
+      "Default to r=16, α=32 when you have no other information, and state that default out loud — interviewers are checking whether you have a starting point rather than a lecture on rank theory.",
+      "Remember that the memory saving comes from optimiser state, not from the weights. Adam keeps two FP32 moments per trainable parameter, so cutting trainable parameters by 100× is what removes 56 GB.",
+      "Target all linear layers rather than query and value only. It is a one-line configuration change and typically buys 1-3% quality at the same rank.",
+      "Set α = 2r as a rule and stop tuning it. Rank is where the leverage is; alpha is a scale factor that rarely repays independent search.",
+      "For any multi-tenant fine-tuning question, do the memory arithmetic out loud — 500 × 14 GB against 14 GB + 500 × 100 MB is the single most persuasive number in this topic.",
+      "Say plainly when a question passes into ML-engineering depth. 'I can implement this with PEFT; the NF4 and gradient derivation details are MLE territory' is a stronger answer than a vague attempt.",
+    ],
+
+    tricks: [
+      "Bracket the rank rather than guessing it: run at r and at r/2. If quality is indistinguishable, halve again; if the loss plateaus early, double. Two cheap runs beat any amount of theorising.",
+      "Check whether the base model is frozen when someone reports catastrophic forgetting after a LoRA run. LoRA should largely prevent it, so forgetting usually means they merged and continued training, or targeted embeddings as well.",
+      "Merge for a single-tenant deployment, keep adapters separate for multi-tenant. The tell for the right answer is whether they ever need to switch behaviour per request.",
+      "When asked about QLoRA quality, cite the Vicuna benchmark result — QLoRA matched 16-bit full fine-tuning — rather than asserting the gap is 'small'. A specific result ends the follow-up.",
+      "If a fine-tune must run on hardware you do not control, quote the three-tier memory table (80 GB / 15 GB / 5 GB) and let the available GPU pick the method. It converts a vague question into an arithmetic one.",
+    ],
+
+    memoryAids: [
+      "'Freeze the base, train the delta' — one sentence that captures LoRA entirely.",
+      "The saving is Adam, not the weights: two FP32 moments per trainable parameter is the 56 GB you are avoiding.",
+      "r=16, α=32 is the default; α = 2r always.",
+      "Memory ladder for a 7B model: 80 GB full, 15 GB LoRA, 5 GB QLoRA — four A100s, one A100, one gaming card.",
+      "'7,000 GB versus 64 GB' — the multi-tenant number that justifies adapter serving.",
+      "Loss plateaus early means rank too low; half the rank performs the same means rank too high.",
+    ],
+
+    interviewPatterns: [
+      "'What is LoRA and why does it save so much memory?' — the expected answer names the frozen base, the two low-rank matrices, and crucially that the saving comes from optimiser state scaling with trainable parameters.",
+      "'How would you serve per-customer fine-tuned models for 500 enterprise clients?' — expects adapter hot-swapping with an LRU cache and the memory arithmetic that makes it viable.",
+      "'What rank would you choose and why?' — expects a default (16), a task-to-rank mapping, and an empirical procedure for adjusting rather than a memorised table.",
+      "'When would you use QLoRA instead of LoRA?' — expects the hardware constraint framing, the 4-bit frozen base with BF16 adapters, and an honest 1-2% quality cost.",
+      "'Should you merge the adapter before deploying?' — expects merged for single-tenant zero-overhead serving, unmerged when adapters must be switched per request.",
+      "Frequency and companies: high frequency for applied-AI, ML-platform and inference-serving roles at Meta, Databricks, Predibase, Scale, Hugging Face and AI-product startups. Multi-tenant adapter serving in particular is a favourite system-design probe because it has a clean, quantifiable answer.",
+    ],
+
+    faq: [
+      {
+        question: "Does LoRA produce the same quality as full fine-tuning?",
+        answer: "For most practical tasks — style adaptation, instruction-following, format enforcement, domain Q&A — LoRA at rank 16 or above reaches 95-99% of full fine-tune quality with 100-1,000× fewer trainable parameters. The gap widens somewhat for tasks demanding very large behavioural shifts, which is the signal to consider a full fine-tune instead. QLoRA adds a further 1-2% degradation from quantisation noise in the frozen base. The original QLoRA paper found that QLoRA matched 16-bit full fine-tune quality on Vicuna benchmarks, and that result set the practical expectation that the gap is tolerable for the large majority of applications.",
+        category: "quality",
+        source: "QLoRA, arXiv:2305.14314",
+      },
+      {
+        question: "What does merging the adapter actually do, and when should I do it?",
+        answer: "Merging computes W' = W + A·B and saves the result as a new set of weights, producing a standalone model structurally identical to the base but with updated values. Afterwards there is no separate adapter file, just a model, and inference has zero overhead relative to the base. Merge when you have a single fine-tune per deployment and never need to switch. Keep adapters unmerged when you serve multiple adapters against one base in hot-swap mode, or when you want to fall back to base behaviour without reloading a full model. In PEFT it is a one-line operation via merge_and_unload().",
+        category: "deployment",
+      },
+      {
+        question: "Can I use LoRA on a model I only have API access to?",
+        answer: "No. LoRA requires access to the model's weight matrices in order to inject adapter layers and compute gradients through them. For API-only models you are limited to the provider's own fine-tuning endpoints, which may well use adapter methods internally but expose only a black-box interface — you cannot choose the rank, target modules, or serving mode. LoRA's real benefits, namely consumer-GPU training, adapter hot-swapping and custom serving topologies, are available only for open-weight models such as Llama, Mistral and Gemma that you can download and modify locally.",
+        category: "scope",
+      },
+      {
+        question: "What is PEFT and how does it relate to LoRA?",
+        answer: "PEFT is Hugging Face's parameter-efficient fine-tuning library, implementing LoRA, QLoRA, DoRA, prefix tuning and other adapter methods behind one API, and it is the standard tool for applying LoRA in practice. The core workflow is to call get_peft_model(base_model, lora_config), which wraps any compatible model with adapters and exposes only adapter parameters to the optimiser — which is exactly why optimiser state collapses. TRL's SFTTrainer accepts a peft_config argument and handles the wrapping internally. For almost every real LoRA project you interact with PEFT rather than implementing the adapter maths yourself.",
+        category: "tooling",
+        source: "https://huggingface.co/docs/peft",
+      },
+      {
+        question: "Do I need to know DoRA and the other LoRA variants for an interview?",
+        answer: "Knowing they exist and what problem each solves is sufficient for software engineering interviews. DoRA decomposes the weight update into separate magnitude and direction components and achieves 1-3% better quality than vanilla LoRA at the same rank; it is available in PEFT via use_dora=True. Other variants worth naming are LoRA+ (different learning rates for the A and B matrices), rsLoRA (rank-stabilised scaling) and AdaLoRA (dynamic rank allocation). Being able to name these as active research directions is the right depth for a SWE role; ML-engineering interviews may ask you to compare them empirically.",
+        category: "scope",
+      },
+      {
+        question: "Does LoRA work for very large models like 70B?",
+        answer: "Yes, and at that scale it stops being optional — for most teams it is the only feasible approach. A 70B model at FP16 is 140 GB, so full fine-tuning would need eight or more A100 80 GB GPUs for weights alone before counting gradients and optimiser state. With QLoRA the 4-bit frozen base fits in roughly 35 GB, enabling fine-tuning on two to four A100s. LoRA reduces trainable parameters from 70B to a few hundred million at rank 16, and the same rank selection principles carry over unchanged: 16-32 for task fine-tuning, 64 for larger behavioural shifts.",
+        category: "scale",
+      },
+      {
+        question: "How do I evaluate whether my LoRA fine-tune actually improved anything?",
+        answer: "Run three checks before declaring success. First, task accuracy on a held-out test set using the metric that actually matters — exact match, an LLM-as-judge rubric, or format compliance rate — compared against the base model. Second, general capability retention: run 50 off-task questions or a standard benchmark and compare to the base, flagging any drop beyond about 5 points, since forgetting can still occur despite frozen base weights if you targeted embeddings or trained aggressively. Third, a human spot-check of 20-30 outputs, which reliably catches degradations that aggregate metrics hide, such as a subtly wrong register or a formatting tic learned from noisy training data.",
+        category: "evaluation",
+      },
+    ],
+
+    practiceProblems: [
+      "Compute the peak training memory for full fine-tuning, LoRA r=16, and QLoRA r=16 on a 13B model at FP16, and state the minimum GPU for each. ANSWER: full — weights 26 GB, gradients 26 GB, Adam moments 13B × 8 B = 104 GB, totalling about 156 GB, needing 4× A100 80 GB. LoRA — frozen base 26 GB plus roughly 1 GB of adapter and optimiser state, about 27 GB, fitting one A100 40 GB. QLoRA — 4-bit base about 6.5 GB plus 1 GB, under 8 GB, fitting a 24 GB consumer card comfortably. The dominant term in the full case is Adam state, which is why freezing the base removes most of the cost.",
+      "A product must serve 200 customer-specific fine-tunes of a 13B model. Compare naive per-model serving against LoRA hot-swapping, and state the hardware needed. ANSWER: naive is 200 × 26 GB = 5,200 GB, which is roughly 65 A100 80 GB cards purely to hold weights. LoRA is 26 GB for the shared base plus 200 × ~150 MB ≈ 30 GB, totalling about 56 GB, which fits on a single A100 80 GB with room for KV cache. Runtime cost is 2-5 ms per request for the adapter matmul, and an LRU cache makes the most active customers free.",
+      "A style fine-tune at r=64 performs identically to the same run at r=32, which in turn matches r=16. What do you conclude and what do you change? ANSWER: rank is far above what the task needs — style is the lowest-capacity category, needing r=4-8. Drop to r=8, α=16, which cuts adapter size and optimiser state roughly 8× against r=64 with no quality loss, and frees memory for a larger batch or longer sequences. The general rule: keep halving while quality is indistinguishable, and stop one step above where it degrades.",
+      "A team reports that after LoRA fine-tuning, their model lost general instruction-following ability. LoRA freezes the base, so why? ANSWER: LoRA prevents most forgetting but not all, and there are three usual causes. They may have merged the adapter and continued training, which un-freezes the effective weights. They may have included embedding or LM-head modules in target_modules, which shifts the output distribution globally. Or the adapter rank and alpha may be high enough, with too many epochs, that the adapter contribution dominates the base. Fixes: exclude embeddings, lower alpha, reduce epochs to 2-3, and mix 10-20% general instruction data into the training set.",
+      "You must fine-tune a 70B model but have only 2× A100 80 GB. Is it possible, and how? ANSWER: not with full fine-tuning, which needs 140 GB of weights alone before gradients and optimiser state. QLoRA makes it feasible: quantising the frozen base to 4-bit brings 140 GB down to roughly 35 GB, leaving ample room on two cards for adapters, optimiser state and activations. Use r=16-32 for a task fine-tune, α = 2r, target all linear layers, and expect a 1-2% quality cost from quantisation relative to 16-bit LoRA.",
+    ],
+
+    references: [
+      {
+        source: "paper",
+        attribution: "Hu et al., 'LoRA: Low-Rank Adaptation of Large Language Models', arXiv:2106.09685 (2021).",
+        insight: "The original method. Establishes the low-intrinsic-dimensionality argument for why a low-rank update suffices, and introduces rank and alpha as the two hyperparameters that matter. The paper targets query and value projections only, which current practice has moved beyond.",
+      },
+      {
+        source: "paper",
+        attribution: "Dettmers et al., 'QLoRA: Efficient Finetuning of Quantized LLMs', arXiv:2305.14314 (2023).",
+        insight: "Shows that a 4-bit frozen base with BF16 adapters matches 16-bit full fine-tuning on Vicuna benchmarks, which is the citable result behind the claim that quantisation noise in a frozen base is tolerable. Also introduces NF4, double quantisation and paged optimisers.",
+      },
+      {
+        source: "note",
+        attribution: "Hugging Face PEFT documentation. https://huggingface.co/docs/peft",
+        insight: "The practical interface for everything in this topic — LoRA, QLoRA and DoRA configuration, target_modules selection, and merge_and_unload(). Worth naming in an interview because it is what you would actually use rather than implementing adapters by hand.",
+      },
+      {
+        source: "note",
+        attribution: "vLLM multi-LoRA serving documentation. https://docs.vllm.ai/en/latest/",
+        insight: "Documents production adapter hot-swapping with an LRU cache, which is the mechanism behind the multi-tenant memory argument. Useful for grounding the 500-customer design answer in a system that actually exists.",
+      },
+      {
+        source: "paper",
+        attribution: "Liu et al., 'DoRA: Weight-Decomposed Low-Rank Adaptation', arXiv:2402.09353 (2024).",
+        insight: "Decomposes the update into magnitude and direction, gaining 1-3% over vanilla LoRA at equal rank. The right level of familiarity for a SWE interview is knowing it exists, what it changes, and that PEFT exposes it as a flag.",
+      },
+    ],
   }
 ];
