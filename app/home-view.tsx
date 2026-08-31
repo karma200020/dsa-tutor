@@ -10,7 +10,7 @@ import { ModuleList } from "@/components/module-list";
 import { MasteryTracker } from "@/components/mastery-tracker";
 import { TopicViewer } from "@/components/topic-viewer";
 
-const VALID_TRACKS = ["DSA", "LLD", "HLD", "AI"] as const;
+const VALID_TRACKS = ["DSA", "LLD", "HLD", "AI", "OS", "CPP"] as const;
 type TrackParam = (typeof VALID_TRACKS)[number];
 
 function isValidTrack(value: string | null): value is TrackParam {
@@ -24,11 +24,18 @@ const trackCount = new Set(syllabus.map((m) => m.track)).size;
 // Each track's dataset is a separate async chunk. The home page needs no topic
 // content at all (its counts arrive as props from the server component), so the
 // only thing that pulls a dataset over the wire is opening that track.
+//
+// Every entry here must stay a dynamic `import()`. A single static top-level
+// import of a track dataset in this file (or in anything this file imports)
+// would pull that content into the page chunk and collapse the whole
+// optimisation, so add new tracks here and nowhere else.
 const trackLoaders: Record<TrackParam, () => Promise<Topic[]>> = {
   DSA: () => import("@/data/topics/dsa").then((m) => m.allDsaTopics),
   LLD: () => import("@/data/topics/lld").then((m) => m.allLldTopics),
   HLD: () => import("@/data/topics/hld").then((m) => m.allHldTopics),
-  AI: () => import("@/data/topics/ai").then((m) => m.allAiTopics)
+  AI: () => import("@/data/topics/ai").then((m) => m.allAiTopics),
+  OS: () => import("@/data/topics/os").then((m) => m.allOsTopics),
+  CPP: () => import("@/data/topics/cpp").then((m) => m.allCppTopics)
 };
 
 // Fallback key for a `?topic=` deep link whose topic isn't in the track named in
@@ -286,6 +293,30 @@ export function HomeView({ topicCountsByTrack, totalTopics }: HomeViewProps) {
             onClick={() => goToTrack("AI")}
             color="#34d399"
             index={3}
+          />
+          <TrackCardClickable
+            emoji="⚙️"
+            title="OS"
+            subtitle="Operating Systems"
+            description="Processes, scheduling, synchronization, virtual memory, file systems, and syscalls"
+            topics={topicCountsByTrack.OS}
+            hours={durationByTrack.OS}
+            modules={syllabus.filter(m => m.track === "OS").length}
+            onClick={() => goToTrack("OS")}
+            color="#f472b6"
+            index={4}
+          />
+          <TrackCardClickable
+            emoji="🧩"
+            title="C++"
+            subtitle="Modern C++ Deep Dive"
+            description="Memory model, RAII, move semantics, templates, STL internals, and concurrency"
+            topics={topicCountsByTrack.CPP}
+            hours={durationByTrack.CPP}
+            modules={syllabus.filter(m => m.track === "CPP").length}
+            onClick={() => goToTrack("CPP")}
+            color="#a78bfa"
+            index={5}
           />
         </div>
       </section>

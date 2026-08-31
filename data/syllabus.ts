@@ -1,5 +1,5 @@
 // Complete SWE Interview Syllabus with Module Dependencies
-export type Track = "DSA" | "LLD" | "HLD" | "AI";
+export type Track = "DSA" | "LLD" | "HLD" | "AI" | "OS" | "CPP";
 export type Level = "Beginner" | "Intermediate" | "Advanced";
 export type MasteryStatus = "not-started" | "learning" | "practiced" | "interview-ready";
 
@@ -440,6 +440,202 @@ export const syllabus: Module[] = [
     estimatedHours: 5,
     dependencies: ["mod-ai-design-exercises"],
     topicCount: 4
+  },
+
+  // Operating Systems track: the classic OS core that shows up in FAANG phone
+  // screens, systems rounds, and as follow-up depth inside LLD/HLD interviews.
+  {
+    id: "mod-os-processes-and-threads",
+    title: "OS: Processes & Threads",
+    description:
+      "Process vs thread, the PCB and address space layout, context switching cost, process lifecycle states, and creation via fork/exec/clone.",
+    track: "OS",
+    level: "Beginner",
+    estimatedHours: 6,
+    dependencies: [],
+    topicCount: 5
+  },
+
+  {
+    id: "mod-os-cpu-scheduling",
+    title: "OS: CPU Scheduling",
+    description:
+      "FCFS, SJF/SRTF, round robin, priority scheduling, multilevel feedback queues, preemption and starvation, Linux CFS, and real-time scheduling.",
+    track: "OS",
+    level: "Beginner",
+    estimatedHours: 6,
+    dependencies: ["mod-os-processes-and-threads"],
+    topicCount: 5
+  },
+
+  {
+    id: "mod-os-synchronization",
+    title: "OS: Synchronization",
+    description:
+      "Race conditions and critical sections, mutexes, semaphores, condition variables, monitors, the classic synchronization problems, and lock-free basics.",
+    track: "OS",
+    level: "Intermediate",
+    estimatedHours: 7,
+    dependencies: ["mod-os-cpu-scheduling"],
+    topicCount: 5
+  },
+
+  {
+    id: "mod-os-deadlocks",
+    title: "OS: Deadlocks",
+    description:
+      "The four Coffman conditions, prevention, avoidance with the banker's algorithm, detection and recovery, plus livelock and priority inversion.",
+    track: "OS",
+    level: "Intermediate",
+    estimatedHours: 5,
+    dependencies: ["mod-os-synchronization"],
+    topicCount: 5
+  },
+
+  {
+    id: "mod-os-memory-management",
+    title: "OS: Memory Management",
+    description:
+      "Virtual memory and address translation, paging, segmentation, multi-level and inverted page tables, the TLB, and what the MMU actually does.",
+    track: "OS",
+    level: "Intermediate",
+    estimatedHours: 7,
+    dependencies: ["mod-os-processes-and-threads"],
+    topicCount: 5
+  },
+
+  {
+    id: "mod-os-virtual-memory-and-paging",
+    title: "OS: Virtual Memory & Paging",
+    description:
+      "Demand paging, page fault handling, replacement algorithms (FIFO/LRU/Clock/Optimal), Belady's anomaly, thrashing, and the working set model.",
+    track: "OS",
+    level: "Intermediate",
+    estimatedHours: 6,
+    dependencies: ["mod-os-memory-management"],
+    topicCount: 5
+  },
+
+  {
+    id: "mod-os-file-systems-and-storage",
+    title: "OS: File Systems & Storage",
+    description:
+      "Inodes and directory structure, block allocation strategies, journaling and crash consistency, the page cache and fsync, and disk scheduling.",
+    track: "OS",
+    level: "Advanced",
+    estimatedHours: 6,
+    dependencies: ["mod-os-virtual-memory-and-paging"],
+    topicCount: 5
+  },
+
+  {
+    id: "mod-os-io-and-system-calls",
+    title: "OS: I/O & System Calls",
+    description:
+      "Kernel vs user mode, syscall mechanics and their cost, interrupts and DMA, blocking vs non-blocking I/O, and select/poll/epoll event loops.",
+    track: "OS",
+    level: "Advanced",
+    estimatedHours: 6,
+    dependencies: ["mod-os-file-systems-and-storage"],
+    topicCount: 5
+  },
+
+  // C++ track: authored in a separate session. The module metadata lives here so
+  // both new tracks share one edit to this file and never collide.
+  {
+    id: "mod-cpp-fundamentals-and-memory-model",
+    title: "C++: Fundamentals & Memory Model",
+    description:
+      "Compilation model, object lifetime and storage duration, the stack/heap/static layout, undefined behaviour, and the C++ object model.",
+    track: "CPP",
+    level: "Beginner",
+    estimatedHours: 6,
+    dependencies: [],
+    topicCount: 5
+  },
+
+  {
+    id: "mod-cpp-pointers-and-memory-management",
+    title: "C++: Pointers & Memory Management",
+    description:
+      "Pointers vs references, new/delete and allocation mechanics, dangling pointers, leaks, alignment, and manual resource ownership.",
+    track: "CPP",
+    level: "Beginner",
+    estimatedHours: 6,
+    dependencies: ["mod-cpp-fundamentals-and-memory-model"],
+    topicCount: 5
+  },
+
+  {
+    id: "mod-cpp-raii-and-smart-pointers",
+    title: "C++: RAII & Smart Pointers",
+    description:
+      "RAII as the core C++ idiom, unique_ptr/shared_ptr/weak_ptr, the rule of zero/three/five, and exception-safe resource handling.",
+    track: "CPP",
+    level: "Intermediate",
+    estimatedHours: 6,
+    dependencies: ["mod-cpp-pointers-and-memory-management"],
+    topicCount: 5
+  },
+
+  {
+    id: "mod-cpp-move-semantics-and-value-categories",
+    title: "C++: Move Semantics & Value Categories",
+    description:
+      "lvalues/rvalues/xvalues, move constructors and assignment, perfect forwarding, reference collapsing, and copy elision.",
+    track: "CPP",
+    level: "Intermediate",
+    estimatedHours: 6,
+    dependencies: ["mod-cpp-raii-and-smart-pointers"],
+    topicCount: 5
+  },
+
+  {
+    id: "mod-cpp-templates-and-generic-programming",
+    title: "C++: Templates & Generic Programming",
+    description:
+      "Template instantiation, specialization, SFINAE and concepts, variadic templates, CRTP, and compile-time programming with constexpr.",
+    track: "CPP",
+    level: "Advanced",
+    estimatedHours: 7,
+    dependencies: ["mod-cpp-move-semantics-and-value-categories"],
+    topicCount: 5
+  },
+
+  {
+    id: "mod-cpp-stl-containers-and-algorithms",
+    title: "C++: STL Containers & Algorithms",
+    description:
+      "Container internals and complexity, iterator categories and invalidation, the algorithm library, comparators, and allocator basics.",
+    track: "CPP",
+    level: "Intermediate",
+    estimatedHours: 7,
+    dependencies: ["mod-cpp-templates-and-generic-programming"],
+    topicCount: 5
+  },
+
+  {
+    id: "mod-cpp-concurrency-and-memory-ordering",
+    title: "C++: Concurrency & Memory Ordering",
+    description:
+      "std::thread and async, mutexes and locks, atomics, the C++ memory model, acquire/release ordering, and data-race-free reasoning.",
+    track: "CPP",
+    level: "Advanced",
+    estimatedHours: 7,
+    dependencies: ["mod-cpp-stl-containers-and-algorithms"],
+    topicCount: 5
+  },
+
+  {
+    id: "mod-cpp-modern-cpp-and-interview-patterns",
+    title: "C++: Modern C++ & Interview Patterns",
+    description:
+      "C++11 through C++20 features that interviewers probe, idiomatic modern style, common trick questions, and code-review-style patterns.",
+    track: "CPP",
+    level: "Advanced",
+    estimatedHours: 6,
+    dependencies: ["mod-cpp-concurrency-and-memory-ordering"],
+    topicCount: 5
   }
 ];
 
@@ -448,7 +644,7 @@ export const durationByTrack: Record<Track, number> = syllabus.reduce(
     acc[mod.track] += mod.estimatedHours;
     return acc;
   },
-  { DSA: 0, LLD: 0, HLD: 0, AI: 0 } as Record<Track, number>
+  { DSA: 0, LLD: 0, HLD: 0, AI: 0, OS: 0, CPP: 0 } as Record<Track, number>
 );
 
 

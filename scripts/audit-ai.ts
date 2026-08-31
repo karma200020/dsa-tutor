@@ -1,23 +1,27 @@
-// Audit: AI track structural integrity and content depth.
+// Audit: structural integrity and content depth for the content-spec tracks
+// (AI, OS, CPP).
 //
 // This exists because two failure modes in the content pipeline are otherwise
 // completely silent:
-//   1. `collect()` in data/all-topics.ts drops any topic whose `moduleId` is not
-//      in the syllabus, and de-duplicates by topic id (earlier source wins). A
-//      typo therefore looks exactly like content that was never written.
-//   2. `enrichTopic()` has no AI branch, so any field an AI topic leaves empty
-//      silently inherits generic, DSA-flavored boilerplate that reads plausibly
-//      but is wrong for this track.
+//   1. `collect()` in data/topics/enrich.ts drops any topic whose `moduleId` is
+//      not in the syllabus, and de-duplicates by topic id (earlier source wins).
+//      A typo therefore looks exactly like content that was never written.
+//   2. `enrichTopic()` has no branch for these tracks, so any field one of their
+//      topics leaves empty silently inherits generic, DSA-flavored boilerplate
+//      that reads plausibly but is wrong for the track.
 // Both are caught mechanically here rather than by review.
 //
 // Run with:
 //   npx tsx scripts/audit-ai.ts              (per-module gate: skips module coverage)
 //   npx tsx scripts/audit-ai.ts --complete   (completion gate: also requires every
-//                                             AI module to have at least one topic)
+//                                             module of a non-empty audited track
+//                                             to have at least one topic)
 // or: npm run audit:ai  /  npm run audit:ai -- --complete
-import { syllabus, Topic } from "../data/syllabus";
+import { syllabus, Topic, Track } from "../data/syllabus";
 import { aiTopics } from "../data/ai-topics";
-import { allAiTopics, allTopics } from "../data/all-topics";
+import { osTopics } from "../data/topics/os";
+import { cppTopics } from "../data/topics/cpp";
+import { allAiTopics, allOsTopics, allCppTopics, allTopics } from "../data/all-topics";
 
 // Module coverage is the only rule that cannot pass mid-content-phase, so it is
 // opt-in. Without it the audit goes green as soon as the first module lands and
@@ -29,9 +33,48 @@ const MIN_DIAGRAM_LINES = 3;
 const MIN_DIAGRAM_CHARS = 100;
 const MIN_LESSON_SECTIONS = 2;
 
-const aiModules = syllabus.filter((m) => m.track === "AI");
-const aiModuleIds = new Set(aiModules.map((m) => m.id));
+// Each audited track supplies its authored source list (so an empty field is
+// reported against the file it belongs to), its collected/enriched list (so
+// silently dropped topics are caught), and its topic id convention.
+type AuditedTrack = {
+  track: Track;
+  authored: Topic[];
+  collected: Topic[];
+  idPattern: RegExp;
+  idConvention: string;
+};
+
+const auditedTracks: AuditedTrack[] = [
+  {
+    track: "AI",
+    authored: aiTopics,
+    collected: allAiTopics,
+    idPattern: /^topic-ai-[a-z0-9-]+$/,
+    idConvention: "topic-ai-<module>-<slug>"
+  },
+  {
+    track: "OS",
+    authored: osTopics,
+    collected: allOsTopics,
+    idPattern: /^topic-os-[a-z0-9-]+$/,
+    idConvention: "topic-os-<module>-<slug>"
+  },
+  {
+    track: "CPP",
+    authored: cppTopics,
+    collected: allCppTopics,
+    idPattern: /^topic-cpp-[a-z0-9-]+$/,
+    idConvention: "topic-cpp-<module>-<slug>"
+  }
+];
+
+const auditedTrackNames = new Set<Track>(auditedTracks.map((t) => t.track));
 const syllabusModuleIds = new Set(syllabus.map((m) => m.id));
+// Every module belonging to any audited track, so coverage exemptions apply
+// uniformly and a topic filed under another audited track is still an error.
+const auditedModuleIds = new Set(
+  syllabus.filter((m) => auditedTrackNames.has(m.track)).map((m) => m.id)
+);
 
 const errors: string[] = [];
 const warnings: string[] = [];
@@ -40,8 +83,8 @@ function fail(message: string) {
   errors.push(message);
 }
 
-// Diagrams are authored as HTML (see asciiDiagram in data/ai/_shared.ts), so
-// measure the visible text rather than the markup, and treat an escaped "\n"
+// Diagrams are authored as HTML (see asciiDiagram in data/<track>/_shared.ts),
+// so measure the visible text rather than the markup, and treat an escaped "\n"
 // inside a string literal as a real line break.
 function visibleDiagramText(diagram: string): string {
   return diagram
@@ -65,14 +108,14 @@ function substantialDiagram(diagram: string | undefined): boolean {
 const boilerplateComplexity = ["Depends on the selected operation", "Depends on the data structure state"];
 
 // Mojibake guard. Content specs have arrived double-encoded (UTF-8 bytes decoded
-// as cp1252), which turns box-drawing characters into sequences like "â”€". The
+// as cp1252), which turns box-drawing characters into sequences like "a**". The
 // length-based diagram rules cannot see this, because mojibake preserves both
 // line and character counts - so it needs its own check.
 //
 // The lead bytes below are the cp1252 renderings of the UTF-8 prefixes for the
-// ranges we actually use: U+2000-U+2BFF punctuation/arrows/box-drawing (â...),
-// Latin-1 supplement (Ã.../Â...). Plain English prose never contains them.
-const MOJIBAKE_PATTERN = /â[\u0080-\u00FF\u201A-\u20AC\u2020-\u2122]|Â[\u00A0-\u00BF]|Ã[\u0082-\u00BF]/;
+// ranges we actually use: U+2000-U+2BFF punctuation/arrows/box-drawing, and the
+// Latin-1 supplement. Plain English prose never contains them.
+const MOJIBAKE_PATTERN = /\u00E2[\u0080-\u00FF\u201A-\u20AC\u2020-\u2122]|\u00C2[\u00A0-\u00BF]|\u00C3[\u0082-\u00BF]/;
 
 function findMojibake(value: unknown, path: string, hits: string[]): void {
   if (typeof value === "string") {
@@ -99,58 +142,66 @@ function nonEmptyList(value: unknown[] | undefined): boolean {
 }
 
 // ---------------------------------------------------------------------------
-// 1. Structural integrity (runs even while the track is still empty)
+// 1. Structural integrity (runs even while a track is still empty)
 // ---------------------------------------------------------------------------
 
-const seenIds = new Set<string>();
-const nonAiIds = new Set(allTopics.filter((t) => !aiModuleIds.has(t.moduleId)).map((t) => t.id));
+const foreignIds = new Set(allTopics.filter((t) => !auditedModuleIds.has(t.moduleId)).map((t) => t.id));
 
-for (const topic of aiTopics) {
-  if (!topic.id || topic.id.trim().length === 0) {
-    fail(`A topic in the AI dataset has an empty id (title: "${topic.title || "<untitled>"}").`);
-    continue;
+for (const entry of auditedTracks) {
+  const trackModuleIds = new Set(syllabus.filter((m) => m.track === entry.track).map((m) => m.id));
+  const seenIds = new Set<string>();
+
+  for (const topic of entry.authored) {
+    if (!topic.id || topic.id.trim().length === 0) {
+      fail(`A topic in the ${entry.track} dataset has an empty id (title: "${topic.title || "<untitled>"}").`);
+      continue;
+    }
+    if (!syllabusModuleIds.has(topic.moduleId)) {
+      fail(`${topic.id}: moduleId "${topic.moduleId}" is not in the syllabus - this topic is silently dropped.`);
+    } else if (!trackModuleIds.has(topic.moduleId)) {
+      fail(`${topic.id}: moduleId "${topic.moduleId}" does not belong to the ${entry.track} track.`);
+    }
+    if (seenIds.has(topic.id)) {
+      fail(`${topic.id}: duplicate topic id inside the ${entry.track} dataset - only the first copy survives collect().`);
+    }
+    seenIds.add(topic.id);
+    if (foreignIds.has(topic.id)) {
+      fail(`${topic.id}: id collides with an existing topic from another track - collect() keeps the earlier one.`);
+    }
+    if (!entry.idPattern.test(topic.id)) {
+      fail(`${topic.id}: does not follow the ${entry.idConvention} id convention.`);
+    }
   }
-  if (!syllabusModuleIds.has(topic.moduleId)) {
-    fail(`${topic.id}: moduleId "${topic.moduleId}" is not in the syllabus - this topic is silently dropped.`);
-  } else if (!aiModuleIds.has(topic.moduleId)) {
-    fail(`${topic.id}: moduleId "${topic.moduleId}" belongs to a non-AI module.`);
-  }
-  if (seenIds.has(topic.id)) {
-    fail(`${topic.id}: duplicate topic id inside the AI dataset - only the first copy survives collect().`);
-  }
-  seenIds.add(topic.id);
-  if (nonAiIds.has(topic.id)) {
-    fail(`${topic.id}: id collides with an existing non-AI topic - collect() keeps the earlier one.`);
-  }
-  if (!/^topic-ai-[a-z0-9-]+$/.test(topic.id)) {
-    fail(`${topic.id}: does not follow the topic-ai-<module>-<slug> id convention.`);
+
+  const survivingIds = new Set(entry.collected.map((t) => t.id));
+  for (const topic of entry.authored) {
+    if (topic.id && !survivingIds.has(topic.id)) {
+      fail(
+        `${topic.id}: authored but missing from the collected ${entry.track} dataset - it was dropped or de-duplicated during aggregation.`
+      );
+    }
   }
 }
 
-const survivingIds = new Set(allAiTopics.map((t) => t.id));
-for (const topic of aiTopics) {
-  if (topic.id && !survivingIds.has(topic.id)) {
-    fail(`${topic.id}: authored but missing from allAiTopics - it was dropped or de-duplicated during aggregation.`);
-  }
-}
-
-// Every syllabus module should have at least one topic. AI modules are exempt
-// while the AI dataset is entirely empty (the pre-content bootstrap state), and
-// the rule as a whole is only enforced with --complete so the audit stays usable
-// as a per-module gate during the content phase. Non-AI modules are always
-// checked, so this never silently regresses the existing tracks.
-const aiTrackIsEmpty = aiTopics.length === 0;
-const emptyAiModules: string[] = [];
+// Every syllabus module should have at least one topic. Modules of an audited
+// track are exempt while that track's dataset is entirely empty (the pre-content
+// bootstrap state), and the rule as a whole is only enforced with --complete so
+// the audit stays usable as a per-module gate during the content phase. Modules
+// outside the audited tracks are always checked, so this never silently
+// regresses the existing tracks.
+const emptyTracks = new Set(auditedTracks.filter((t) => t.authored.length === 0).map((t) => t.track));
+const emptyModulesByTrack = new Map<Track, string[]>(auditedTracks.map((t) => [t.track, [] as string[]]));
 
 for (const mod of syllabus) {
+  const isAudited = auditedTrackNames.has(mod.track);
   const count = allTopics.filter((t) => t.moduleId === mod.id).length;
   if (count === 0) {
-    if (aiModuleIds.has(mod.id)) {
-      emptyAiModules.push(mod.id);
-      if (aiTrackIsEmpty || !enforceCoverage) continue;
+    if (isAudited) {
+      emptyModulesByTrack.get(mod.track)!.push(mod.id);
+      if (emptyTracks.has(mod.track) || !enforceCoverage) continue;
     }
     fail(`${mod.id} ("${mod.title}") has no topics.`);
-  } else if (aiModuleIds.has(mod.id) && count !== mod.topicCount) {
+  } else if (isAudited && count !== mod.topicCount) {
     warnings.push(`${mod.id}: topicCount metadata says ${mod.topicCount} but ${count} topic(s) are authored.`);
   }
 }
@@ -159,7 +210,7 @@ for (const mod of syllabus) {
 // 2. Content depth (per topic; enforced once content exists)
 // ---------------------------------------------------------------------------
 
-function auditTopicContent(topic: Topic) {
+function auditTopicContent(topic: Topic, track: Track) {
   const id = topic.id;
 
   if (!topic.intuition || topic.intuition.trim().length < 40) {
@@ -201,7 +252,9 @@ function auditTopicContent(topic: Topic) {
 
   const complexity = topic.complexity;
   if (!complexity || !complexity.time?.trim() || !complexity.space?.trim()) {
-    fail(`${id}: complexity.time and complexity.space must both be set (AI topics use them for latency/cost framing).`);
+    fail(
+      `${id}: complexity.time and complexity.space must both be set (${track} topics use them for cost/latency framing).`
+    );
   } else {
     if (boilerplateComplexity.includes(complexity.time.trim())) {
       fail(`${id}: complexity.time is the enrichTopic boilerplate ("${complexity.time}") - the source field is empty.`);
@@ -233,8 +286,10 @@ function auditTopicContent(topic: Topic) {
 
 // Audit the authored source topics, so an empty field is reported against the
 // file it belongs to rather than against its enriched replacement.
-for (const topic of aiTopics) {
-  auditTopicContent(topic);
+for (const entry of auditedTracks) {
+  for (const topic of entry.authored) {
+    auditTopicContent(topic, entry.track);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -247,27 +302,37 @@ for (const warning of warnings) {
 
 // Progress is informational in the default mode so it stays visible without
 // being a failure.
-if (!aiTrackIsEmpty && emptyAiModules.length > 0 && !enforceCoverage) {
-  console.log(
-    `INFO: ${emptyAiModules.length}/${aiModules.length} AI modules still empty (run with --complete to enforce): ${emptyAiModules.join(", ")}`
-  );
+if (!enforceCoverage) {
+  for (const entry of auditedTracks) {
+    if (emptyTracks.has(entry.track)) continue;
+    const empty = emptyModulesByTrack.get(entry.track)!;
+    if (empty.length === 0) continue;
+    const total = syllabus.filter((m) => m.track === entry.track).length;
+    console.log(
+      `INFO: ${empty.length}/${total} ${entry.track} modules still empty (run with --complete to enforce): ${empty.join(", ")}`
+    );
+  }
 }
 
 if (errors.length > 0) {
-  console.error(`FAIL: ${errors.length} AI track problem(s):`);
+  console.error(`FAIL: ${errors.length} track content problem(s):`);
   for (const message of errors) console.error(` - ${message}`);
   process.exit(1);
 }
 
-if (aiTrackIsEmpty) {
-  console.log(
-    `PASS (bootstrap): the AI dataset is still empty, so per-topic checks are skipped. All ${aiModules.length} AI modules are declared and every non-AI module has topics.`
-  );
-} else {
+for (const entry of auditedTracks) {
+  const total = syllabus.filter((m) => m.track === entry.track).length;
+  if (emptyTracks.has(entry.track)) {
+    console.log(
+      `PASS (bootstrap): the ${entry.track} dataset is still empty, so per-topic checks are skipped. All ${total} ${entry.track} modules are declared.`
+    );
+    continue;
+  }
+  const empty = emptyModulesByTrack.get(entry.track)!.length;
   const coverageNote = enforceCoverage
-    ? `all ${aiModules.length} modules are populated`
-    : `${aiModules.length - emptyAiModules.length}/${aiModules.length} modules populated (coverage not enforced)`;
+    ? `all ${total} modules are populated`
+    : `${total - empty}/${total} modules populated (coverage not enforced)`;
   console.log(
-    `PASS: all ${aiTopics.length} AI topics have valid ids/moduleIds, a substantial lesson diagram, explicit complexity framing, populated tips/tricks/memoryAids/interviewPatterns/references/practiceProblems, and at least ${MIN_FAQS} FAQs; ${coverageNote}.`
+    `PASS: all ${entry.authored.length} ${entry.track} topics have valid ids/moduleIds, a substantial lesson diagram, explicit complexity framing, populated tips/tricks/memoryAids/interviewPatterns/references/practiceProblems, and at least ${MIN_FAQS} FAQs; ${coverageNote}.`
   );
 }

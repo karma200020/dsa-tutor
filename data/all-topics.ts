@@ -11,10 +11,19 @@ import { allDsaTopics } from "./topics/dsa";
 import { allLldTopics } from "./topics/lld";
 import { allHldTopics } from "./topics/hld";
 import { allAiTopics } from "./topics/ai";
+import { allOsTopics } from "./topics/os";
+import { allCppTopics } from "./topics/cpp";
 
-export { allDsaTopics, allLldTopics, allHldTopics, allAiTopics };
+export { allDsaTopics, allLldTopics, allHldTopics, allAiTopics, allOsTopics, allCppTopics };
 
-export const allTopics: Topic[] = [...allDsaTopics, ...allLldTopics, ...allHldTopics, ...allAiTopics];
+export const allTopics: Topic[] = [
+  ...allDsaTopics,
+  ...allLldTopics,
+  ...allHldTopics,
+  ...allAiTopics,
+  ...allOsTopics,
+  ...allCppTopics
+];
 
 export const topicsByModule: Record<string, Topic[]> = syllabus.reduce(
   (acc, mod) => {
