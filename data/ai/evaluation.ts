@@ -965,5 +965,710 @@ export const aiEvaluationTopics: Topic[] = [
         insight: "Course covering end-to-end eval pipeline including LLM judge design, calibration workflows, and CI integration with worked examples."
       }
     ]
+  },
+  {
+    id: "topic-ai-evaluation-regression-testing",
+    moduleId: "mod-ai-evaluation",
+    title: "Regression Testing Prompts and CI for AI: Preventing Silent Degradation",
+    intuition: "A code change that breaks a deterministic function will fail a unit test immediately. A prompt change that degrades an LLM feature by 12% will ship to production undetected unless you have an eval gate in your CI pipeline. Regression testing for AI is the discipline of catching that degradation before it reaches users — and the engineering challenge is doing it reliably despite nondeterministic outputs, inference costs, and the absence of a binary pass/fail signal.",
+
+    complexity: {
+      time: "A CI eval suite of 50 examples at 2 seconds per call takes roughly 100 seconds on a single thread; parallelised to 10 concurrent calls, roughly 10–15 seconds. A 500-example suite with LLM-as-judge scoring adds judge inference time — budget 3–5 minutes per CI run. Full nightly regression over 2,000 examples: 20–40 minutes depending on parallelism and judge model speed.",
+      space: "Eval results and prompt versions stored in a JSONL artifact: roughly 1–5 MB per CI run. Accumulated eval history for trend analysis: a few GB per year at daily runs over 2,000 examples. The eval runner itself has no significant memory footprint — it is I/O bound on LLM API calls."
+    },
+
+    lesson: [
+      {
+        title: "Why Prompt Regressions Are Silent and Expensive",
+        content: "Traditional software has deterministic outputs: a function that returned the correct value before a code change will return an incorrect value after the breaking change, and a unit test catches this immediately. LLM features are different in four ways that make regression invisible without explicit eval infrastructure. First, the output is nondeterministic — the same prompt may produce different outputs on different runs, so 'it works when I test it' is not a reliable signal. Second, quality is continuous rather than binary — a prompt change that reduces answer quality by 15% has not 'broken' the feature in any observable binary sense; users experience it as slightly worse, which is harder to attribute than a complete failure. Third, the regression may come from outside your codebase — model providers silently update their models (GPT-4 '0613' to '0125' to 'turbo'), and your prompt may behave differently against the new version. Fourth, prompt changes are frequently not reviewed with the same rigour as code changes — they may bypass code review entirely if stored as configuration rather than source code. The cost of undetected regressions is real: Hamel Husain and Shreya Shankar's practitioner surveys consistently found that LLM product teams without eval pipelines discover regressions from user complaints weeks to months after they were introduced. By that point the regression may have been compounded by further prompt changes, making root cause analysis expensive."
+      },
+      {
+        title: "Prompt Versioning: Treating Prompts as Code",
+        content: "Prompts must be version-controlled with the same discipline as source code — this is the prerequisite for any regression testing infrastructure. The minimal requirement: prompts stored in the source repository (not in a database, spreadsheet, or someone's mental model), with changes tracked via pull requests and diffs. Every prompt file change should go through pull request review by at least one person familiar with the eval set, trigger the CI eval gate automatically, and update the prompt's changelog entry. This discipline transforms prompt tuning from an undocumented art into a traceable engineering practice where every quality change is attributable to a specific commit.",
+        codeExample: `# prompts.yaml — prompt versioning structure
+customer_service_system:
+  version: "1.2"
+  model: "gpt-4o-2024-11-20"   # pinned, never a floating alias
+  temperature: 0.2
+  content: |
+    You are a concise customer service assistant for Acme SaaS.
+    Always resolve tickets directly. Never escalate unless the
+    user explicitly requests it. Respond in 2-3 sentences.
+  changelog:
+    - "1.2: removed escalation behaviour that caused 24pp drop in direct answer rate"
+    - "1.1: added tone softening after user testing"
+    - "1.0: initial version"
+
+# CI trigger rule (GitHub Actions .github/workflows/eval.yml):
+# on:
+#   pull_request:
+#     paths:
+#       - "prompts/**"
+#       - "src/rag/**"
+#       - "config/model_versions.yaml"`
+      },
+      {
+        title: "The Eval Gate: Structure of a CI Pipeline for AI",
+        content: "The eval gate is the central structure of CI for AI. It runs automatically on every pull request that touches prompt files, model configurations, or retrieval parameters, and blocks merge if the eval score falls below a defined threshold. Two eval tiers make this practical: a fast tier (20–50 examples, rule-based assertions only, under 30 seconds) that runs on every commit as a smoke test, and a full tier (100–500 examples with LLM-as-judge scoring, 3–5 minutes) that runs on pull requests targeting main. Triggering the full tier on every commit would cost too much in time and API spend.",
+        diagram: asciiDiagram(`
+┌──────────────────────────────────────────────────────────────────────┐
+│                    AI FEATURE CI PIPELINE                            │
+│                                                                      │
+│  Pull Request (prompt change, model version bump, RAG config change) │
+│       │                                                              │
+│       ▼                                                              │
+│  ┌─────────────────────────────────────────────────────────┐        │
+│  │  Eval Runner                                            │        │
+│  │  1. Load eval set (N=50 fast tier, N=500 full tier)     │        │
+│  │  2. Run each example K=3 times (nondeterminism buffer)  │        │
+│  │  3. Score: rule-based assertions + LLM-as-judge         │        │
+│  │  4. Aggregate: mean score, pass rate, p10/p50/p90       │        │
+│  └────────────────────────┬────────────────────────────────┘        │
+│                           │                                          │
+│           ┌───────────────┴────────────────┐                        │
+│           ▼                                ▼                        │
+│  Score above threshold?           Score below threshold?            │
+│           │                                │                        │
+│           ▼                                ▼                        │
+│      PASS: Merge allowed          BLOCK: Post diff to PR comments   │
+│      Store results as artifact    Require manual review             │
+└──────────────────────────────────────────────────────────────────────┘`)
+      },
+      {
+        title: "Handling Nondeterminism: Thresholds, K-Sampling, and Statistical Tests",
+        content: "Nondeterminism is the principal technical challenge in AI CI. A prompt that scores 78% on one run may score 74% or 82% on the next run due to sampling randomness — and a CI gate that blocks merges on a 2-point variance will produce false failures constantly. Three techniques manage this. K-sampling: run each eval example K=3 times and report the mean (or minimum) score across the K runs. A genuine regression will produce consistently lower scores across all K runs; a random variance will produce mixed results. Absolute threshold with margin: set the gate at a score that is meaningfully below the current baseline, not at the exact current score — if the baseline is 82%, set the gate at 78%, a 4-point margin that absorbs random variance while catching real regressions. Relative threshold against a baseline run: instead of an absolute score threshold, require that the new prompt's score is not more than X% below a reference run re-executed fresh in the same CI job — this eliminates model drift as a source of false failures because both the baseline and the new version are evaluated against the same model version at the same time.",
+        diagram: asciiDiagram(`
+┌──────────────────────────────────────────────────────────────────┐
+│  NONDETERMINISM HANDLING STRATEGIES                              │
+├───────────────────────┬──────────────────────────────────────────┤
+│ Strategy              │ When to use                              │
+├───────────────────────┼──────────────────────────────────────────┤
+│ K=3 sampling + mean   │ Default; balances cost and stability     │
+│ Absolute threshold    │ Simple; set 3-5 pts below baseline       │
+│ Relative threshold    │ When model version drift is a concern    │
+│ Seed-pinned runs      │ When using temp=0; removes sampling      │
+│                       │ randomness but may mask production issues│
+└───────────────────────┴──────────────────────────────────────────┘`)
+      },
+      {
+        title: "Cost Management: The Tiered Eval Strategy",
+        content: "Running a 500-example LLM-as-judge eval on every commit is economically impractical. At $0.01 per judged example (judge model input + output cost), 500 examples costs $5 per run. At 20 commits per day across a team of 5 engineers, that is $100/day or $36,000/year for one feature's eval suite. The tiered strategy controls cost by matching eval depth to the risk level of the change. Additional cost controls: cache LLM responses during eval runs at fixed temperature and reuse cached responses for baseline comparison; use a cheaper model (gpt-4o-mini, claude-haiku) for the judge on smoke and PR tiers, reserving the most capable judge for the nightly full run; sample a stratified subset of the full eval set for the PR tier rather than running all 500 examples.",
+        diagram: asciiDiagram(`
+┌──────────────────────────────────────────────────────────────────────┐
+│  TIERED EVAL STRATEGY                                                │
+├──────────────────┬────────────┬──────────────┬───────────────────────┤
+│ Tier             │ Trigger    │ Examples     │ Scorer                │
+├──────────────────┼────────────┼──────────────┼───────────────────────┤
+│ Smoke test       │ Every push │ 20 (fast set)│ Rule-based only       │
+│                  │            │              │ (zero LLM cost)       │
+├──────────────────┼────────────┼──────────────┼───────────────────────┤
+│ PR gate          │ PR to main │ 100 (repr.)  │ Rule-based + judge    │
+│                  │            │              │ on 30% of examples    │
+├──────────────────┼────────────┼──────────────┼───────────────────────┤
+│ Nightly full run │ Nightly    │ 500+ (full)  │ Full LLM-as-judge     │
+│                  │            │              │ + human spot-check    │
+└──────────────────┴────────────┴──────────────┴───────────────────────┘`)
+      }
+    ],
+
+    examples: [
+      {
+        title: "The Prompt Change That Looked Safe but Degraded Quality by 14%",
+        input: "Engineer changes v1.1 system prompt ('You are a concise assistant. Always give a direct answer in 2-3 sentences.') to v1.2 ('You are helpful and empathetic. Take time to fully address the customer's concern and make sure they feel heard before providing your answer.'). Manual test on 5 examples: all look fine. CI eval gate runs on 100-example PR tier.",
+        output: "CI EVAL RESULT — PR BLOCKED. Metric: mean response length v1.1 = 48 words, v1.2 = 127 words (+164%). Direct answer rate v1.1 = 91%, v1.2 = 67% (-24 pp). LLM-as-judge quality v1.1 = 4.1/5, v1.2 = 3.5/5. Gate threshold: quality must exceed 3.8. Candidate score 3.5 is below threshold. Merge blocked. Diff posted to PR: 'Response length increased 164%. Direct answer rate dropped 24 pp. The feel-heard instruction is causing the model to add empathetic preamble before answering, degrading the conciseness that users preferred.'",
+        explanation: "Step 1: The engineer's 5-example manual test did not detect the regression — 5 examples cannot measure a systematic drift in response style. Step 2: The 100-example CI eval measured the aggregate pattern and caught a 24-point drop in direct answer rate. Step 3: The threshold comparison (3.5 vs 3.8 gate) produced an automatic block with an actionable diff. Step 4: The diff identifies the specific mechanism (preamble insertion) rather than just reporting a score drop. This is the core ROI of a CI eval gate: it catches changes that feel like improvements from the engineer's perspective but degrade measurable aggregate quality."
+      },
+      {
+        title: "Distinguishing Random Variance from a Real Regression",
+        input: "Baseline score (current production prompt, 3 runs): Run 1: 81.4%, Run 2: 79.8%, Run 3: 82.1%, Mean: 81.1%. Candidate score (new prompt, 3 runs): Run 1: 78.9%, Run 2: 79.1%, Run 3: 78.6%, Mean: 78.9%. Gate threshold: mean score above 78%.",
+        output: "Analysis: Candidate mean 78.9% is above the 78% absolute threshold. Delta vs. baseline: -2.2 percentage points. Baseline variance across 3 runs: ±1.2 pp (range 2.3 pp). The -2.2 pp delta is within 2 standard deviations of baseline variance — consistent with random sampling noise. Verdict: PASS (score above threshold). Flag for human review: the delta is small but consistent across all 3 candidate runs (78.6%–79.1%), which is slightly more directional than pure noise. Note in PR: 'Borderline pass. Recommend running the nightly full-500-example eval before merging if this feature is high-traffic.'",
+        explanation: "Step 1: The absolute threshold (78%) absorbs normal run-to-run variance without requiring a statistical test on every run. Step 2: K=3 sampling reveals the score pattern — all three candidate runs in the 78.6%–79.1% band, which is tighter than baseline variance. Step 3: Consistent low-range scores across K runs are a stronger regression signal than a single low-score run; mixed results across runs indicate noise. Step 4: The borderline flag preserves human judgement for edge cases without blocking a clearly passing run. This example correctly passes the gate while flagging an anomaly — the right outcome."
+      },
+      {
+        title: "Model Version Drift as a Silent Regression Source",
+        input: "Team pins eval gate to model 'gpt-4o' (no version suffix). Eval runs 2024-11-01: pass rate 87%. Deploy. OpenAI silently rotates 'gpt-4o' to a new checkpoint on 2024-11-15. Nightly eval on 2024-11-16: pass rate 79%. No code or prompt changes made between dates.",
+        output: "ROOT CAUSE: model version drift. 'gpt-4o' without a date suffix is a floating alias that OpenAI rotates to new checkpoints without announcement. New checkpoint changed behaviour in 3 categories: multi-step reasoning — improved (3 failures now pass); instruction following on exact format — regressed (5 new failures on JSON output — new model is more conversational); short factual questions — unchanged. Net effect: -8 pp pass rate from format regressions. Fix: pin to 'gpt-4o-2024-11-20' in all production calls and all CI eval runs. Add a monthly job to evaluate the latest model version and decide when to upgrade deliberately.",
+        explanation: "Step 1: The nightly eval caught the regression because it runs regularly against a stable golden set. Step 2: The absence of code or prompt changes in the Git log narrows the root cause to external sources (model, retrieval, infrastructure). Step 3: The per-category breakdown (improved on reasoning, regressed on format) is the diagnostic that confirms model behaviour change rather than data drift. Step 4: The fix is straightforward — pin model versions — but it requires treating model upgrades as deliberate decisions rather than passive side effects of using floating aliases."
+      }
+    ],
+
+    tips: [
+      "Store prompts in source control, not in databases or spreadsheets — a prompt that is not in version control cannot be regression-tested, rolled back, or attributed to a specific change.",
+      "Set the threshold 3–5 points below the current baseline — absorb random variance without letting genuine regressions pass. Document the threshold value and revisit it when the baseline changes significantly.",
+      "Run the fast smoke tier on every push, the full eval only on PRs to main — this tiering is what makes CI eval economically viable. A 20-example rule-based smoke test costs nothing and catches format regressions immediately.",
+      "Pin model versions in production and in CI eval — floating model aliases (gpt-4o, claude-3-5-sonnet-latest) are silent regression sources. Deliberate model upgrades are easier to manage and debug than silent ones.",
+      "Always test K=3 runs rather than a single run for the PR gate — a single run can be misleadingly good or bad due to sampling variance. Three runs at 30 seconds each is a reasonable cost for a reliable gate."
+    ],
+
+    tricks: [
+      "Cache LLM responses during eval at temperature=0 for the baseline comparison in relative threshold mode — this eliminates sampling randomness from the comparison entirely. The tradeoff: temperature=0 may not reflect production behaviour if you use higher temperatures in production.",
+      "The 'canary eval set' trick: maintain 20 examples specifically chosen because they failed before a previous fix. These are regression canaries — if any of them fail again, a known regression has re-emerged. Keep them permanently in the fast smoke tier so they run on every push.",
+      "Post eval diffs as PR comments automatically — configure the CI job to post a markdown table comparing before/after scores by category to the PR comment thread. Engineers see the impact of their prompt change alongside the code diff without navigating to a CI artifact.",
+      "Budget for eval cost in your feature cost model — add the expected annual CI eval spend from day one. At $5 per full eval run × daily = $1,825/year per feature. Teams that do not budget for this tend to disable the nightly eval when cost pressures arise — exactly when they need it most.",
+      "promptfoo (open source, Apache 2.0) handles CI eval scaffolding — loading test cases, running providers, applying scorers, comparing results, and outputting CI-friendly exit codes — so you do not build the runner from scratch. Configuration is YAML-based."
+    ],
+
+    memoryAids: [
+      "'Prompts are code; treat them like code' — version control, pull requests, code review, and a CI gate. No special handling required beyond what already exists for source code.",
+      "'Three-tier eval: smoke on push, gate on PR, full run nightly' — the cadence and content of each tier in one line.",
+      "'K=3 to see the shape; threshold to draw the line' — K-sampling reveals whether a score pattern is consistent or noisy; the threshold determines whether it is acceptable.",
+      "'Pin versions; drift is silent' — model version pinning is the one-word fix to the model-drift regression class."
+    ],
+
+    interviewPatterns: [
+      "'How do you prevent prompt regressions from reaching production?' — Expects: prompt versioning in source control, eval gate in CI, tiered eval strategy, threshold design, and model version pinning as drift mitigation.",
+      "'You changed the system prompt and the eval passed, but production is worse. What do you investigate?' — Expects: eval set coverage (does it represent the production distribution?), model version drift between eval and production, K-sampling variance (was it a single-run pass?), and whether the eval set itself needs updating from recent production traffic.",
+      "'How do you handle nondeterminism in CI eval — you cannot get a binary pass/fail from a probabilistic system.' — Expects: K-sampling for variance reduction, absolute threshold with margin, relative threshold against a baseline run, and the distinction between normal variance and a genuine regression.",
+      "'How do you manage the cost of running evals in CI?' — Expects: the tiered strategy (smoke, PR gate, nightly full run), caching at temperature=0 for deterministic reruns, and using cheaper judge models for fast tiers.",
+      "'A model provider silently updated their model and your product degraded. How do you detect and prevent this?' — Expects: model version pinning (the prevention), nightly eval (the detection), and a deliberate model upgrade process triggered by a scheduled evaluation of the new version rather than passive adoption of a floating alias.",
+      "Frequency and companies: Tier 2 (65%) for SWE and MLE roles at companies with production AI features. Probed as 'how do you prevent prompt regressions in production?' and 'walk me through your CI pipeline for an AI feature.' Companies with mature ML platforms — Lyft, Uber, Airbnb, Stripe, DoorDash, Netflix — probe this at meaningful depth."
+    ],
+
+    faq: [
+      {
+        question: "What should be in the eval set for CI regression testing?",
+        answer: "The eval set should be a representative stratified sample of the production input distribution, not a random sample. Include examples from each major task category your feature handles (typically 5–10 per category), known failure cases from previous bugs or user complaints (your regression canaries), edge cases that are rare but consequential (empty input, very long input, off-topic queries), and adversarial examples that test the boundaries of the prompt's intent. The eval set should be reviewed and expanded regularly — add new examples from production traffic every sprint so it tracks the evolving input distribution. A set that was representative six months ago may not be representative today."
+      },
+      {
+        question: "How do I score eval results automatically when the output is open-ended text?",
+        answer: "Use a layered scoring approach: rule-based assertions for measurable properties (JSON validity, response length bounds, required keyword presence, format compliance) that are zero-cost and run on every example; LLM-as-judge for qualitative properties (helpfulness, accuracy, tone) using a rubric that scores on a 1–5 scale with explicit criteria per score level; and reference-based metrics (ROUGE, BERTScore) if you have golden reference responses, though these are less reliable for open-ended text than LLM-as-judge. The combination of rule-based (fast, cheap, objective) and LLM-as-judge (slower, more expensive, subjective) gives you both structural and semantic regression detection."
+      },
+      {
+        question: "What is the right threshold for the eval gate?",
+        answer: "Start by measuring the baseline score variance across 10 runs of the current prompt at your target temperature. The threshold should be set at baseline mean minus 2× the standard deviation across runs — this absorbs random variance while catching genuine regressions. In practice, most teams find that a 3–5 percentage point margin below the current baseline is appropriate. The threshold should be documented with its rationale and revisited whenever the baseline changes significantly (more than 10 points in either direction). A threshold that is too tight generates false CI failures; a threshold that is too loose allows real regressions to pass. Start conservatively (larger margin) and tighten as you learn your eval set's variance characteristics."
+      },
+      {
+        question: "Should the eval gate block merges automatically or just warn?",
+        answer: "Block for merges to the main or production branch; warn for feature branches. Automatic blocking on main prevents regressions from reaching production without any human action. Warnings on feature branches give engineers feedback during development without creating friction on every experimental commit. The blocking mode requires that the eval gate be reliable enough that false blocks (genuine regressions vs. random variance) are rare — which is why K=3 sampling and a margin-based threshold are prerequisites for blocking mode. If the gate generates frequent false blocks, engineers will route around it, which defeats its purpose."
+      },
+      {
+        question: "How do I run evals in CI without spending hundreds of dollars per day on API calls?",
+        answer: "Three cost controls: tiered eval sets (20-example smoke tests for every push at near-zero cost, 100-example PR gate with partial judge scoring, 500-example nightly full run with full judge scoring); model cost optimisation (use gpt-4o-mini or claude-haiku as the judge for smoke and PR tiers, reserving the full-capability judge for nightly runs); and response caching (cache responses at temperature=0 for deterministic reruns and baseline comparisons — a repeated run against the same prompt version and model version costs nothing after the first run). With these controls, a CI eval pipeline for one feature typically costs $50–200 per month."
+      },
+      {
+        question: "My eval passed but production is worse after the prompt change. What happened?",
+        answer: "Five diagnoses in order of likelihood: distribution shift (the eval set does not represent the current production input distribution; fix by adding examples from recent production traffic); model version drift (the eval ran against one model checkpoint and production is serving a different floating alias; fix by pinning model versions in both eval and production); eval set contamination (the eval set overlaps with examples used as few-shot examples in the prompt, inflating the eval score artificially); K=1 run variance (the eval passed on a single lucky run above threshold; fix with K=3); threshold too loose (the threshold was set so far below baseline that a genuine regression passed; tighten the threshold)."
+      }
+    ],
+
+    practiceProblems: [
+      "**Problem:** Design a CI eval pipeline for an AI-powered code review feature. Specify: what goes in the eval set (100 examples), how you score it, what threshold you set, and how you handle nondeterminism. **Answer:** Eval set — stratified by review type: 25 security issues (SQL injection, secrets in code, unsafe deserialization), 25 style issues (naming, function length, duplication), 25 logical errors (off-by-one, wrong null handling), 25 edge cases (empty diff, very large diff, non-English PR). Source first 50 from real historical PRs with high-quality engineer reviews; generate other 50 synthetically using Llama-3-70B with historical examples as seeds. Scoring — rule-based assertions on every example: output is valid JSON with required fields 'severity', 'category', 'comment', 'line_number'; comment length 20–200 words; severity is one of critical/warning/suggestion/nitpick. LLM-as-judge on 30 of the 100 examples (randomly sampled): score 1–5, judge model: gpt-4o. Threshold — run 10 baseline runs; baseline mean 3.9, std dev 0.15; set threshold at 3.9 − 2×0.15 = 3.6. Nondeterminism — run each of the 30 judge-scored examples K=3 times, report mean across runs. Tiering — smoke on every push (20 examples, rule-based, 15s, zero cost); PR gate (100 examples with judge on 30, 3 min, ~$0.30); nightly full run (500 examples, judge on all, 25 min, ~$5).",
+      "**Problem:** Your CI gate has been blocking merges for two days even though no prompt changes were made. The eval pass rate was 84% last week and is now 73%. Walk through the diagnostic checklist. **Answer:** Hypothesis 1 — model version drift: check what model version was used in last week's passing runs vs. this week's failing runs. If using a floating alias, confirm with the provider whether it was rotated recently. Run the eval against an explicitly pinned version from last week and compare. Hypothesis 2 — eval set changed: check whether new examples were added to the eval set this week. Run the eval on the old eval set only; if pass rate recovers, the new examples are the cause. Hypothesis 3 — nondeterminism spike: run the eval K=5 times and check variance. If scores cluster around 73% consistently, it is a real shift; if they span 72%–84%, it is variance — switch to K=3 minimum for the gate. Hypothesis 4 — external dependency change: for a RAG feature, check whether the retrieval index was updated. Resolution order: investigate Hypothesis 1 first (model version drift is the most common cause of silent multi-day regressions without code changes).",
+      "**Problem:** Your eval set is 50 examples scored by an LLM judge on a 1–5 scale. You run the current prompt 10 times and get mean scores: 4.1, 3.9, 4.2, 4.0, 3.8, 4.1, 4.0, 3.9, 4.1, 4.2. Set the CI threshold and justify your choice. **Answer:** Statistics: mean = 4.03, std dev ≈ 0.13, range 3.8–4.2. Threshold calculation: 4.03 − 2×0.13 = 3.77, rounded to 3.7. Justification: a score of 3.7 is 2.5 standard deviations below the baseline mean — a random run would fall below threshold only 0.6% of the time (essentially never), so the gate generates very few false blocks. Any consistent shift below 3.7 is a genuine regression. The threshold is not set at 4.0 (rounded mean) because that would generate false blocks on roughly half of all legitimate runs. Documentation: record threshold = 3.7, set on [date], baseline mean = 4.03, baseline std = 0.13, 10-run sample. Review threshold if baseline mean changes by more than 0.3 points."
+    ],
+
+    references: [
+      {
+        source: "blog",
+        attribution: "Hamel Husain — 'Your AI Product Needs Evals' (hamel.dev, 2023) - https://hamel.dev/blog/posts/evals/",
+        insight: "The practitioner essay that established eval discipline as the primary differentiator between teams that ship reliable AI products and those that do not. Directly motivates the CI eval pipeline concept."
+      },
+      {
+        source: "blog",
+        attribution: "Shreya Shankar — 'Who Validates the Validators?' and LLM eval writing (shreyashankar.com, 2023–2024) - https://www.shreya-shankar.com/",
+        insight: "Empirical work on prompt drift and the unreliability of automated evals without calibration; the research foundation for the nondeterminism handling section."
+      },
+      {
+        source: "note",
+        attribution: "promptfoo — open-source LLM testing and CI evaluation framework (Apache 2.0) - https://github.com/promptfoo/promptfoo",
+        insight: "The most widely used open-source tool for running LLM eval suites in CI. Handles test case loading, provider calls, scorer application, and CI-friendly exit codes."
+      },
+      {
+        source: "note",
+        attribution: "LangSmith — LLM tracing, evaluation, and CI integration (LangChain) - https://docs.smith.langchain.com/evaluation/how_to_guides/evaluate_llm_application",
+        insight: "LangSmith's CI/CD integration features allow running named eval suites on pull requests and posting score comparisons as PR comments."
+      },
+      {
+        source: "blog",
+        attribution: "Eugene Yan — 'Patterns for Building LLM-based Systems and Products' (eugeneyan.com, 2023) - https://eugeneyan.com/writing/llm-patterns/",
+        insight: "The evals section and the discussion of offline vs. online evaluation directly inform the tiered eval strategy and the distinction between CI regression testing and production monitoring."
+      },
+      {
+        source: "book",
+        attribution: "Chip Huyen — AI Engineering (O'Reilly, 2025), Chapter 4: Evaluation Methodology - https://www.oreilly.com/library/view/ai-engineering/9781098166298/",
+        insight: "The most complete published treatment of evaluation infrastructure, including CI eval design, threshold setting, and the relationship between offline and online evaluation for production AI systems."
+      }
+    ]
+  },
+  {
+    id: "topic-ai-evaluation-production-monitoring",
+    moduleId: "mod-ai-evaluation",
+    title: "Production Monitoring and Online Evaluation: Observing Live AI Systems",
+    intuition: "An offline eval tells you how well a prompt performs on a curated set of examples before deployment. Production monitoring tells you how it performs on everything real users actually send — including the inputs you never thought to put in your eval set. Without structured logging of every request, you cannot reconstruct why a specific response was bad, cannot detect when quality drifts silently, and cannot answer the first question any incident review asks: what exactly did the model see and what did it say?",
+
+    complexity: {
+      time: "Structured log write per request: under 1ms overhead. Continuous LLM-as-judge scoring on a 5% sample of traffic: at 1,000 requests/min, 50 judge calls/min at 2 seconds each requires roughly 2 concurrent judge workers to keep pace — budget this as a background service, not on the request path. Drift detection batch job over 24 hours of logs: 5–15 minutes depending on embedding volume.",
+      space: "Structured log per request at full fidelity (input, context chunks, output, metadata): roughly 2–10 KB per request. At 1M requests/day: 2–10 GB/day of raw logs. After 90-day retention and cold-tier archival, this is manageable; at 10M requests/day, a sampling strategy becomes necessary for full-fidelity storage."
+    },
+
+    lesson: [
+      {
+        title: "What to Log and Why Reconstruction Is the Goal",
+        content: "The design principle for production logging is: log everything required to reconstruct the model's exact experience at the moment a response was generated. After the fact, with only the final response and a user complaint, you cannot determine whether the bad answer came from bad retrieval, a bad prompt, a model version change, or an unusual input. With a complete trace, you can replay the entire call and understand each decision point. The fields that teams most commonly omit — and most regret omitting — are retrieved_chunks (for RAG), prompt_version, and model_name + version. Without retrieved chunks you cannot tell whether a wrong answer came from bad retrieval or bad generation. Without prompt and model version you cannot attribute a quality change to a specific deployment event. One caveat that must always apply: never store raw PII in production logs. User inputs and model outputs frequently contain names, email addresses, account numbers, and other sensitive data. Establish a PII scanning step (Presidio, spaCy NER) that runs on user input before logging, replacing entities with typed placeholders. The logged trace should be fully auditable without being a privacy liability.",
+        diagram: asciiDiagram(`
+┌─────────────────────────────────────────────────────────────────────┐
+│  STRUCTURED LOG SCHEMA — PER REQUEST                                │
+├────────────────────────┬────────────────────────────────────────────┤
+│ Field                  │ Why it matters                             │
+├────────────────────────┼────────────────────────────────────────────┤
+│ request_id             │ Correlates all spans in a multi-step call  │
+│ session_id             │ Groups requests in a conversation          │
+│ timestamp_utc          │ Enables temporal drift analysis            │
+│ user_id (hashed)       │ Per-user quality analysis; no raw PII      │
+│ prompt_version         │ Links response to the exact prompt used    │
+│ model_name + version   │ Detects model-version regressions          │
+│ temperature / top_p    │ Reproduces generation conditions           │
+│ user_input             │ The actual query (PII-scan before storing) │
+│ retrieved_chunks       │ For RAG: the exact context injected        │
+│ model_output           │ Raw response before any post-processing    │
+│ input_token_count      │ Cost attribution                           │
+│ latency_ms             │ P50/P95/P99 tracking                       │
+│ finish_reason          │ Detects truncation (stop vs. length)       │
+│ feedback_signal        │ Thumbs, regeneration, copy — if available  │
+│ judge_score            │ Async LLM-as-judge result (nullable)       │
+└────────────────────────┴────────────────────────────────────────────┘`)
+      },
+      {
+        title: "Implicit User Feedback Signals and Their Reliability",
+        content: "Explicit feedback (thumbs up/down) is expensive to collect because it requires user action. Implicit signals are collected passively from user behaviour and are much higher volume, but they are noisier and more ambiguous. The selection bias in explicit feedback is important: users who are moderately satisfied or neutral almost never click thumbs up or down. The population of explicit-feedback-givers is bimodal — highly satisfied users who want to signal appreciation, and frustrated users who want to signal failure. The silent majority of satisfied-enough users are invisible in explicit feedback data. This means explicit negative feedback rate is an upper bound on badness, not a mean estimate: a 2% thumbs-down rate does not mean 2% of responses are bad; it means at most 2% of responses were bad enough to motivate a frustrated user to click something. The most reliable single implicit signal for most AI features is copy-to-clipboard action: a user who copies an output has expressed enough confidence in it to use it downstream. This signal is clean and unambiguous.",
+        diagram: asciiDiagram(`
+┌──────────────────────────────────────────────────────────────────────┐
+│  IMPLICIT FEEDBACK SIGNAL RELIABILITY HIERARCHY                      │
+├──────────────────────────┬────────────┬──────────────────────────────┤
+│ Signal                   │ Reliability│ Interpretation               │
+├──────────────────────────┼────────────┼──────────────────────────────┤
+│ Copy-to-clipboard        │ High       │ User found output useful      │
+│ Code block execution     │ High       │ User trusted the code output  │
+│ Follow-up clarification  │ Medium     │ Ambiguous: confusion OR       │
+│   question               │            │ engaged exploration           │
+│ Response regeneration    │ Medium     │ User dissatisfied OR curious  │
+│   (retry)                │            │ about alternatives            │
+│ Session abandonment      │ Low        │ Could be task completion OR   │
+│   (no follow-up)         │            │ frustration                   │
+│ Thumbs down (explicit)   │ High       │ Definite negative — but       │
+│                          │            │ selection-biased (angry users)│
+└──────────────────────────┴────────────┴──────────────────────────────┘`)
+      },
+      {
+        title: "Continuous Quality Scoring: Sampling Strategies",
+        content: "Running an LLM-as-judge over 100% of production traffic is prohibitively expensive at scale. The goal is a sampling strategy that provides statistically representative quality estimates without breaking the cost model. Uniform random sampling at 5–10% of traffic is the baseline. At 1M requests/day, 5% = 50,000 judge calls; at $0.01 per judge call, that is $500/day — expensive. At 1%, it is $18,000/year — more manageable. Stratified sampling is more efficient: sample at different rates for different request categories — sample rare but high-stakes categories (safety-adjacent queries, financial queries) at 20–50%; sample high-volume routine queries at 1–2%. Triggered sampling escalates the sample rate automatically when anomalies are detected: if response length distribution shifts significantly or error rate rises, automatically increase judge sampling to 20% for the affected category until the anomaly resolves. Always score 100% of requests that received explicit negative feedback — these are your most signal-rich examples at minimal incremental cost.",
+        diagram: asciiDiagram(`
+┌─────────────────────────────────────────────────────────────────────┐
+│  CONTINUOUS QUALITY SCORING ARCHITECTURE                            │
+│                                                                     │
+│  Request traffic                                                    │
+│       │                                                             │
+│       ▼                                                             │
+│  Structured Logger ─────────── 100% of requests ──► Log store      │
+│       │                                              (S3/BigQuery)  │
+│       │ Sampling router                                             │
+│       ├──── 1% uniform sample ──────────────► Judge queue          │
+│       ├──── 20% triggered sample (anomaly) ──► Judge queue         │
+│       └──── 100% on explicit negative ────────► Judge queue        │
+│                                                                     │
+│  Async Judge Workers (N=2-5)                                        │
+│  Read from queue → Score with rubric → Write score to log store    │
+│                                                                     │
+│  Quality Dashboard                                                  │
+│  Rolling 24h mean score | Score by category/prompt ver | Alerts    │
+└─────────────────────────────────────────────────────────────────────┘`)
+      },
+      {
+        title: "Drift Detection: Input, Output, and Quality Drift",
+        content: "Three distinct drift types affect production AI systems, requiring different detection approaches. Input distribution drift: the statistical properties of what users are sending change over time — a customer service bot deployed in November sees holiday-return queries it was not designed for. Detection: embed user inputs and monitor the mean embedding position; alert when cosine distance from the 7-day rolling baseline mean exceeds two standard deviations. Output distribution drift: the statistical properties of model outputs change — responses become consistently longer or shorter, a particular refusal pattern appears with new frequency. Detection: monitor output length distribution (mean, P95), refusal rate, and token-level n-gram frequency on a rolling basis. Quality drift: the judge-scored quality of outputs declines even if the prompt and model are nominally unchanged. Sources: silent model version changes by the provider, new input patterns the prompt handles poorly, retrieval quality degradation in a RAG pipeline. Detection: rolling mean of LLM-as-judge scores monitored daily with a control-chart-style alert when the rolling mean falls below a lower control limit.",
+        diagram: asciiDiagram(`
+┌──────────────────────────────────────────────────────────────────┐
+│  THREE DRIFT TYPES — DETECTION APPROACHES                        │
+├──────────────────┬───────────────────────┬───────────────────────┤
+│ Drift type       │ Signal to monitor     │ Detection method      │
+├──────────────────┼───────────────────────┼───────────────────────┤
+│ Input            │ Embedding centroid    │ Cosine distance from  │
+│ distribution     │ of user queries       │ rolling 7-day baseline│
+│                  │                       │ PSI on query length/  │
+│                  │                       │ category distribution │
+├──────────────────┼───────────────────────┼───────────────────────┤
+│ Output           │ Response length,      │ Daily distribution    │
+│ distribution     │ refusal rate,         │ comparison vs. 7-day  │
+│                  │ vocab frequency       │ rolling baseline;     │
+│                  │                       │ alert on 2-sigma shift│
+├──────────────────┼───────────────────────┼───────────────────────┤
+│ Quality          │ LLM-as-judge score,   │ Rolling 24h mean with │
+│                  │ implicit signals      │ control-chart alert;  │
+│                  │ (copy rate, regen)    │ triggered sampling    │
+│                  │                       │ on score drop         │
+└──────────────────┴───────────────────────┴───────────────────────┘`)
+      },
+      {
+        title: "Alerting on Quality Metrics: Why It Is Harder Than Alerting on Latency",
+        content: "Latency alerting is straightforward: P99 latency above 2 seconds for 5 minutes triggers a page. Quality alerting is harder for three structural reasons. First, quality signals are noisy — LLM-as-judge scores have intrinsic variance, so alerts based on a single hour of data will fire on normal variation. Quality alerts require smoothing: alert on a 24-hour rolling mean falling below threshold, not on any individual sample. Second, quality degradation is often gradual — a quality regression that reduces mean judge score from 4.1 to 3.7 over two weeks is invisible to per-request monitoring and requires trend analysis to detect. The control chart approach — plotting the rolling mean against upper and lower control limits computed from historical variance — is the right tool. Third, the appropriate response to a quality alert is not a page to an on-call engineer at 3 AM — it requires a human to review a sample of affected responses and decide whether to roll back a prompt or escalate. Set quality alerts at two levels: warning at 5% below the 7-day rolling baseline triggers a next-day review task; critical at 15% below baseline triggers an immediate investigation by the feature's owning team. Neither alert pages an on-call engineer directly unless confirmed as a production incident with corroborating user feedback signals."
+      }
+    ],
+
+    examples: [
+      {
+        title: "What 'We Have No Logs' Looks Like During a Production Incident",
+        input: "A user complaint: 'The chatbot told me my account would be automatically upgraded, but that is not our policy.' Available information: approximate timestamp, user ID, partial screenshot. What the team does NOT have: the exact user input, which retrieval chunks were injected as context, which prompt version was active, which model version served the request, whether the user asked a follow-up question that changed conversation context.",
+        output: "Investigation result after 4 hours: INCONCLUSIVE. The team cannot determine whether: the model hallucinated 'automatic upgrade' with no retrieval basis (hallucination failure); a retrieved policy document was outdated and contained wrong upgrade information (retrieval failure); the user's phrasing triggered an edge case in the prompt (prompt failure); or a model version change that day altered behaviour (model drift). Without structured logs capturing the full request trace, none of these hypotheses can be confirmed or eliminated. The team adds 'no automatic upgrades' to the system prompt as a defensive measure — fixing a symptom they cannot diagnose.",
+        explanation: "Step 1: Without the full trace, every hypothesis is equally plausible and cannot be falsified. Step 2: The 4-hour investigation cost and the defensive prompt addition (which may introduce new regressions) are the direct and measurable cost of absent logging. Step 3: The fix is not a better debugging process — it is complete structured logging from day one, before the first production incident. Step 4: The key fields that would have resolved this in minutes: retrieved_chunks (was the wrong document retrieved?), prompt_version (had the prompt changed?), model_version (had the provider updated silently?), and the full user input (was this an edge case the prompt had never seen?)."
+      },
+      {
+        title: "Catching a Silent Model Version Change via Quality Trend",
+        input: "Daily LLM-as-judge mean score (1–5 scale) over 14 days at 1% traffic sample. Days 1–7: scores cluster around 4.10 (range 4.07–4.14). Days 8–14: Day 8: 4.09, Day 9: 3.89 (first dip), Day 10: 3.84, Day 11: 3.81, Day 12: 3.78 (warning threshold crossed), Day 13: 3.75, Day 14: 3.74 (critical threshold crossed). 7-day baseline mean: 4.10, std dev: 0.03. Warning threshold: 4.10 − 3×0.03 = 4.01. Critical threshold: 4.10 − 10×0.03 = 3.80.",
+        output: "Alert fired Day 9: 'Quality warning — rolling mean 3.89, below warning threshold 4.01.' Investigation Day 10: no prompt or deployment changes in 14 days (confirmed via Git log); model provider changelog checked — 'gpt-4o' alias was rotated to a new checkpoint on Day 9; 50 sampled responses from Days 8 vs. 10 reviewed manually: new checkpoint is more verbose and hedges more, which the rubric scores lower on directness. Action: pin to the previous model version checkpoint; open a separate evaluation of the new checkpoint to determine whether a prompt update can recover quality before upgrading deliberately.",
+        explanation: "Step 1: The 7-day rolling baseline and 3-sigma warning threshold separated signal from noise — the day-to-day variance of 0.03 points is normal; a 6-day consistent decline totalling 0.38 points is not. Step 2: Pinning the model version immediately stops the bleeding while the team evaluates the new checkpoint properly. Step 3: Without the daily quality trend and the control-chart alert, this regression would have been discovered via user complaints 1–2 weeks later — after more users experienced degraded quality and the drift became harder to attribute."
+      },
+      {
+        title: "Why a 40% Drop in Session Continuation Rate Is Not a Quality Alert",
+        input: "A team monitors 'session continuation rate' (percentage of sessions where the user sends at least one follow-up message after the first AI response) as their primary quality signal. Baseline: 68% continuation rate. After a product change that improved answer completeness: 41%. The team interprets this as a quality regression and rolls back the change.",
+        output: "MISINTERPRETATION: the drop in continuation rate is a positive signal. The product change made answers more complete — users who previously had to ask 'can you elaborate?' now got their question fully answered in the first response and had no need to continue the session. Correct interpretation: high continuation AND high explicit satisfaction = engaged users; high continuation AND low explicit satisfaction = confused users trying to get a better answer; low continuation AND high task completion (copy events) = efficient resolution — positive signal. The team should have paired session continuation with copy-to-clipboard rate before treating it as a quality proxy.",
+        explanation: "Step 1: Session continuation is ambiguous because both 'user needed more help' (negative) and 'user is engaged' (positive) produce high rates. Step 2: Before using any implicit signal as a quality metric, validate it against a ground-truth signal (explicit ratings, task completion, downstream conversion) to establish whether the correlation is positive or negative for your specific product. Step 3: The rollback of a genuinely good change is a measurable cost of misinterpreting implicit signals — the team sacrificed a real quality improvement based on a flawed interpretation."
+      }
+    ],
+
+    tips: [
+      "Log the retrieved chunks, not just the query — for RAG systems, the single most common source of bad responses is bad retrieval. Without logging the chunks injected into the prompt, you cannot distinguish retrieval failures from generation failures in post-incident review.",
+      "Pin model versions in production and log the exact version in every request — silent model version rotation by providers is one of the most common sources of quality regressions that are hard to detect without this field.",
+      "PII-scan before logging, not after — user inputs and model outputs frequently contain PII. Establish the scan as a mandatory preprocessing step before any log write. Retroactively removing PII from a log store is far more expensive than preventing it from entering.",
+      "Use copy-to-clipboard as your most trusted implicit quality signal — it is unambiguous (user trusted the output enough to use it) and requires no user effort beyond a normal interaction.",
+      "Alert on quality at two levels — warning for next-day review, critical for immediate investigation — quality alerts are not on-call alerts. Paging an engineer at 3 AM for a gradual quality drift is not the right response; daily triage review is."
+    ],
+
+    tricks: [
+      "The 'shadow judge' approach for cost control: run the LLM-as-judge asynchronously in a background worker, not on the request path. The request completes and the user gets their response immediately; the judge scores the response seconds later and writes the score back to the log store. This keeps judge cost completely off the latency budget.",
+      "Store a content hash of the system prompt rather than the full prompt text in every log entry — a SHA-256 hash is 64 bytes vs. potentially 2,000 tokens. It lets you group and filter logs by prompt version without storing the full prompt in every log row. Keep a separate prompt registry that maps hash to full content and version metadata.",
+      "Use Population Stability Index (PSI) for input drift detection — PSI is a single number measuring how much a distribution has shifted between two periods. PSI below 0.1 = no significant shift; 0.1–0.25 = moderate shift worth investigating; above 0.25 = major shift requiring action. Cheap to compute on token count, query length, or category distributions with no embeddings required for a quick daily check.",
+      "The 'always score explicit negatives' rule: every request that received a thumbs-down, a regeneration within 5 seconds, or an explicit correction should be routed 100% to the LLM-as-judge queue. These are your most signal-rich examples, and the incremental cost is small.",
+      "Segment quality metrics by prompt version, not just by date — when you plot quality over time, a quality drop that starts exactly at the deployment timestamp of prompt v2.3 is easy to diagnose; a drop on an undifferentiated time series is not."
+    ],
+
+    memoryAids: [
+      "'Log to reconstruct, not to report' — the design principle. Every log field should answer a question you might ask during an incident reconstruction, not a question that sounds impressive on a dashboard.",
+      "'Copy = trusted; regeneration = ambiguous; abandonment = unknown' — the three-word reliability shorthand for implicit signals.",
+      "'Three drifts: what goes in, what comes out, how good it is' — input distribution drift, output distribution drift, and quality drift. Each requires a different detection signal.",
+      "'Gradual drift needs a trend chart; sudden regression needs an alert' — the two temporal patterns require different detection tools."
+    ],
+
+    interviewPatterns: [
+      "'How would you debug a bad response end-to-end in production?' — Expects: look up the request in the log store using the request ID, examine the full trace (user input, retrieved chunks, prompt version, model version, full prompt sent, model output), compare against known good responses for similar inputs, identify the failure stage.",
+      "'How do you monitor an AI feature in production — what metrics do you track?' — Expects: latency (P50/P95/P99), error rate, token cost, implicit signals (copy rate, regeneration rate), rolling LLM-as-judge mean, input distribution drift, output distribution drift.",
+      "'How do you detect when your model is silently degrading in production?' — Expects: rolling quality monitor with control-chart alerting, model version pinning to detect provider-side changes, daily quality triage review, and the distinction between gradual drift (trend analysis) and sudden regression (alert on threshold breach).",
+      "'Explicit user feedback only comes from a small fraction of users. How do you make it useful?' — Expects: awareness of selection bias (bimodal: very happy and very frustrated users), using explicit negative feedback for 100% judge scoring, pairing with implicit signals to validate them, and not treating the explicit feedback rate as a mean quality estimate.",
+      "'How would you keep the cost of continuous quality scoring under control at scale?' — Expects: tiered sampling (1% uniform plus higher rates for triggered and high-stakes categories), async shadow judge off the request path, cheaper judge models for routine monitoring with full-capability judge for deep dives.",
+      "Frequency and companies: Tier 2 (60–65%) for both SWE and MLE roles at companies with production AI features. The 'how would you debug a bad response end-to-end?' question is the most common entry point."
+    ],
+
+    faq: [
+      {
+        question: "What is the difference between a trace and a log in the LLM observability context?",
+        answer: "A log is a single event record — one line in a log file, one row in a log table, capturing what happened at a specific moment. A trace is a structured grouping of related events across the full lifecycle of a single request: the retrieval span, the prompt assembly span, the LLM call span, the post-processing span, all linked by a shared trace ID. For a simple single-call LLM feature, a log and a trace are nearly equivalent. For a multi-step agent or RAG pipeline, tracing is essential because it lets you see the timing and output of each step independently, identify which step introduced an error, and understand the causal chain from input to final response. Tools like LangSmith, Langfuse, and OpenTelemetry with the GenAI semantic conventions provide the tracing infrastructure."
+      },
+      {
+        question: "How do I log user inputs without creating a PII liability?",
+        answer: "Run a PII detection scan on every user input before writing it to the log store. Microsoft Presidio (open source) and spaCy NER both support this. The standard approach: detect entities (names, emails, phone numbers, addresses, account IDs, health information), replace with typed placeholders ([PERSON], [EMAIL], [ACCOUNT_ID]), and log the anonymised version. Apply the same scan to model outputs, which frequently reflect PII from user inputs. For logs that need to retain full fidelity for debugging (e.g., a confirmed high-severity incident), establish a separate access-controlled store with explicit retention limits and access logging. The default log store should contain only anonymised data."
+      },
+      {
+        question: "What is the right sample rate for continuous LLM-as-judge scoring in production?",
+        answer: "There is no universal right answer — it depends on your traffic volume and quality alert latency requirement. The practical decision framework: what is the smallest quality shift you need to detect, and how quickly? To detect a 5-point quality drop with 80% statistical power within 24 hours, you need roughly 400 judged examples per day at typical judge score variance. At 1M requests/day, that is a 0.04% sample rate — very cheap. At 10,000 requests/day, it is 4%. Start at 1% for most production systems and adjust based on the cost-versus-detection-latency tradeoff. Always score 100% of explicit negative feedback regardless of the base rate."
+      },
+      {
+        question: "Should quality monitoring happen on the request path or asynchronously?",
+        answer: "Always asynchronously, in a background worker. LLM-as-judge scoring takes 1–3 seconds per example and involves a second LLM call — adding that to the request path would double or triple user-facing latency. The correct architecture: the production request completes and the user receives their response; the request is simultaneously written to a queue; a pool of async judge workers reads from the queue, scores the responses, and writes scores back to the log store. The latency budget for quality scoring is measured in minutes, not milliseconds. The only exception: real-time guardrail checks (content moderation, PII detection) that must happen before returning a response — these are different from quality evaluation and do belong on the request path."
+      },
+      {
+        question: "My quality dashboard shows a drop. How do I know if it is a real regression or a change in my judge?",
+        answer: "Run the judge model against a fixed set of 50 reference examples that have human-labelled scores. If the judge's scores on this reference set are stable (within historical variance) while the production scores have dropped, the regression is real — the production responses got worse. If the judge's scores on the reference set have also shifted, the judge model itself has changed — either the judge model was updated, the judge prompt was modified, or there is a new systematic bias. This is why maintaining a 'judge calibration set' with stable human labels is essential: it lets you distinguish production quality regression from judge reliability regression."
+      },
+      {
+        question: "How do I set up OpenTelemetry for LLM observability?",
+        answer: "The OpenTelemetry GenAI semantic conventions (under active development as of 2025) define standard span attribute names for LLM calls: gen_ai.system (provider name), gen_ai.request.model, gen_ai.usage.input_tokens, gen_ai.usage.output_tokens, gen_ai.response.finish_reasons, and others. Instrument your LLM calls by wrapping them in OTel spans with these attributes. Most observability platforms (Arize Phoenix, Langfuse, Honeycomb) accept OTel spans natively. For teams already using OTel for infrastructure observability, the GenAI conventions let LLM traces sit alongside service traces in the same platform — valuable for correlating LLM latency with infrastructure latency."
+      }
+    ],
+
+    practiceProblems: [
+      "**Problem:** Design the structured logging schema for a RAG-based legal document Q&A feature. Specify every field in the log entry, the rationale for each, and your PII handling approach. **Answer:** Core request fields: request_id (UUID, primary key for incident reconstruction), session_id (groups multi-turn conversation), timestamp_utc (temporal drift analysis), user_id (SHA-256 hash of real ID — per-user analysis without PII). Versioning fields (most commonly missing): prompt_version (semver string — links every response to the exact prompt), model_name ('gpt-4o'), model_version ('gpt-4o-2024-11-20' — never a floating alias), retrieval_config_version. Input fields (PII-scanned before storage): user_query_anonymised (after PII replacement with [PERSON], [ORG], [CONTRACT_ID]), retrieved_chunk_ids (IDs not full text), retrieved_chunk_scores (signals retrieval degradation), retrieval_latency_ms. Generation fields: system_prompt_hash (SHA-256, 64 bytes instead of 2,000 tokens), full_prompt_token_count, model_output_anonymised, output_token_count, generation_latency_ms, finish_reason (stop vs length). Feedback fields (nullable): explicit_feedback, copy_event, regeneration_within_30s, judge_score (filled async), judge_category_scores. PII handling: run Presidio with legal domain entity list before storing user_query_anonymised and model_output_anonymised; maintain a separate access-controlled audit log for confirmed high-severity incidents with 30-day retention.",
+      "**Problem:** Your monitoring dashboard shows three simultaneous anomalies on the same day. Classify each as input drift, output drift, or quality drift, and describe the first investigation step. Anomaly 1: mean response length jumped from 87 words to 203 words overnight, no code changes. Anomaly 2: LLM-as-judge rolling mean dropped from 4.1 to 3.6 over 5 days, response length and format unchanged. Anomaly 3: input embedding centroid shifted by 0.38 cosine distance units from the 7-day baseline; a product launch happened yesterday. **Answer:** Anomaly 1 — output distribution drift. First step: check whether the model version alias was rotated (most likely cause of a sudden output length change with no code change); sample 20 long responses to determine if they are more verbose versions of previously short answers (model behaviour change) or a new answer type that legitimately requires more words. Anomaly 2 — quality drift. First step: since the drop is gradual over 5 days, check whether it correlates with Anomaly 3's input distribution shift; examine a sample of 20 low-scoring responses from the affected period and categorise failure types. Anomaly 3 — input distribution drift. First step: sample 50 inputs from the shifted distribution and 50 from the pre-launch baseline, compare manually to characterise what the new inputs are asking about, and check whether quality metrics are worse for the new cluster. Combined interpretation: the three anomalies tell a coherent story — a product launch brought in new input types (Anomaly 3) that the system handles less well (Anomaly 2), potentially generating longer hedging responses (Anomaly 1).",
+      "**Problem:** Design an alerting policy for a production AI feature handling 500,000 requests per day. For each alert, specify trigger condition, severity, response action, and who gets notified. **Answer:** Latency alerts (page immediately): P95 above 5,000 ms for 5 consecutive minutes → Critical → page on-call engineer → check model provider status, consider fallback to faster backup model. P95 above 3,000 ms for 15 consecutive minutes → Warning → Slack alert to feature team → investigate next working hour. Output distribution alerts: mean response length deviates more than 50% from 7-day baseline for full 24-hour period → Warning → Slack to feature team → check model version, sample 20 responses. Refusal rate increases more than 10 percentage points above 7-day baseline → Warning → Slack → check for input distribution shift or over-refusal prompt regression. Quality alerts (daily triage, not a page): rolling 24-hour judge mean drops more than 5% below 7-day baseline → Warning → creates a Jira ticket for morning quality triage. Drops more than 15% below baseline → High → Slack alert to feature lead during business hours → immediate review, consider prompt rollback. Drops more than 25% AND explicit negative feedback rate doubles → Critical → page feature lead during on-call hours → treat as production incident. Guiding principle: quality alerts are never direct pages to on-call engineers unless paired with a strong corroborating signal."
+    ],
+
+    references: [
+      {
+        source: "note",
+        attribution: "OpenTelemetry GenAI Semantic Conventions — official specification - https://opentelemetry.io/docs/specs/semconv/gen-ai/",
+        insight: "The emerging standard for LLM observability attribute naming (gen_ai.system, gen_ai.request.model, gen_ai.usage.input_tokens, etc.). Still in active development as of 2025."
+      },
+      {
+        source: "note",
+        attribution: "Langfuse — open-source LLM observability and evaluation platform - https://langfuse.com/docs",
+        insight: "The most complete open-source tracing, logging, and evaluation platform for LLM applications. Supports structured logging, async LLM-as-judge scoring, prompt version tracking, and user feedback capture."
+      },
+      {
+        source: "note",
+        attribution: "Arize Phoenix — open-source LLM observability with drift detection - https://docs.arize.com/phoenix",
+        insight: "Phoenix provides embedding drift visualisation, input distribution monitoring, and LLM evaluation in an open-source package. Particularly strong for RAG pipeline observability and retrieval quality monitoring."
+      },
+      {
+        source: "blog",
+        attribution: "Hamel Husain — 'Your AI Product Needs Evals' (hamel.dev, 2023) - https://hamel.dev/blog/posts/evals/",
+        insight: "The practitioner foundation for why logging and monitoring are prerequisites to evaluation. The 'remove all friction from looking at your data' principle directly motivates the structured logging schema design."
+      },
+      {
+        source: "blog",
+        attribution: "Eugene Yan — 'Patterns for Building LLM-based Systems and Products' (eugeneyan.com, 2023) - https://eugeneyan.com/writing/llm-patterns/",
+        insight: "The monitoring and feedback sections establish the conceptual framework for implicit signal reliability and the distinction between online and offline evaluation that this topic operationalises."
+      },
+      {
+        source: "book",
+        attribution: "Chip Huyen — AI Engineering (O'Reilly, 2025), Chapter 5: Production Monitoring - https://www.oreilly.com/library/view/ai-engineering/9781098166298/",
+        insight: "The most complete published treatment of LLM production monitoring, covering logging schemas, drift detection methods, and the alerting design tradeoffs described in this topic."
+      }
+    ]
+  },
+  {
+    id: "topic-ai-evaluation-human-annotation",
+    moduleId: "mod-ai-evaluation",
+    title: "Building an Evaluation Practice: Rubrics, Annotation, and the Human Loop",
+    intuition: "An LLM-as-judge is only as good as the human judgement it was calibrated against — and a rubric is only as good as its ability to produce consistent scores across different people reading it. Most teams treat annotation as a one-time labelling task and treat rubric design as an afterthought. The teams whose AI products consistently improve treat human annotation as an ongoing engineering practice: a structured process that converts the vague notion of 'quality' into measurable criteria, surfaces systematic failure patterns, and provides the ground truth that keeps automated evaluation honest.",
+
+    complexity: {
+      time: "Rubric design and calibration session: 4–8 hours to produce a rubric that achieves acceptable inter-annotator agreement. Human annotation throughput: 10–30 examples per hour per annotator depending on task complexity. LLM-as-judge calibration against human labels: 2–4 hours to run correlation analysis and iterate on the judge prompt after collecting 100–200 human-labelled examples.",
+      space: "Human annotation dataset: negligible storage — a thousand labeled examples with rubric scores is a few MB in JSONL. The operational cost is human time, not storage: 200 examples at 20 examples/hour = 10 hours of annotator time, typically $150–500 depending on whether domain experts or crowdworkers are used."
+    },
+
+    lesson: [
+      {
+        title: "Turning 'Quality' Into a Measurable Rubric",
+        content: "'Quality' is not a metric; it is a wish. Before any annotation can happen, quality must be decomposed into specific, observable criteria that a person reading an output can score without reference to their subjective feeling. This decomposition is the rubric. A rubric has three components: dimensions (the specific aspects of quality being assessed), scales (the numeric or categorical scoring options for each dimension), and anchors (concrete examples that illustrate what each score level means). All three are necessary — a rubric with dimensions and scales but no anchors will produce inconsistent scores because annotators will interpret the scale differently. A weak rubric for a customer service assistant: 'Rate response quality from 1 to 5.' This produces wildly inconsistent scores because 'quality' is undefined. A strong rubric has distinct dimensions — accuracy, directness, actionability, tone — each with a scale and explicit anchor examples at score levels 1, 3, and 5. Write 3 anchor examples per score level per dimension using real outputs from the system, scored and agreed upon by two annotators before the rubric is finalised. These anchors are what make the rubric consistent across annotators who have never met each other.",
+        diagram: asciiDiagram(`
+┌────────────────────────────────────────────────────────────────────────┐
+│  RUBRIC: CUSTOMER SERVICE ASSISTANT RESPONSE QUALITY                  │
+├───────────────────┬────────────────────────────────────────────────────┤
+│ Dimension         │ Scale and anchors                                  │
+├───────────────────┼────────────────────────────────────────────────────┤
+│ Accuracy          │ 1: factually wrong in a way that could cause harm  │
+│                   │ 3: correct but incomplete (missing key caveat)     │
+│                   │ 5: fully accurate and complete                     │
+├───────────────────┼────────────────────────────────────────────────────┤
+│ Directness        │ 1: buries answer after 3+ sentences of preamble   │
+│                   │ 3: answers in sentence 2-3                         │
+│                   │ 5: leads with the answer in sentence 1             │
+├───────────────────┼────────────────────────────────────────────────────┤
+│ Actionability     │ 1: no next step provided                           │
+│                   │ 3: next step implied but not stated                │
+│                   │ 5: explicit next step with specifics               │
+├───────────────────┼────────────────────────────────────────────────────┤
+│ Tone              │ 1: dismissive or condescending                     │
+│                   │ 3: neutral                                         │
+│                   │ 5: warm and professional without sycophancy        │
+└───────────────────┴────────────────────────────────────────────────────┘`)
+      },
+      {
+        title: "Inter-Annotator Agreement: What It Measures and What a Low Score Tells You",
+        content: "Inter-annotator agreement (IAA) is the degree to which two or more independent annotators assign the same score to the same example when working separately. It is a measurement of rubric clarity, not annotator competence. A low IAA score does not mean your annotators are unreliable; it means your rubric is ambiguous, your scale is too fine-grained, or the task itself is genuinely subjective and needs to be scoped more narrowly. Cohen's kappa (κ) is the standard IAA metric for classification tasks. It corrects for chance agreement — two annotators randomly assigning labels will agree some fraction of the time purely by chance, and kappa subtracts that expected agreement before computing the rate of genuine agreement. The formula is κ = (P_observed − P_expected) / (1 − P_expected). Target IAA before trusting an LLM judge: achieve Cohen's κ above 0.65 between human annotators before using human labels to calibrate an LLM judge. If humans cannot agree consistently, the judge cannot be calibrated to consistent ground truth. The diagnostic value of low IAA: examine the specific examples where annotators disagreed. Patterns in the disagreements reveal which part of the rubric is ambiguous. If annotators consistently disagree on a specific scale boundary, that boundary is underspecified — add an anchor example that illustrates the distinction.",
+        codeExample: `from sklearn.metrics import cohen_kappa_score
+from scipy.stats import spearmanr
+import numpy as np
+
+# Two annotators score the same 100 examples on a 1-5 scale
+human_a_scores = [4, 3, 5, 2, 4, 3, 5, 1, 4, 3]   # ... 100 total
+human_b_scores = [4, 4, 5, 2, 3, 3, 4, 1, 4, 3]   # ... 100 total
+
+# Cohen's kappa (for categorical agreement)
+kappa = cohen_kappa_score(human_a_scores, human_b_scores)
+print(f"Cohen's kappa: {kappa:.3f}")
+# > 0.80: near-perfect  > 0.65: acceptable  < 0.40: poor — fix rubric
+
+# Spearman correlation (for continuous/ordinal agreement)
+rho, p_val = spearmanr(human_a_scores, human_b_scores)
+print(f"Spearman rho: {rho:.3f}, p-value: {p_val:.4f}")
+# > 0.70: acceptable for judge calibration
+
+# LLM judge scores on the same 100 examples
+judge_scores = [4, 3, 5, 3, 4, 3, 5, 2, 4, 3]    # ... 100 total
+
+# Judge vs. human calibration check
+judge_kappa = cohen_kappa_score(human_a_scores, judge_scores)
+judge_rho, _ = spearmanr(human_a_scores, judge_scores)
+print(f"Judge-human kappa: {judge_kappa:.3f}, rho: {judge_rho:.3f}")
+# If kappa < 0.65 or rho < 0.70: examine disagreements; update judge prompt`
+      },
+      {
+        title: "Who Should Annotate: Domain Experts vs. Crowdworkers",
+        content: "The choice of annotator population is a quality decision that most teams get wrong by defaulting to the cheapest option. Use domain experts when the task requires knowledge to evaluate correctness — medical Q&A, legal contract review, code review, financial advice. A crowdworker cannot reliably distinguish a medically accurate response from a plausible-sounding but wrong one; using crowdworkers for these tasks produces labels that measure 'sounds authoritative' rather than 'is accurate' — the exact failure mode you are trying to detect. Domain expert annotation is expensive ($50–200/hour for true specialists) and slow, but the labels are valid. Use crowdworkers when the task is evaluable without domain knowledge — tone, format, politeness, whether the response answered a clearly stated question. Use internal team members (pragmatic middle ground) when you have neither the budget for domain experts nor the task simplicity for crowdworkers. The risk: engineers and product managers who use the product daily may grade on a curve. Mitigate by having annotators score blindly (without knowing which prompt version generated the response). The '10 examples per annotator per session' calibration rule: before any annotator scores production examples, have them score 10 pre-labelled calibration examples where you know the agreed correct score. Annotators who score within acceptable tolerance are certified; those who do not receive rubric clarification and a second calibration round."
+      },
+      {
+        title: "Error Analysis: Reading Failures as a Systematic Practice",
+        content: "Error analysis is the practice of examining model failures in sufficient depth to identify patterns and using those patterns to drive specific improvements. It is not 'looking at bad responses' — it is a structured process that produces a failure taxonomy and a prioritised roadmap. The process has four steps. Step 1 — Sample failures: collect 50–100 examples the system handled poorly (low LLM-as-judge scores, explicit negative feedback, human annotation of poor quality), using stratified sampling to represent different input categories proportionally. Step 2 — Cluster by failure type: read every example and assign it to a failure category. Start with an open coding pass (read 20 examples, write down whatever failure type you observe) and consolidate into a taxonomy of 5–10 categories. Step 3 — Quantify each category: count the frequency of each failure type. The distribution tells you where to invest — if 60% of failures are factual errors in one knowledge domain, the intervention is targeted. Step 4 — Map to interventions: each failure category has a most likely intervention. Factual error → RAG retrieval quality or knowledge base coverage. Wrong format → prompt clarification or fine-tuning. Over-refusal → rubric calibration and system prompt tuning. Hallucinated detail → prompt instruction to express uncertainty. The error analysis output is a prioritised list of interventions with expected impact, not a list of bad responses.",
+        diagram: asciiDiagram(`
+┌──────────────────────────────────────────────────────────────────────┐
+│  COMMON FAILURE TAXONOMY — LLM ASSISTANT                             │
+├─────────────────────────────┬────────────────────────────────────────┤
+│ Category                    │ Description                            │
+├─────────────────────────────┼────────────────────────────────────────┤
+│ Factual error               │ States wrong fact with confidence      │
+│ Retrieval failure (RAG)     │ Retrieved wrong chunks; answer is off  │
+│ Incomplete answer           │ Correct but stops before covering all  │
+│                             │ aspects of the question                │
+│ Wrong format                │ Did not follow the required structure  │
+│ Over-refusal                │ Refused a legitimate request           │
+│ Hallucinated detail         │ Correct general answer but fabricated  │
+│                             │ a specific name, date, or number       │
+│ Tone mismatch               │ Technically correct but inappropriate  │
+│                             │ register for the context               │
+│ Out-of-scope response       │ Answered a question that was not asked │
+└─────────────────────────────┴────────────────────────────────────────┘`)
+      },
+      {
+        title: "Bootstrapping and Validating an LLM-as-Judge",
+        content: "The LLM-as-judge (covered in Topic A4) requires human labels to be calibrated, and the process for producing those labels is the annotation practice described in this topic. A judge that has never been validated against human labels is not trustworthy. The validation procedure has three stages. Stage 1 — Bootstrap with human labels: collect 150–300 human-labelled examples covering the range of response quality and input types. A minimum of 150 is needed for statistical reliability; 300 gives you enough to detect weaknesses in specific input categories. Stage 2 — Measure judge-human agreement: run the LLM judge over the calibration examples and compare scores to human labels. Acceptable threshold for using the judge in CI or production monitoring: Cohen's κ above 0.65 or Spearman rho above 0.70. Stage 3 — Diagnose and iterate: if the threshold is not met, examine examples where judge and human disagree. Patterns reveal systematic biases (the judge consistently overscores verbose responses, underscores responses that express uncertainty). Update the judge prompt and repeat until the agreement threshold is met. Ongoing maintenance: refresh the calibration set quarterly. As input distribution drifts and new failure modes emerge, the calibration set examples may become unrepresentative. Add 20–30 new examples from recent production failures every quarter.",
+        diagram: asciiDiagram(`
+JUDGE CALIBRATION LOOP:
+
+  Human labels (150+ examples)
+         │
+         ▼
+  ┌─────────────────────────────┐
+  │  Run judge on same examples │
+  └──────────────┬──────────────┘
+                 │
+                 ▼
+  Compute Cohen's kappa or Spearman rho
+                 │
+         ┌───────┴────────┐
+         │                │
+  kappa above 0.65   kappa below 0.65
+  Spearman above 0.70  Spearman below 0.70
+         │                │
+         ▼                ▼
+  Judge is           Examine disagreements
+  calibrated         Update judge prompt
+  Trust it for       Re-run on calibration
+  CI and monitoring  set (loop back up)`)
+      }
+    ],
+
+    examples: [
+      {
+        title: "How an Underspecified Rubric Produces κ = 0.31",
+        input: "Two annotators score 50 responses to the rubric: 'Rate the response quality: 1 (poor) / 2 (fair) / 3 (good) / 4 (very good) / 5 (excellent).' Example response: 'You can return most items within 30 days. Electronics and opened software are excluded. Bring your receipt.' Annotator A gives 4 (very good — correct, concise). Annotator B gives 3 (good — doesn't mention online return option).",
+        output: "Across 50 examples: Cohen's κ = 0.31 (poor agreement). Annotators agree on extreme cases (clearly wrong = 1, clearly perfect = 5) but disagree on the middle 60% of the distribution. Root cause: the scale has no anchors. 'Very good' and 'good' are not defined, so each annotator applies their own mental model. After adding concrete anchors: Score 4 anchor: 'Response is accurate, concise (2-3 sentences), and answers the primary question directly. Minor incompleteness (omits one secondary edge case) is acceptable.' Score 3 anchor: 'Response is accurate but either verbose (more than 4 sentences) OR omits information the user would need to take the next step.' Re-run after adding anchors: κ = 0.72.",
+        explanation: "Step 1: The jump from κ = 0.31 to κ = 0.72 came entirely from adding concrete anchors — no new examples, no annotator retraining, no rubric restructuring. Step 2: Low IAA scores are almost always a rubric problem, not an annotator problem. The diagnostic question is always: 'What does disagreement tell me about my rubric?' Step 3: The specific examples where annotators disagreed (both gave defensible scores for different reasons) reveal exactly which part of the scale boundary was underspecified. Step 4: Anchor examples written from real system outputs are more effective than hypothetical anchors because they ground the scale in concrete, observable characteristics of actual responses."
+      },
+      {
+        title: "From 50 Bad Responses to One High-Impact Intervention",
+        input: "A coding assistant is receiving poor LLM-as-judge scores on roughly 18% of production requests. The team collects 50 low-scoring responses and reads every one. Open coding produces: 'used deprecated API' (12 examples), 'missing error handling' (8 examples), 'wrong language returned' (3 examples), 'hallucinated library name' (7 examples), 'correct but unnecessarily complex' (6 examples), 'incomplete — function signature only, no body' (9 examples), 'correct and complete' (5 examples — false positives in the low-score sample).",
+        output: "Consolidated taxonomy (5 categories, excluding 5 false positives from 45 real failures). Deprecated API usage: 12 examples = 26% of failures. Incomplete output: 9 examples = 20%. Missing error handling: 8 examples = 18%. Hallucinated library: 7 examples = 16%. Wrong language: 3 examples = 7%. Prioritised intervention list: (1) Deprecated API (26%, highest impact) — RAG intervention: add current SDK documentation to the retrieval index. Expected to address 26% of failures with a single retrieval update. (2) Incomplete output (20%) — prompt intervention: add 'always include full function body' instruction. Fast to deploy. (3) Missing error handling (18%) — prompt or fine-tuning intervention. (4) Hallucinated library (16%) — prompt instruction: 'if unsure of library name, express uncertainty rather than guessing.'",
+        explanation: "Step 1: The clustering step converts 'the model makes mistakes' (anecdote) into 'deprecated API usage is 26% of failures' (evidence). Step 2: The quantification step converts evidence into priority — the highest-frequency category is the highest-impact intervention. Step 3: A single retrieval update (add current SDK documentation) is expected to fix 26% of failures with no prompt changes and no fine-tuning. Without the error analysis, the team would not have identified this as the highest-leverage action. Step 4: The 5 false positives (correct responses that scored low) are valuable diagnostic data — they suggest the judge may be systematically misscoring a specific response style."
+      },
+      {
+        title: "Uncalibrated Judge Blocks 9 Legitimate Prompt Improvements",
+        input: "A team deploys an LLM-as-judge without calibrating it against human labels. Over 3 months, the judge blocks 9 prompt improvement pull requests. Manual review after the fact: 7 of the 9 blocked PRs contained genuine improvements that human reviewers would have approved. The 9 blocked PRs represent approximately 3 months of engineering work on prompt quality.",
+        output: "Root cause: the uncalibrated judge had a systematic bias toward longer, more verbose responses. The 7 blocked improvements had all made the prompt more concise — which the judge penalised despite users preferring conciseness. Calibration analysis (run retroactively on 150 human-labelled examples): judge-human Spearman correlation = 0.48 — far below the 0.70 threshold. The judge's bias was visible in the calibration data: on examples where the judge scored 2–3 and humans scored 4–5, the responses were uniformly concise and correct. Updated judge prompt: added explicit instruction 'do not score based on response length; a 2-sentence response that fully answers the question is as valuable as a 6-sentence response that covers the same information.' Recalibration: Spearman rho = 0.74. The uncalibrated 3 months with blocked valid improvements is the direct cost of skipping calibration.",
+        explanation: "Step 1: The calibration process (run the judge against 150 human-labelled examples, compute correlation) would have detected the verbosity bias in 2–4 hours before deploying the judge. Step 2: The Spearman correlation of 0.48 is not merely suboptimal — it means the judge is actively miscorrelated with human quality judgements on a specific dimension. Step 3: 9 blocked PRs over 3 months is the measurable cost of an uncalibrated judge in CI. Step 4: This example demonstrates the A4-to-A7 dependency concretely: the LLM-as-judge described in A4 requires the human annotation practice described in A7 to be trustworthy."
+      }
+    ],
+
+    tips: [
+      "Design the rubric before collecting any labels — annotating without a rubric produces labels that cannot be aggregated, compared, or used to train a judge. Even a rough first-draft rubric is better than none.",
+      "Measure IAA before trusting any annotation batch — collect labels from two annotators on the same 30 examples before starting a large labelling campaign. If κ is below 0.6, fix the rubric before spending annotation budget on labels that will be inconsistent.",
+      "Low IAA is a rubric problem, not an annotator problem — resist the impulse to replace annotators when IAA is low. Read the disagreements; they will almost always point to an ambiguous rubric criterion.",
+      "Validate the judge before using it to gate anything — run the judge on 150 human-labelled examples and compute the correlation before using it in CI or production monitoring. A judge with Spearman rho below 0.7 against human labels is not a reliable scorer.",
+      "Error analysis is a sprint-level practice, not a one-time audit — schedule a 2-hour error analysis session every two to four weeks. The failure taxonomy will evolve as the product evolves and as the input distribution shifts.",
+      "Domain experts for correctness; crowdworkers for surface quality — the annotator population must match the dimension being scored. Getting this backwards wastes budget and produces invalid labels."
+    ],
+
+    tricks: [
+      "The 'blind scoring' technique for internal annotators: when using team members as annotators, strip all metadata from the response before scoring — no timestamps, no indication of which prompt version generated it. Annotators who know the context will grade on intent rather than output.",
+      "The 'disagreement harvest' for rubric improvement: after a calibration session, specifically collect all examples where two annotators disagreed by 2 or more score points. These are the rubric's blind spots. Have both annotators discuss the example and articulate the criterion that would make the right score unambiguous. Their explanation becomes the new anchor.",
+      "The '10 examples before the campaign' qualification test: before an annotator scores any production examples, give them 10 pre-labelled examples with known correct scores. Annotators who agree with the ground truth on 8 of 10 are qualified; those who do not receive a rubric re-read and a second test.",
+      "Use annotation disagreements as eval set additions: every example where annotators disagreed (after resolving the correct label) is a high-value addition to your eval set, because it represents an ambiguous case that exposed a rubric gap.",
+      "The 'failure category → eval set gap' check: after error analysis, cross-reference each failure category against your existing eval set. If a category appears frequently in production but has fewer than 10 examples in the eval set, add 15–20 examples from that category immediately."
+    ],
+
+    memoryAids: [
+      "'Rubric = dimensions + scale + anchors' — all three are required; a rubric without anchors produces inconsistent labels.",
+      "'Low kappa means bad rubric, not bad annotators' — the single most important thing to remember when IAA is poor.",
+      "'Calibrate the judge before you trust the judge' — the A4-to-A7 dependency in one sentence.",
+      "'Error analysis: cluster → count → intervene' — the three-step process that converts a pile of bad responses into a prioritised roadmap.",
+      "'Domain experts for right/wrong; crowdworkers for good/bad' — the annotator selection heuristic."
+    ],
+
+    interviewPatterns: [
+      "'How do you decide what good means for your AI feature?' — Expects: rubric design with dimensions, scales, and anchors; IAA measurement as a rubric quality check; the distinction between measurable dimensions and vague quality wishes.",
+      "'How do you validate that your LLM judge is actually reliable?' — Expects: collect 150–300 human labels, run the judge on the same examples, compute Spearman correlation or Cohen's kappa, target rho above 0.70, iterate on judge prompt based on disagreement patterns.",
+      "'Your AI feature has been performing poorly for a month. Walk me through how you would diagnose it systematically.' — Expects: error analysis — sample 50–100 failures, read them, cluster by failure type, quantify each category, map to specific interventions with expected impact.",
+      "'Who should annotate your AI outputs?' — Expects: domain experts for correctness-dependent tasks, crowdworkers for surface quality dimensions, internal team members as a pragmatic middle ground with blind-scoring discipline.",
+      "'What is inter-annotator agreement and why does it matter?' — Expects: Cohen's kappa definition at a conceptual level, the 0.65+ threshold for usable labels, the diagnostic insight that low IAA reveals rubric ambiguity rather than annotator failure.",
+      "Frequency and companies: Tier 2 (60%) for MLE roles at companies with mature AI products; Tier 3 (35–40%) for SWE roles. The 'how do you validate that your LLM judge is reliable?' question probes this topic directly."
+    ],
+
+    faq: [
+      {
+        question: "How many human-labelled examples do I need to calibrate an LLM judge?",
+        answer: "150–300 is the practical range. Below 150, the correlation estimate is statistically unreliable — a Cohen's kappa of 0.72 computed on 50 examples has a confidence interval wide enough to include 0.55 (poor agreement). At 150 examples you can detect a Spearman correlation difference of 0.15 with 80% power. At 300 examples you can segment the calibration set by input category and detect judge weaknesses in specific subpopulations — for example, that the judge is reliable on factual questions but unreliable on opinion questions. The 300-example set is worth the investment for any judge that will be used in a CI gate or production quality monitor."
+      },
+      {
+        question: "What is Cohen's kappa and how is it different from percent agreement?",
+        answer: "Percent agreement is the fraction of examples where two annotators chose the same label. Cohen's kappa corrects for the agreement that would occur by chance even if both annotators were guessing randomly. For a binary task where one class is very common (say, 90% of responses are 'good'), two annotators who always guess 'good' will agree 81% of the time by chance alone — a misleadingly high percent agreement. Kappa subtracts the expected chance agreement before computing the agreement rate, giving a more honest measure of genuine concordance. The formula is (P_observed − P_expected) / (1 − P_expected). A kappa of 0 means agreement is exactly at chance; a kappa of 1 means perfect agreement; kappa above 0.65 is the standard threshold for usable annotation labels."
+      },
+      {
+        question: "Our LLM judge agrees with human annotators 80% of the time. Is that good enough?",
+        answer: "It depends on what 80% agreement means in terms of Cohen's kappa or Spearman correlation. Percent agreement of 80% on a 5-point scale where one score is common can correspond to a kappa of only 0.35 — poor agreement. Percent agreement of 80% on a balanced distribution corresponds to roughly kappa 0.75 — substantial agreement and sufficient for most purposes. Convert to kappa before drawing conclusions. Additionally, check whether the 20% disagreement is random or systematic. If the judge consistently disagrees on a specific input category or response type, that systematic bias will corrupt any metric that includes those inputs, even if the overall agreement is acceptable."
+      },
+      {
+        question: "How often should I refresh the human annotation calibration set?",
+        answer: "Every quarter as a minimum, more frequently if input distribution drift is detected. The calibration set becomes unrepresentative when: new product features introduce new query types not present in the original calibration examples, model updates change the character of failure modes, or error analysis reveals failure categories with no coverage in the calibration set. The quarterly refresh should add 20–30 examples drawn from recent production failures and edge cases, while retiring an equal number that are no longer representative of the current input distribution. Treat the calibration set as a living artifact, not a one-time construction."
+      },
+      {
+        question: "Most of my team thinks annotation is a one-time task before launching. How do I make the case for ongoing investment?",
+        answer: "The economic argument is the most persuasive: the cost of annotation is small relative to the cost of not knowing whether your AI product is getting better or worse. Three data points help: (1) the average cost of a production AI incident versus the cost of a weekly annotation session that would have caught the regression; (2) the example where an uncalibrated judge blocked 9 legitimate prompt improvements over 3 months — the cost of those blocked improvements is the implicit cost of skipping calibration; (3) Hamel Husain and Shreya Shankar's practitioner surveys showing that teams with annotation practices improve their AI product quality faster than teams without. Frame annotation not as a labelling cost but as the instrumentation cost of having a quality signal at all."
+      },
+      {
+        question: "What is the difference between error analysis and just looking at bad responses?",
+        answer: "Error analysis is structured; looking at bad responses is ad hoc. The difference is the clustering and quantification step. Looking at 10 bad responses tells you that the model makes mistakes; error analysis of 50 bad responses tells you that 26% of mistakes are deprecated API usage, 20% are incomplete outputs, 17% are missing error handling — and that the highest-impact single intervention is indexing current SDK documentation. The clustering converts anecdote into evidence, and the quantification converts evidence into priority. Without the structure, observations from bad-response review do not reliably drive roadmap decisions.",
+      },
+      {
+        question: "Can I use the same rubric for both human annotation and LLM-as-judge scoring?",
+        answer: "Yes, and you should — this is how calibration works. The LLM judge is given the same rubric dimensions and anchors that human annotators use, and its scores are compared to human scores on the same examples. If the judge uses a different rubric than the humans, the agreement measurement is meaningless. The practical implementation: write the rubric once, use it in human annotation instruction documents, and include it verbatim in the judge system prompt with each dimension, scale, and anchor examples described explicitly. Differences in how the judge interprets the rubric compared to humans will show up as systematic disagreements in the calibration analysis — the signal that drives judge prompt iteration."
+      }
+    ],
+
+    practiceProblems: [
+      "**Problem:** Design an evaluation rubric for a financial news summarisation feature — the model reads a 500–2,000 word earnings report and produces a 3-sentence summary. Design a rubric that two annotators with financial domain knowledge can apply consistently. **Answer:** Three dimensions cover the full quality space for domain-specific summarisation. Dimension 1 — Factual Accuracy (1/3/5 scale): Score 1 anchor: 'The summary states a specific number, percentage, or named metric incorrectly (e.g., states revenue grew 12% when the article says 8%), OR attributes a quote to the wrong person.' Score 3 anchor: 'All specific numbers and attributions are correct, but the summary omits a material qualifier that changes the meaning (e.g., says revenue grew 8% without noting it was non-GAAP).' Score 5 anchor: 'All numbers, attributions, and qualifiers faithfully represent the article.' Dimension 2 — Coverage of Key Information (1/3/5 scale): Score 1: 'Summary focuses on secondary information (CEO quote, industry context) while omitting the primary financial result.' Score 3: 'Summary includes the primary result but omits one of three standard elements: headline result, year-over-year comparison, forward guidance.' Score 5: 'All three standard elements captured within the 3-sentence constraint.' Dimension 3 — Conciseness (Pass/Fail): Pass: exactly 3 sentences, no sentence more than 25 words, no redundant information. Fail: wrong sentence count, any sentence exceeds 25 words, or redundant information. IAA target: kappa above 0.70 for Accuracy and Coverage, 100% agreement for Conciseness.",
+      "**Problem:** You have 200 human-labelled examples scored on the Accuracy dimension above (two annotators, κ = 0.74). You run an LLM judge on the same 200 examples. The judge-human Spearman correlation is 0.52. What steps do you take? **Answer:** Step 1 — Examine the disagreement pattern: Spearman 0.52 is below the 0.70 threshold; the judge is not calibrated. Sort the 200 examples by absolute disagreement between judge score and human score; focus on the top 40 examples with the largest disagreements. Step 2 — Identify systematic bias: read the 40 high-disagreement examples and look for patterns. Common patterns for a financial accuracy rubric: does the judge fail to notice when a qualifier (GAAP vs. non-GAAP) is omitted? Does it score plausible-sounding numbers as accurate without checking the article? Step 3 — Hypothesise and update the judge prompt: if the pattern is that qualifier omissions are scored 4–5 by the judge but 3 by humans, update the prompt: 'A response that states a correct number but omits a material qualifier should receive Score 3, not Score 5.' Step 4 — Re-calibrate: run the updated judge over the same 200 examples. If Spearman rho reaches 0.70 or above, the judge is calibrated. If not, repeat Steps 2–4 on residual disagreements. Document the final judge prompt, calibration rho, calibration set size, and date.",
+      "**Problem:** Error analysis on 60 low-scoring responses from a legal Q&A feature. Open coding produces: 'cited wrong clause number' (11), 'correct answer but too long' (9), 'retrieved wrong document section' (14), 'refused to answer a legitimate question' (7), 'hallucinated a jurisdiction' (8), 'answer was correct' (6, false positives), 'partial answer stopped mid-explanation' (5). Consolidate into a taxonomy, quantify as percentage of real failures, and produce a prioritised intervention list. **Answer:** Step 1 — Exclude false positives: 6 of 60 are actually correct. Real failures: 54. Step 2 — Taxonomy: Retrieval failure (14, 26%), Factual error — wrong clause (11, 20%), Verbosity (9, 17%), Hallucination — jurisdiction (8, 15%), Over-refusal (7, 13%), Incomplete answer (5, 9%). Step 3 — Prioritised interventions: (1) Retrieval failure 26% — audit retrieval precision; if below 70%, change chunking strategy or upgrade embedding model. Single fix expected to address 26% of failures. (2) Factual error 20% — add few-shot example in system prompt demonstrating correct hierarchical clause citation. Fast to deploy. (3) Verbosity 17% — add system prompt instruction 'provide the answer in 3 sentences or fewer.' Zero risk of new failures. (4) Hallucination 15% — add instruction 'if the document does not specify a jurisdiction, say so rather than inferring.' (5) Over-refusal 13% — collect the 7 refused examples, identify the refusal trigger, adjust system prompt; add these 7 examples to eval set as regression canaries. (6) Incomplete answers 9% — check whether these responses have finish_reason = length (context truncation); if so, reduce system prompt length or increase max_tokens."
+    ],
+
+    references: [
+      {
+        source: "blog",
+        attribution: "Hamel Husain and Shreya Shankar — 'A Field Guide to Rapidly Improving AI Products' (hamel.dev, 2024) - https://hamel.dev/blog/posts/field-guide/",
+        insight: "The most direct practitioner treatment of error analysis, rubric design, and the human annotation loop as an ongoing engineering practice rather than a one-time labelling task."
+      },
+      {
+        source: "blog",
+        attribution: "Shreya Shankar — 'Who Validates the Validators? Challenges with LLM Evaluation' (shreyashankar.com, 2023) - https://www.shreya-shankar.com/",
+        insight: "Empirical evidence on systematic LLM judge biases and the necessity of calibrating judges against human labels before trusting them in automated pipelines."
+      },
+      {
+        source: "note",
+        attribution: "Judging LLM-as-a-Judge with MT-Bench and Chatbot Arena (arXiv:2306.05685, Zheng et al., 2023) - https://arxiv.org/abs/2306.05685",
+        insight: "The paper that established LLM-as-judge as a viable evaluation mechanism and quantified its agreement with human judgements across tasks. Provides the empirical basis for judge reliability thresholds."
+      },
+      {
+        source: "note",
+        attribution: "Argilla — open-source data annotation platform for LLM evaluation - https://docs.argilla.io/",
+        insight: "The most widely used open-source annotation platform for LLM output labelling. Supports rubric-based scoring interfaces, IAA computation, and annotation campaign management."
+      },
+      {
+        source: "book",
+        attribution: "Chip Huyen — AI Engineering (O'Reilly, 2025), Chapter 4: Human Evaluation and Annotation - https://www.oreilly.com/library/view/ai-engineering/9781098166298/",
+        insight: "The most complete published treatment of annotation practice for AI systems, covering rubric design, IAA, annotator selection, and the relationship between human labels and automated evaluation."
+      },
+      {
+        source: "blog",
+        attribution: "Eugene Yan — 'Evaluating LLMs is a Minefield' (eugeneyan.com, 2024) - https://eugeneyan.com/writing/llm-evaluation-minefield/",
+        insight: "Catalogue of evaluation failure modes including rubric underspecification, judge bias, and calibration gaps — provides the failure context that makes the annotation practice described in this topic necessary."
+      }
+    ]
   }
 ];
