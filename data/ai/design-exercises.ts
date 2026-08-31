@@ -1759,4 +1759,1006 @@ export const aiDesignExerciseTopics: Topic[] = [
       "DIVERSITY VERSUS ENGAGEMENT. Adding a diversity constraint at the final stage costs 1.5 points of nDCG@20 and shows no change in session engagement, but thirty-day retention improves by half a point. Should you ship it, and how do you defend the decision? ANSWER: Ship it. The three metrics are not in conflict, they are measuring different horizons: nDCG measures agreement with labels derived from past behaviour, which the current system generated and therefore rewards more of the same; session engagement measures today; retention measures whether the user comes back. When a change is neutral today and positive at thirty days, it is converting short-term optimisation into long-term value, which is exactly what a diversity constraint is designed to do. Defend it by pre-registering retention as the primary metric rather than promoting it after the fact, by running long enough to observe the thirty-day window rather than extrapolating from seven days, and by showing the effect holds across user tenure cohorts - if it appears only in new users it may be a cold-start artefact rather than a diversity effect.",
     ],
   },
+  {
+    id: "topic-ai-design-content-moderation",
+    moduleId: "mod-ai-design-exercises",
+    title: "Design a Content Moderation System",
+    complexity: {
+      time: "Two latency regimes coexist and conflating them is the design error. Pre-publication checks sit in the poster's path and need tens of milliseconds, because every extra millisecond is paid by every poster. Post-publication review is asynchronous and can afford seconds, which is what makes LLM adjudication viable at all. Human review is a queue with service time in minutes to hours, so queueing discipline rather than model latency determines how fast the worst content actually comes down.",
+      space: "Volume dominates, not storage: every item posted must be inspected, so throughput is set by ingestion rate rather than by any query pattern. The economics collapse if the expensive tier sees too much traffic - even a few percent of total volume routed to an LLM can exceed the entire classifier tier's cost, which makes the uncertainty band's width a budget decision as much as a quality one. Retention is driven by appeals and regulatory audit: decisions, model versions, policy versions and the evidence behind each action, plus enough of the original content to re-evaluate it when policy changes.",
+    },
+    intuition:
+      "Moderation looks like a classification problem and is really a threshold problem. The model gives you a score; the business decides what to do with it, and that decision is a policy judgement about which of two very different harms you prefer. Let harmful content through and you get a headline, a regulator and real damage to real people. Take legitimate content down and you have silenced someone who did nothing wrong, at a scale where even a tiny error rate silences thousands a day. No threshold avoids both. The engineering job is to make that trade explicit, apply it consistently, route genuine uncertainty to humans, and stay affordable while inspecting everything posted.",
+    lesson: [
+      {
+        title: "Requirements: Establish the Harm Asymmetry First",
+        content:
+          "Do not start with models. Start by asking what content, what harms, and what each error direction costs.\n\nHarm categories are not interchangeable. Child safety and terrorism demand near-total recall and tolerate false positives, because the cost of one miss is unbounded while the cost of an over-block is an appeal. Spam tolerates far more leakage, because a missed spam post is an annoyance and an over-blocked legitimate post is a lost user. Misinformation is contested and frequently policy-ambiguous, which means it should be routed to humans far more often than the others regardless of what a classifier says.\n\nThe consequence is the single most important requirement in the design: precision and recall targets differ per category, and a single global threshold is the naive answer. A candidate who proposes one number for everything has flattened the problem's actual structure.\n\nFunctional scope to settle: which modalities - text, image, video, audio, links? Pre-publication or post-publication, or both by category? Do users have appeal rights, and is there a regulatory reporting obligation?\n\nNon-functional scope: daily volume by modality, latency budget separated by path, and regional policy variation, since the same content can be lawful in one jurisdiction and mandatorily removed in another.\n\nThe questions a strong candidate asks: are we the publisher or the platform, since that changes liability entirely? Which jurisdictions apply? What is the appeal SLA? And crucially - who owns the policy? If the answer is 'engineering', that is itself a finding worth reporting.",
+        diagram: asciiDiagram(`
+  HARM ASYMMETRY - settle this BEFORE any architecture
+
+  ┌──────────────────┬──────────────────────────────────────────────┐
+  │ category         │ which error is worse?                        │
+  ├──────────────────┼──────────────────────────────────────────────┤
+  │ child safety     │ a MISS is unbounded. Over-block costs an     │
+  │ terrorism        │ appeal. ─► recall near-total, precision      │
+  │                  │ can suffer.                                  │
+  ├──────────────────┼──────────────────────────────────────────────┤
+  │ harassment       │ both matter. High precision AND recall,      │
+  │                  │ moderate band, real human volume.            │
+  ├──────────────────┼──────────────────────────────────────────────┤
+  │ spam             │ a miss is an annoyance. An over-block loses  │
+  │                  │ a user. ─► precision first, accept leakage.  │
+  ├──────────────────┼──────────────────────────────────────────────┤
+  │ misinformation   │ contested and policy-ambiguous ─► route to   │
+  │                  │ humans far more often, whatever the score.   │
+  └──────────────────┴──────────────────────────────────────────────┘
+
+  ╔══════════════════════════════════════════════════════════════════╗
+  ║ A SINGLE GLOBAL THRESHOLD IS THE NAIVE ANSWER.                   ║
+  ║ Per-category thresholds fall directly out of this table.         ║
+  ╚══════════════════════════════════════════════════════════════════╝
+
+  QUESTIONS A STRONG CANDIDATE ASKS
+  ┌──────────────────────────────────────────────────────────────────┐
+  │ publisher or platform?      ─► changes liability entirely        │
+  │ which jurisdictions?        ─► conflicting takedown law          │
+  │ appeal SLA?                 ─► sizes the appeals queue           │
+  │ WHO OWNS THE POLICY?        ─► if "engineering", that is itself  │
+  │                                a finding worth reporting         │
+  └──────────────────────────────────────────────────────────────────┘
+`),
+      },
+      {
+        title: "Scale and Capacity: Humans Are the Binding Constraint",
+        content:
+          "Work the funnel numerically and let the bottleneck reveal itself.\n\nTake ten million items posted per day, mixed across modalities. Spread over a day with a 2x peak factor that is roughly 230 items per second at peak - trivial for cheap classifiers running inline.\n\nNow push volume through the tiers. Hash matching against known-violating content resolves perhaps two percent at essentially zero cost. Cheap classifiers confidently resolve the vast majority of the rest, say 95 percent of what remains. That leaves roughly five percent - 500,000 items a day - in the uncertain band.\n\nCost that band. Five hundred thousand LLM adjudications a day at around 2,000 tokens each is a billion tokens daily. Even at inexpensive per-token rates that is well into the hundreds of dollars a day and rises linearly with band width, which is why the band is a budget line and not just a quality knob.\n\nNow the part that decides the design. Suppose the LLM resolves 90 percent of the band and escalates the remaining ten percent, 50,000 items a day, to humans. At an average handling time of two minutes that is about 1,667 reviewer-hours a day, or over 200 full-time reviewers working eight-hour shifts before accounting for breaks, training, wellbeing time and attrition.\n\nThat number is the design. Human review capacity is the binding constraint, and the escalation rate is therefore a staffing decision wearing an engineering costume. Every threshold you move changes headcount. State this before the interviewer asks.",
+        diagram: asciiDiagram(`
+  FUNNEL ARITHMETIC - 10M items/day
+
+  10 000 000 items/day  ≈ 230/s peak
+        │
+        ▼  TIER 0 hash match        ──► ~2% resolved, ~$0
+   9 800 000
+        │
+        ▼  TIER 1 cheap classifiers ──► ~95% resolved confidently
+     500 000   ◄── the UNCERTAIN BAND (5%)
+        │
+        ▼  TIER 2 LLM adjudication
+        │      500K × ~2 000 tok = 1B tokens/day
+        │      ─► hundreds of $/day, LINEAR in band width
+        │      resolves ~90%
+      50 000   ◄── escalated to humans
+        │
+        ▼  TIER 3 human review
+               50 000 × 2 min = 100 000 min = 1 667 reviewer-hours/day
+               ÷ 8 h shift    ≈ 208 FTE  ─ before breaks, training,
+                                           wellbeing time, attrition
+
+  ╔══════════════════════════════════════════════════════════════════╗
+  ║ HUMANS ARE THE BINDING CONSTRAINT.                               ║
+  ║ The escalation rate is a STAFFING decision in engineering        ║
+  ║ costume. Every threshold you move changes headcount.             ║
+  ║ Say this before the interviewer asks.                            ║
+  ╚══════════════════════════════════════════════════════════════════╝
+
+  BAND WIDTH SENSITIVITY
+  ┌──────────┬─────────────┬──────────────┬──────────────────────────┐
+  │ band     │ LLM items   │ human items  │ reviewers needed         │
+  ├──────────┼─────────────┼──────────────┼──────────────────────────┤
+  │  2%      │  200 000    │  20 000      │  ~83                     │
+  │  5%      │  500 000    │  50 000      │  ~208                    │
+  │ 10%      │ 1 000 000   │ 100 000      │  ~417   ◄ not hireable   │
+  └──────────┴─────────────┴──────────────┴──────────────────────────┘
+`),
+      },
+      {
+        title: "Architecture: The Tiered Funnel and the Systems Candidates Forget",
+        content:
+          "Ingestion normalises across modalities - text extraction from images, transcription from audio and video, link expansion - so that downstream tiers see a common representation.\n\nTier zero is hash matching against a set of known-violating content, using perceptual hashes so that re-encodes, crops and minor edits still match. This is the highest-leverage and least glamorous component in the entire system: known-bad content is caught exactly, in microseconds, and never touches a model. Industry hash-sharing programmes make this disproportionately effective for the most severe categories, which are precisely the ones where recall matters most.\n\nTier one runs cheap fast signals inline: keyword and regex rules, and small purpose-trained classifiers per category. This resolves the overwhelming majority and produces the score that the thresholds act on.\n\nTier two adjudicates the uncertain band asynchronously with an LLM, and two details matter. The relevant policy text goes into the context, so the model is applying the written policy rather than its own priors. And a rationale is required in the output, which gives the human reviewer something to check and gives the audit log something to record.\n\nTier three is the human queue for genuine ambiguity and high-stakes categories.\n\nThen the surrounding systems that candidates routinely forget and interviewers routinely probe: an enforcement and action service that applies the decision consistently; the appeals path; a versioned policy store, since a decision is only meaningful relative to the policy in force at the time; the audit log; and the feedback loop that turns human decisions into labelled training data. That last one is what keeps the classifiers from decaying as adversaries adapt.",
+        diagram: asciiDiagram(`
+  MODERATION FUNNEL - cost falls away at each tier
+
+   every item posted
+         │
+         ▼  normalisation: OCR · transcription · link expansion
+   ┌───────────────────────────────────────────────┐
+   │ TIER 0  perceptual hash vs known-violating set│──► block
+   │ exact, microseconds, NO MODEL                 │
+   │ ▲ least glamorous, highest leverage.          │
+   │   Industry hash-sharing makes this strongest  │
+   │   exactly where recall matters most.          │
+   └───────────────────────┬───────────────────────┘
+         │ not previously seen
+         ▼
+   ┌───────────────────────────────────────────────┐
+   │ TIER 1  cheap classifiers + rules, INLINE     │
+   │ tens of ms · resolves the vast majority       │
+   └───────────────────────┬───────────────────────┘
+         │
+         ├── score < T_low  ─────────────────► ALLOW
+         ├── score > T_high ─────────────────► BLOCK
+         │
+         ▼ uncertain band only
+   ┌───────────────────────────────────────────────┐
+   │ TIER 2  LLM adjudication, ASYNC               │
+   │ seconds · POLICY TEXT IN CONTEXT              │
+   │ RATIONALE REQUIRED in output                  │
+   │ ▲ so it applies the written policy, not its   │
+   │   own priors - and the reviewer has something │
+   │   to check                                    │
+   └───────────────────────┬───────────────────────┘
+         │ still ambiguous, or high-stakes category
+         ▼
+   ┌───────────────────────────────────────────────┐
+   │ TIER 3  human review queue                    │
+   │ minutes to hours ── THE BINDING CONSTRAINT    │
+   │ prioritised by expected harm × reach          │
+   └───────────────────────┬───────────────────────┘
+         ▼
+    decision ──► enforcement service ──► appeal path
+         │
+         ├──► versioned policy store  (a decision is only
+         │      meaningful against the policy then in force)
+         ├──► audit log
+         └──► feedback loop ──► training data ──► TIER 1
+
+  ⚠ band width is a QUALITY knob and a BUDGET knob at once
+`),
+      },
+      {
+        title: "Deep Dive: Thresholds, Uncertainty Bands and Who Decides",
+        content:
+          "This is where strong answers separate from adequate ones.\n\nThe classifier produces a score, and two thresholds carve it into three regions: confident allow below the low threshold, an uncertain band between them, and confident block above the high one. Widening the band improves decision quality because more doubtful cases get expensive attention - and raises cost linearly, because the expensive tiers see proportionally more traffic. The band is therefore simultaneously a quality knob and a budget knob, and those two readings of the same number are what makes it interesting.\n\nSet the thresholds per category, directly from the harm asymmetry established earlier. Child safety gets a wide band and a low block threshold; spam gets a narrow band and a high one.\n\nNow the ownership point, which is the part most candidates miss. Choosing the operating point is a policy decision, not an engineering one. Engineering's job is to supply the precision-recall curve, the cost at each setting, and the reviewer-hours implied. Policy and legal choose where on that curve to sit, and they own the consequences. A candidate who quietly picks 0.8 because it looked reasonable has not just made an arbitrary choice - they have taken a decision that was not theirs to take, and in a regulated context that is a governance failure rather than a modelling one.\n\nHuman review is a queueing system and should be designed as one. Prioritise by expected harm multiplied by reach, not by arrival order: a borderline item already spreading outranks an older static one, because harm accumulates with exposure. Be honest about reviewer wellbeing and its effect on throughput, about calibration drift between reviewers, and about the fact that human labels are themselves noisy - inter-annotator agreement on hard moderation categories is often mediocre, which puts a ceiling on how good any model trained on them can be.\n\nFinally, adversarial pressure. Adversaries adapt to whatever you deploy: leetspeak, homoglyphs, text embedded in images, and benign-looking context that inverts meaning. Static rules decay by default. That is why the feedback loop and periodic retraining are load-bearing infrastructure rather than a nice-to-have, and why a system that is not being updated is quietly getting worse.",
+        diagram: asciiDiagram(`
+  THREE REGIONS FROM TWO THRESHOLDS
+
+    score distribution
+      │      legitimate                    violating
+      │    ▄▄▄▄▄▄▄▄▄▄▄▄▄                ▄▄▄▄▄▄▄▄▄▄▄
+      │  ▄▄             ▄▄▄▄        ▄▄▄▄           ▄▄
+      │▄▄                   ▄▄▄▄▄▄▄▄                 ▄▄
+      └──────────┬───────────────────────┬───────────────►
+                 │                       │
+              T_low                   T_high
+
+      ALLOW      │   UNCERTAIN BAND      │      BLOCK
+                 │   ▶ escalate          │
+      false negatives                false positives
+      ▶ harm reaches users           ▶ legitimate users silenced
+
+  PER-CATEGORY OPERATING POINTS
+  ┌──────────────────┬───────────┬───────────┬──────────────┐
+  │ category         │ recall    │ precision │ band         │
+  ├──────────────────┼───────────┼───────────┼──────────────┤
+  │ child safety     │ near-total│ lower ok  │ wide         │
+  │ terrorism        │ near-total│ lower ok  │ wide         │
+  │ harassment       │ high      │ high      │ moderate     │
+  │ spam             │ moderate  │ high      │ narrow       │
+  │ misinformation   │ contested │ contested │ human-heavy  │
+  └──────────────────┴───────────┴───────────┴──────────────┘
+
+  ╔══════════════════════════════════════════════════════════════════╗
+  ║ ENGINEERING supplies the curve, the cost, the reviewer-hours.    ║
+  ║ POLICY AND LEGAL choose the operating point and own it.          ║
+  ║                                                                  ║
+  ║ Quietly picking 0.8 because it looked good is not an arbitrary   ║
+  ║ choice - it is taking a decision that was not yours to take.     ║
+  ╚══════════════════════════════════════════════════════════════════╝
+
+  HUMAN QUEUE = A QUEUEING SYSTEM
+  ┌──────────────────────────────────────────────────────────────────┐
+  │ priority = expected harm × reach     NOT arrival order           │
+  │   a borderline item already spreading  ▲                         │
+  │   outranks an older static one         │ harm accumulates        │
+  │                                        │ with exposure           │
+  │ reviewer wellbeing ─► throughput (be honest about this)          │
+  │ calibration drift between reviewers                              │
+  │ human labels are NOISY ─► inter-annotator agreement caps how     │
+  │ good any model trained on them can ever be                       │
+  └──────────────────────────────────────────────────────────────────┘
+
+  ADVERSARIAL DECAY
+   le3tspeak · homoglyphs (а vs a) · text-in-image · benign context
+   that inverts meaning
+   ─► static rules decay BY DEFAULT
+   ─► the feedback loop is load-bearing, not nice-to-have
+   ─► a system nobody is updating is quietly getting worse
+`),
+      },
+      {
+        title: "Evaluation: Per-Category, and How to See What You Missed",
+        content:
+          "Report precision and recall per category, never aggregate accuracy. With classes this imbalanced, a system that blocks nothing scores above 99 percent accuracy, so quoting accuracy is a tell that the candidate has not internalised the imbalance.\n\nMaintain golden sets per category and refresh them, because adversarial content evolves and a static golden set flatters an increasingly stale model.\n\nMeasuring false negatives is the genuinely hard part and the one worth spending interview time on. Nobody reports content that was wrongly allowed - by definition it looked acceptable to whoever saw it, and the people harmed by it are usually not the people who could report it. The only way to see the miss rate at all is a sampled human audit of automated allow decisions. It is expensive and it feels wasteful, since the overwhelming majority of sampled items are correctly allowed, but without it you have no false-negative measurement whatsoever and your recall figure is unfalsifiable.\n\nAppeal overturn rate is the production false-positive signal, and it is close to free because the appeals already exist. A rising overturn rate is the fastest available indication that a threshold or model change is over-blocking.\n\nRun shadow evaluation before any threshold or model change: score live traffic with the candidate configuration, compare decisions against the incumbent, and quantify how many items would flip in each direction before anything is enforced.\n\nFinally, evaluate fairness across languages and demographic groups. Moderation systems have a documented record of uneven error rates - typically much worse recall and precision in lower-resource languages and in dialects underrepresented in training data - and an aggregate metric conceals this completely.",
+        diagram: asciiDiagram(`
+  WHY AGGREGATE ACCURACY IS A TELL
+
+   1 000 000 items · 2 000 violating (0.2%)
+   a system that blocks NOTHING scores 99.8% accuracy
+   ─► and catches zero harm. Never quote it.
+
+  ┌────────────────────────┬─────────────────────────────────────────┐
+  │ FALSE POSITIVES        │ FALSE NEGATIVES                         │
+  │ (legit content blocked)│ (harm allowed through)                  │
+  ├────────────────────────┼─────────────────────────────────────────┤
+  │ users TELL you         │ NOBODY tells you                        │
+  │ ─► appeal overturn     │ ─► it looked fine to whoever saw it,    │
+  │    rate, nearly free   │    and those harmed often cannot report │
+  │                        │                                         │
+  │                        │ ONLY measurement: sampled human audit   │
+  │                        │ of AUTOMATED ALLOW decisions            │
+  │                        │ expensive · feels wasteful · almost all │
+  │                        │ sampled items are correctly allowed     │
+  │                        │ ▲ without it your recall number is      │
+  │                        │   unfalsifiable                         │
+  └────────────────────────┴─────────────────────────────────────────┘
+
+  BEFORE ANY THRESHOLD OR MODEL CHANGE
+  ┌──────────────────────────────────────────────────────────────────┐
+  │ SHADOW EVALUATION                                                │
+  │  score live traffic with the candidate config                    │
+  │  diff decisions against incumbent                                │
+  │  count flips in EACH direction before enforcing anything         │
+  └──────────────────────────────────────────────────────────────────┘
+
+  FAIRNESS - aggregate metrics conceal this completely
+  ┌──────────────────────────────────────────────────────────────────┐
+  │ error rates by language and dialect                              │
+  │ documented pattern: much worse in lower-resource languages and   │
+  │ in dialects underrepresented in training data                    │
+  └──────────────────────────────────────────────────────────────────┘
+`),
+      },
+      {
+        title: "Failure Modes and Degradation",
+        content:
+          "Model service down. The instinct is to pick fail-open or fail-closed globally, and that instinct is wrong - the correct answer differs by category. Fail closed for severe harm categories, because letting child safety or terrorism content through unscreened is unacceptable at any duration. Fail open for low-severity categories, because blocking all posting is itself a serious outage that harms every legitimate user on the platform. Stating this split unprompted is one of the clearest signals of maturity in this design.\n\nHuman queue backlog. When escalation volume exceeds review capacity - which happens during any adversarial campaign - the queue grows without bound and the oldest items are the least likely to still matter. Shed by priority rather than by age: hold the harm-times-reach ordering and let low-priority items expire with an automated conservative default, and alarm on queue depth rather than discovering it from a headline.\n\nBad model deployment causing mass false positives. This is the failure that damages trust fastest, because thousands of legitimate users are silenced within minutes. Instant rollback capability is required, and so is an automated alarm on overturn rate and on block-rate deviation from baseline - the latter fires within minutes, while overturn rate takes hours because appeals take time to arrive.\n\nPolicy change requiring re-moderation. When a policy changes, historical content that was correctly allowed under the old policy may now violate. This is a large batch job over retained content, and it needs prioritisation by reach because re-moderating everything is rarely affordable. This is also why you retain enough of the original content to re-evaluate it.\n\nRegional and legal divergence, where the same item must be removed in one jurisdiction and preserved in another, requiring per-region decisions rather than a single global one. And coordinated adversarial bursts, which arrive as a sudden spike of similar content and are best handled by clustering near-duplicates and adjudicating the cluster once rather than each item independently.",
+        diagram: asciiDiagram(`
+  FAILURE MODES
+
+  ┌──────────────────────┬───────────────────────────────────────────┐
+  │ model service down   │ NOT a global fail-open/fail-closed choice │
+  │                      │                                           │
+  │                      │ severe harm     ──► FAIL CLOSED           │
+  │                      │   unscreened CSAM/terror is unacceptable  │
+  │                      │   at any duration                         │
+  │                      │ low severity    ──► FAIL OPEN             │
+  │                      │   blocking all posting IS an outage       │
+  │                      │ ▲ volunteering this split unprompted is   │
+  │                      │   the clearest maturity signal here       │
+  ├──────────────────────┼───────────────────────────────────────────┤
+  │ human queue backlog  │ escalation > capacity (every adversarial  │
+  │                      │ campaign does this)                       │
+  │                      │ ► shed by PRIORITY, not by age            │
+  │                      │ ► low-priority expire to a conservative   │
+  │                      │   default                                 │
+  │                      │ ► alarm on queue DEPTH, don't learn it    │
+  │                      │   from a headline                         │
+  ├──────────────────────┼───────────────────────────────────────────┤
+  │ bad deploy ─► mass   │ thousands silenced within minutes -       │
+  │ false positives      │ fastest trust damage available            │
+  │                      │ ► instant rollback, non-negotiable        │
+  │                      │ ► alarm on BLOCK-RATE deviation (minutes) │
+  │                      │   not just overturn rate (hours, because  │
+  │                      │   appeals take time to arrive)            │
+  ├──────────────────────┼───────────────────────────────────────────┤
+  │ policy change        │ historical content correctly allowed then │
+  │                      │ may violate now ─► batch re-moderation    │
+  │                      │ ► prioritise by REACH; re-doing everything│
+  │                      │   is rarely affordable                    │
+  │                      │ ► this is why you retain the content      │
+  ├──────────────────────┼───────────────────────────────────────────┤
+  │ legal divergence     │ same item: remove here, preserve there    │
+  │                      │ ► per-region decisions, not one global    │
+  ├──────────────────────┼───────────────────────────────────────────┤
+  │ coordinated burst    │ spike of near-identical content           │
+  │                      │ ► cluster near-duplicates, adjudicate the │
+  │                      │   CLUSTER once, not each item             │
+  └──────────────────────┴───────────────────────────────────────────┘
+`),
+      },
+      {
+        title: "Cost and Trade-offs",
+        content:
+          "Cost per item by tier spans orders of magnitude: hash matching is effectively free, cheap classifiers cost fractions of a cent, LLM adjudication costs a fraction of a cent but a thousand times more than the classifier, and human review costs on the order of a dollar per item once fully loaded. The leverage of band width follows directly - a percentage point of band width moves both LLM spend and reviewer headcount, and headcount is the expensive and slow-moving one.\n\nRestate the precision-recall trade in money and harm rather than in curve geometry. Raising recall on a severe category means more escalations, more reviewers and more over-blocks to appeal. Raising precision means accepting a measured number of misses. Both sides have a unit and both units are real; presenting the choice as a technical optimisation obscures that.\n\nBuild versus buy. Commodity categories - nudity detection, known-CSAM hash matching, obvious spam - have mature vendor offerings and industry hash-sharing programmes that outperform anything a single platform builds alone, because their value comes from pooled data you do not have. Build where your policy is genuinely specific to your product, and buy where the category is universal.\n\nLatency versus thoroughness on the posting path. Everything inline is paid by every poster, so the inline tier must stay cheap; anything expensive belongs after publication, which means accepting a window of exposure. For severe categories that window may be unacceptable, which forces those categories inline and constrains what models can be used there.\n\nThe central honest trade: there is no setting that is safe and permissive at once. A mature answer names which direction the organisation errs in and why, rather than implying that better engineering dissolves the tension. It does not - better engineering narrows the uncertain band and makes the trade cheaper, but the trade remains.",
+        diagram: asciiDiagram(`
+  COST PER ITEM BY TIER - orders of magnitude apart
+
+   hash match        ~$0            ████
+   cheap classifier  ~$0.00001      ████
+   LLM adjudication  ~$0.001        ████████         1 000× classifier
+   human review      ~$1.00         ████████████████ 1 000× LLM
+
+  ┌──────────────────────────────────────────────────────────────────┐
+  │ a percentage point of BAND WIDTH moves both LLM spend and        │
+  │ reviewer HEADCOUNT - and headcount is the expensive, slow one.   │
+  │ You can change an LLM budget today. You cannot hire 100          │
+  │ reviewers today.                                                 │
+  └──────────────────────────────────────────────────────────────────┘
+
+  THE TRADE, IN UNITS THAT ARE REAL
+  ┌────────────────────────────┬─────────────────────────────────────┐
+  │ raise RECALL on a severe   │ raise PRECISION                     │
+  │ category                   │                                     │
+  │  ► more escalations        │  ► accept a measured number of      │
+  │  ► more reviewers ($, slow)│    misses                           │
+  │  ► more over-blocks to     │  ► fewer silenced legitimate users  │
+  │    appeal                  │                                     │
+  └────────────────────────────┴─────────────────────────────────────┘
+
+  BUILD vs BUY
+  ┌──────────────────────────────────────────────────────────────────┐
+  │ BUY  commodity categories: nudity, known-CSAM hashes, spam       │
+  │      ▲ their value comes from POOLED DATA you do not have.       │
+  │        Industry hash-sharing beats anything one platform builds. │
+  │ BUILD where the policy is genuinely specific to your product.    │
+  └──────────────────────────────────────────────────────────────────┘
+
+  ╔══════════════════════════════════════════════════════════════════╗
+  ║ There is NO setting that is safe and permissive at once.         ║
+  ║ Better engineering narrows the band and makes the trade          ║
+  ║ cheaper. It does not dissolve it. A mature answer names which    ║
+  ║ way the organisation errs, and why.                              ║
+  ╚══════════════════════════════════════════════════════════════════╝
+`),
+      },
+    ],
+    examples: [
+      {
+        title: "Sizing the funnel and discovering humans are the bottleneck",
+        input:
+          "Ten million items posted per day. Hash matching resolves 2 percent. Cheap classifiers confidently resolve 95 percent of the remainder. The LLM tier resolves 90 percent of what reaches it. Average human handling time is two minutes.",
+        output:
+          "Roughly 500,000 items enter the uncertain band, about 50,000 escalate to humans, requiring about 1,667 reviewer-hours a day - over 200 full-time reviewers before breaks, training and attrition. Human capacity, not model cost, sets the achievable escalation rate.",
+        explanation:
+          "Step 1: Ten million minus two percent leaves 9.8 million reaching classifiers, of which 95 percent resolve confidently, leaving about 500,000 in the band. Step 2: The band's LLM cost is roughly a billion tokens a day - real money, but an amount you can decide to spend this afternoon. Step 3: Ten percent of the band escalating gives 50,000 human reviews, and at two minutes each that is 100,000 minutes or 1,667 hours daily. Step 4: Divided by an eight-hour shift that is about 208 reviewers, and the real number is higher once you account for the wellbeing breaks that this work requires, training time and high attrition. Step 5: The conclusion reframes the whole design - you cannot hire 200 more reviewers in response to a spike, so the escalation rate is bounded by staffing on a months-long timescale, and every threshold decision is really a headcount decision. Say this before the interviewer finds it.",
+      },
+      {
+        title: "The threshold change that tripled appeals",
+        input:
+          "A single global block threshold is lowered from 0.85 to 0.78 to improve recall after a publicised miss. Within 48 hours the appeal volume triples and the overturn rate on appeals rises from 12 percent to 34 percent.",
+        output:
+          "The change is rolled back and replaced with per-category thresholds: lowered substantially for the severe category that produced the incident, left unchanged for harassment and spam. Appeal volume returns to baseline while recall on the target category improves.",
+        explanation:
+          "Step 1: The overturn rate is the signal that identified the problem - a rising fraction of appeals succeeding means the system is now blocking content that reviewers agree was legitimate, which is the definition of over-blocking. Step 2: Appeal volume alone would have been ambiguous, since more blocks mechanically produce more appeals; it is the rate of successful appeals that isolates the precision loss. Step 3: The root cause is structural rather than numerical - one threshold was serving categories with completely different harm asymmetries, so tuning it for the severe category necessarily mis-tuned it for spam. Step 4: Per-category thresholds fix it because they let the severe category move without dragging everything else along. Step 5: The lesson to state in an interview is that a global threshold is not merely suboptimal, it makes every future tuning decision a compromise between incompatible objectives, and the cost surfaces as appeals from users who did nothing wrong.",
+      },
+      {
+        title: "A policy change forcing re-moderation of historical content",
+        input:
+          "The policy for a borderline category is tightened. Content posted over the previous two years that was correctly allowed under the old policy may now violate. The archive holds roughly 7 billion items.",
+        output:
+          "A prioritised backfill: cluster the archive by near-duplicate and by classifier score under the new policy, re-evaluate the top slice by reach and score, and accept that the long tail of low-reach content is not re-moderated. Roughly one percent of the archive is re-adjudicated.",
+        explanation:
+          "Step 1: Re-moderating 7 billion items through the full funnel is not affordable at any tier, so the question is which subset to re-evaluate rather than whether to evaluate all of it. Step 2: Prioritise by reach, because harm from historical content is proportional to continued exposure and most archived content has effectively no ongoing audience. Step 3: Re-score cheaply first - the classifier under the new policy is inexpensive enough to run over the whole archive, and only items whose score crosses the new thresholds need expensive attention. Step 4: Cluster near-duplicates so that a decision on one item applies to the cluster, which for viral content collapses thousands of re-evaluations into one. Step 5: State the honest limitation: the long tail is not re-moderated, that is a deliberate accepted risk rather than an oversight, and it should be documented as such because a regulator asking later will want to see that the decision was made rather than missed.",
+      },
+      {
+        title: "Fail-open versus fail-closed during a model outage",
+        input:
+          "The classifier serving tier becomes unavailable for 40 minutes during peak posting hours. Every item posted in that window would otherwise have been scored inline.",
+        output:
+          "Severe categories fail closed - items matching their coarse pre-filters are held pending review rather than published. Low-severity categories fail open - content publishes and is queued for asynchronous scoring once the service recovers, then actioned retroactively.",
+        explanation:
+          "Step 1: A single global policy is wrong in both directions - failing everything closed halts the platform, and failing everything open leaves severe harm unscreened. Step 2: The split follows directly from the harm asymmetry: for categories where a miss is unbounded, 40 minutes of unscreened publication is unacceptable, while for spam it is barely noticeable. Step 3: Failing open is not the same as doing nothing - the items are queued and scored retroactively, so the outage becomes a delay in enforcement rather than an absence of it. Step 4: Retroactive enforcement has its own cost, since removing content after it has been seen is worse for the user than never publishing it, which is why this is acceptable only for low-severity categories. Step 5: The coarse pre-filter for severe categories must be cheap and independent of the failed service - typically hash matching and keyword rules - otherwise fail-closed degrades into fail-everything-closed.",
+      },
+    ],
+    tips: [
+      "Never quote aggregate accuracy on imbalanced moderation data. A system that blocks nothing scores above 99 percent, so the number carries no information and quoting it signals that you have not internalised the class imbalance.",
+      "Set thresholds per category, derived from the harm asymmetry. A single global threshold forces every future tuning decision to be a compromise between categories with incompatible objectives.",
+      "Hash-match known content before invoking any model. It is the least glamorous component and the highest leverage one, and it is strongest exactly in the severe categories where recall matters most.",
+      "Measure false negatives by sampled audit of automated allow decisions. They are never reported, so without a deliberate audit your recall figure is unfalsifiable rather than merely uncertain.",
+      "Treat the appeal path as a first-class product surface. It is simultaneously the fairness mechanism for wrongly blocked users and your cheapest continuous measurement of production false-positive rate.",
+    ],
+    tricks: [
+      "Open by asking which error direction is worse, and for which category. It reframes the entire design from a classification problem into a policy problem, which is what it actually is, and everything downstream follows from the answer.",
+      "Volunteer the fail-open versus fail-closed split by severity before being asked. Almost every candidate picks one globally, and naming the split is the fastest available demonstration that you have thought about degradation rather than only about the happy path.",
+      "Name the human review queue as the real constraint before the interviewer does. Deriving reviewer-hours from escalation rate turns an abstract threshold discussion into a staffing conversation, which is where the actual limit lives.",
+      "Alarm on block-rate deviation from baseline rather than only on appeal overturn rate. Block rate moves within minutes of a bad deployment; overturn rate lags by hours because appeals have to be filed first.",
+      "Cluster near-duplicates before adjudication during coordinated bursts. Adjudicating a cluster once instead of each item independently is what keeps a campaign from exhausting the human queue, and it also produces a much cleaner audit record.",
+    ],
+    memoryAids: [
+      "Cheap filters everything, expensive judges the doubtful, humans decide the genuinely ambiguous.",
+      "Precision protects users from you; recall protects users from each other.",
+      "The band is a budget. Widen it for quality, pay for it in LLM spend and reviewer headcount.",
+      "Engineering supplies the curve; policy chooses the point. Picking a threshold quietly is a governance failure, not a modelling one.",
+      "Nobody reports a false negative. If you are not sampling allows, your recall number is unfalsifiable.",
+    ],
+    interviewPatterns: [
+      "'How do you pick the threshold?' The signature question. Policy owns the operating point, engineering supplies the precision-recall curve, the cost per setting and the implied reviewer-hours.",
+      "'How do you know what you are missing?' Sampled human audit of automated allow decisions, because false negatives are structurally invisible - the people harmed usually cannot report them.",
+      "'What happens when the classifier is down?' Per-category fail policy: fail closed for severe harm, fail open with retroactive enforcement for low severity.",
+      "'Adversaries are evading you. What now?' The feedback loop turning human decisions into training data, periodic retraining, normalisation against homoglyphs and leetspeak, and industry hash sharing.",
+      "'Your reviewers disagree with each other. Does that matter?' Yes - inter-annotator agreement caps the achievable quality of any model trained on those labels, so calibration work is model work.",
+      "Frequency and companies: very common at large consumer platforms and trust-and-safety organisations - Meta, TikTok, YouTube, Reddit, Discord, Roblox - and appears in generalist senior rounds as a scale-plus-judgement problem. Stability: high; the tiered funnel, threshold ownership and human-queue constraint have been stable for a decade, while the models in each tier change constantly.",
+    ],
+    faq: [
+      {
+        question: "Why is accuracy the wrong metric here?",
+        answer:
+          "Because the classes are extremely imbalanced, so accuracy is dominated by the majority class and carries almost no information about the behaviour you care about. If two items in a thousand violate policy, a system that blocks nothing achieves 99.8 percent accuracy while catching zero harm, and a system that catches half the violations while over-blocking slightly may score lower. Report precision and recall per category instead, because those separate the two error directions that the entire design is trying to trade off, and because the acceptable values differ enormously between child safety and spam. Quoting a single aggregate number also hides the fairness dimension, where error rates commonly differ sharply across languages and dialects while the aggregate stays flat.",
+        category: "evaluation",
+      },
+      {
+        question: "How do you measure false negatives when nobody reports them?",
+        answer:
+          "By deliberately sampling automated allow decisions and having humans review them, which is the only mechanism that exists. It feels wasteful because the overwhelming majority of sampled items are correctly allowed, and it costs real reviewer time that could be spent on the escalation queue. But without it you have no false-negative measurement at all: user reports are heavily biased toward content that offends the reporter rather than content that violates policy, and the people most harmed by a miss are frequently not in a position to report it. Stratify the sample rather than sampling uniformly - weight toward items scoring near the low threshold and toward high-reach content, since a uniform sample of an overwhelmingly benign population is statistically wasteful.",
+        category: "evaluation",
+      },
+      {
+        question: "Could an LLM replace the classifier tier entirely?",
+        answer:
+          "On quality, often yes; on cost, no, and the gap is not close. Inspecting every item posted with an LLM at platform volume multiplies per-item cost by roughly a thousand against a small purpose-trained classifier, and moderation is unusual in that it must inspect one hundred percent of traffic rather than a sampled or requested subset. The tiered design exists precisely to keep the expensive judgement off the path that everything traverses. There is also a latency argument for the inline pre-publication path, where tens of milliseconds is the budget and LLM adjudication cannot fit. Where the LLM genuinely earns its place is the uncertain band, where it applies policy text with a written rationale on the small fraction of cases that the cheap tier could not settle confidently.",
+        category: "architecture",
+      },
+      {
+        question: "How do you handle multilingual coverage?",
+        answer:
+          "Badly, if you are not deliberate about it, and this is one of the best-documented failure patterns in the field. Classifier quality tracks training data volume, which tracks language prevalence, so recall and precision are systematically worse in lower-resource languages and in dialects that differ from the standard written form. Three practical responses: use multilingual encoders rather than per-language models where volume does not justify separate training; measure and report error rates per language rather than in aggregate, since the aggregate is dominated by your largest language and will look healthy regardless; and route lower-confidence languages to the LLM tier more readily, since large models degrade more gracefully across languages than small classifiers do. Staff the human queue with the language coverage your traffic actually has, which is frequently where the real gap sits.",
+        category: "fairness",
+      },
+      {
+        question: "Who owns the thresholds, and why does it matter so much?",
+        answer:
+          "Policy and legal own them; engineering owns the curve. It matters because the threshold encodes a value judgement about whose harm the organisation prefers to absorb, and that judgement has legal, regulatory and reputational consequences that engineering is neither authorised nor equipped to make. Practically, engineering's deliverable is a precision-recall curve per category annotated with cost per setting and the implied reviewer headcount, presented so that a non-technical owner can choose an operating point and understand what they are choosing. A team that picks thresholds silently will find, during the first serious incident, that no one can explain why the number was what it was - and 'it performed well on the validation set' is not an answer that survives a regulatory inquiry.",
+        category: "governance",
+      },
+      {
+        question: "How do appeals feed back into training?",
+        answer:
+          "Overturned appeals are high-value labelled data - each one is a confirmed false positive adjudicated by a human, which is exactly the signal the classifier lacks. Feed them back as training examples, but weight them carefully, because the appealing population is not representative: users who appeal are more engaged, more likely to be commercial accounts, and skew toward certain content types. Training naively on appeal outcomes will shift the model toward the preferences of people who complain rather than toward correctness. The standard mitigation is to combine appeal-derived labels with the stratified audit sample, which is unbiased by construction, and to monitor whether model behaviour is drifting toward categories with high appeal rates. Also retain the policy version against each label, since an overturn under an old policy may not be an error under the current one.",
+        category: "training",
+      },
+      {
+        question: "How do you handle coordinated adversarial bursts?",
+        answer:
+          "Detect them as clusters rather than as individual items. A campaign produces a sudden spike of near-identical or lightly perturbed content, so near-duplicate clustering over a short time window will group it, and you can then adjudicate the cluster once and apply the decision to every member. This is what prevents a campaign from exhausting the human queue, which is otherwise its most effective outcome regardless of whether individual items get through. Add velocity-based signals - unusual posting rate from correlated accounts, sudden concentration on a novel phrase or hash - as an escalation trigger independent of content score, since novel campaign content is exactly what classifiers have not seen. Feed the resulting cluster signature into the hash-matching tier immediately so that later waves are caught at tier zero rather than re-adjudicated.",
+        category: "adversarial",
+      },
+    ],
+    references: [
+      {
+        source: "note",
+        attribution: "Platform transparency reports from major consumer platforms",
+        insight: "Published per-category action volumes, appeal and overturn rates, and proactive detection rates - the closest available public data on how these funnels actually perform in production.",
+      },
+      {
+        source: "paper",
+        attribution: "Perceptual hashing literature, including PhotoDNA and pHash-family approaches",
+        insight: "How near-duplicate matching survives re-encoding, cropping and minor edits, which is what makes tier zero effective against recirculated content rather than only exact copies.",
+      },
+      {
+        source: "paper",
+        attribution: "Sap et al., 'The Risk of Racial Bias in Hate Speech Detection' (ACL 2019)",
+        insight: "Documented uneven error rates across dialects in moderation classifiers, and why aggregate metrics conceal the disparity entirely.",
+      },
+      {
+        source: "blog",
+        attribution: "Trust-and-safety engineering write-ups on tiered moderation architectures",
+        insight: "Practical accounts of the classifier-then-LLM-then-human funnel and of human queue prioritisation by harm and reach.",
+      },
+      {
+        source: "video",
+        attribution: "Recorded trust-and-safety infrastructure talks from platform engineering conferences",
+        insight: "Operational detail on shadow evaluation, rollback discipline and the organisational separation between policy ownership and model ownership.",
+      },
+    ],
+    practiceProblems: [
+      "TENFOLD VOLUME AT FIXED HEADCOUNT. Posting volume grows from 10M to 100M items a day and review headcount cannot grow. What changes? ANSWER: The escalation rate must fall by a factor of ten to keep the human queue served, which means narrowing the uncertain band and accepting worse decisions on the cases that no longer get expensive attention. Recover as much of that loss as possible without humans: expand hash coverage so more recirculated content resolves at tier zero, improve the classifiers using the accumulated feedback loop so the band naturally narrows at constant quality, and push more of the band's resolution onto the LLM tier, which scales with money rather than hiring. Then protect the severe categories explicitly - hold their escalation rate constant and take the entire reduction from low-severity categories, because a uniform cut would degrade exactly where degradation is least acceptable. Finally, prioritise the queue harder by reach, since at ten times the volume the distribution of exposure is even more skewed and a fixed reviewer budget buys more harm reduction at the top of it.",
+      "ADDING A NEW MODALITY. The platform introduces short-form video. What does the moderation design need? ANSWER: Normalisation is the main new work: transcription for speech, OCR for on-screen text, and frame sampling for visual content, each producing a representation the existing tiers can consume. Cost per item rises substantially because you are now running several models before the classifier even sees the item, so tier zero becomes more valuable - perceptual video hashing catches recirculated content before any of that expense is incurred. Latency shifts the pre-publication decision: full video analysis cannot fit an inline budget, so video moves to post-publication review for most categories, with a fast partial check on the first frames and the audio opening for severe categories. Human handling time roughly doubles because a reviewer must watch rather than read, which reprices the entire escalation budget. And the golden sets, thresholds and fairness measurements all need rebuilding per modality, since a threshold calibrated on text says nothing about video scores.",
+      "CONFLICTING JURISDICTIONS. One country legally requires removal of a category of content; another legally prohibits removing it. Design for both. ANSWER: Decisions must become per-region rather than global, which means the enforcement service stores a decision per jurisdiction rather than a single verdict, and content delivery consults the viewer's region. The policy store gains a jurisdiction dimension and every audit record must capture which jurisdiction's policy produced which action, because a regulator will ask about their own rule and not about the aggregate. Practically this means geo-blocking rather than deletion for the conflicting category: the content persists and is withheld regionally, which satisfies the removal obligation locally without destroying content that another jurisdiction protects. Two operational consequences worth naming: transparency reporting must be per jurisdiction, and the appeals path must be too, since an appeal against a regional withholding is a different question from an appeal against a global removal. The honest limitation is that VPN and cross-border access make regional withholding imperfect, and that should be stated rather than papered over.",
+      "HALVE COST WITHOUT LOSING SEVERE-CATEGORY RECALL. Total moderation spend must drop by 50 percent while recall on severe categories is held constant. Where does the money come from? ANSWER: Not from the severe categories, which are constrained, and not proportionally across the board, which would violate the constraint. Take it from three places. First, band width on low-severity categories - narrowing the spam and low-severity bands removes a large volume of LLM calls and escalations with modest quality cost, and these are the categories where leakage is cheapest. Second, tier zero expansion: every item resolved by hash matching is an item that costs nothing, and coverage here is usually well below what is achievable, particularly for recirculated content. Third, classifier improvement funded by the feedback loop, which narrows bands everywhere at constant quality and is the only lever that improves cost and quality together. Explicitly reject two tempting options: lowering the severe-category escalation rate, which violates the constraint directly, and reducing the sampled audit of allows, which is a small line item whose removal makes the recall constraint unverifiable - cutting your only measurement to save money is how a system silently degrades.",
+      "THE OVERTURN RATE IS RISING BUT NOTHING WAS DEPLOYED. Appeal overturn rate climbs from 12 to 20 percent over six weeks with no model or threshold change. Diagnose. ANSWER: Something changed that was not a deployment, and there are four candidates worth checking in order. Content distribution drift - the platform's traffic mix shifted, perhaps a new user demographic or a new content format, so the same model now sees inputs it was not calibrated on and over-blocks them. Reviewer calibration drift on the appeals side - if the reviewers adjudicating appeals have become more lenient, the overturn rate rises without any change in the blocking behaviour, so compare against a fixed golden set that the reviewers also score. Adversarial or organised appealing, where a coordinated group files appeals at scale and shifts the appealing population. And policy drift, where the written policy was revised but the classifier thresholds were not updated to match, which is the most common and most preventable cause. Check the golden set first because it distinguishes model drift from reviewer drift in one measurement, and that distinction determines which team owns the fix.",
+    ],
+  },
+  {
+    id: "topic-ai-design-document-processing",
+    moduleId: "mod-ai-design-exercises",
+    title: "Design a Document Processing and Extraction Pipeline",
+    complexity: {
+      time: "The batch-versus-interactive split determines the whole design. Bulk backfill tolerates minutes per document, parallelises aggressively and runs on cheap capacity. Interactive upload, where a user waits for their invoice to be read, needs seconds and forces a faster and usually less thorough path. Per-document latency is page count times per-page model cost, so a 40-page contract is a fundamentally different unit of work from a one-page receipt. Human review adds hours of wall clock, but only to the fraction failing confidence checks - so the review rate, not model latency, sets end-to-end time for the documents that matter most.",
+      space: "Cost scales per page and is dominated by whichever model reads the page, which makes page count the unit to estimate everything from. A vision-model call per page is often an order of magnitude more expensive than OCR plus a text model, so the routing decision between them is the main cost lever and belongs per document class rather than globally. Storage must retain the original artefact indefinitely for audit and re-processing, plus intermediate representations and every extraction version, because a disputed field must be traceable to the pixels it came from and because model upgrades make re-running history routine rather than exceptional.",
+    },
+    intuition:
+      "Turning invoices, contracts and forms into structured records sounds solved until you look at the real inputs: a photograph taken at an angle, a scan with a coffee stain, a table breaking across three pages, a form half filled in by hand. And unlike most AI applications, near-enough is not good enough - if an invoice total is extracted wrong, the error propagates into a payment. Two forces pull against each other: genuinely adversarial inputs and accuracy requirements approaching absolute for a handful of critical fields. The resolution is not a better model. It is knowing, per field, how confident the system is, and routing everything below the bar to a human before it reaches a database.",
+    lesson: [
+      {
+        title: "Requirements: Which Fields Must Be Right",
+        content:
+          "The scoping question that shapes everything is that not all fields are equal. On an invoice, the total and the account number must be right or money moves incorrectly. The vendor's street address being slightly wrong is recoverable and probably not worth a human's attention. Establish per-field accuracy requirements alongside the target schema, before any architecture, because those requirements become the routing thresholds later.\n\nThen enumerate the document classes and how variable each is. Invoices from a hundred vendors share a concept but not a layout; a standard tax form is nearly identical every time; a contract is unbounded. Variability within a class determines whether a template-based approach is even possible.\n\nInput quality range matters as much as class: a corpus of digitally generated PDFs and a corpus of phone photographs are different engineering problems that happen to share a schema.\n\nSettle volume and arrival pattern, and specifically the batch versus interactive split, because those two paths have different latency budgets, different cost profiles and often different model choices.\n\nSettle retention and audit obligations, since in regulated contexts you must be able to show which pixels produced which field value years later.\n\nAnd ask the question that quietly determines feasibility: is human review available at all? If there is no review capacity, the system cannot route uncertainty anywhere, and a high accuracy bar on critical fields usually becomes unachievable. That is worth surfacing as a requirement conflict rather than discovering it during rollout.",
+        diagram: asciiDiagram(`
+  FIELDS HAVE DIFFERENT STAKES - settle this first
+
+  ┌──────────────────────┬──────────────┬────────────────────────────┐
+  │ field                │ if wrong     │ requirement                │
+  ├──────────────────────┼──────────────┼────────────────────────────┤
+  │ total amount         │ money moves  │ near-absolute. review any   │
+  │ bank account number  │ incorrectly  │ doubt at all.               │
+  │ invoice number       │ duplicate or │ high. checksum where        │
+  │                      │ lost payment │ format allows.              │
+  │ vendor name          │ mis-filed    │ moderate. reference lookup. │
+  │ street address       │ cosmetic     │ low. do not spend a human   │
+  │                      │              │ on this.                    │
+  └──────────────────────┴──────────────┴────────────────────────────┘
+        ▲ these become the ROUTING THRESHOLDS in section 4
+
+  SCOPE TO SETTLE
+  ┌──────────────────────────────────────────────────────────────────┐
+  │ document classes and variability within each                     │
+  │   100 vendors' invoices  ─ same concept, different layouts       │
+  │   a standard tax form    ─ near-identical every time             │
+  │   a contract             ─ unbounded                             │
+  │ input quality: digital PDFs vs phone photographs are DIFFERENT   │
+  │   engineering problems that share a schema                       │
+  │ volume · arrival pattern · BATCH vs INTERACTIVE split            │
+  │ retention and audit: which pixels produced this value, in 2030?  │
+  └──────────────────────────────────────────────────────────────────┘
+
+  ╔══════════════════════════════════════════════════════════════════╗
+  ║ IS HUMAN REVIEW AVAILABLE AT ALL?                                ║
+  ║ If not, uncertainty has nowhere to go and a high accuracy bar    ║
+  ║ on critical fields is usually unachievable. Surface that as a    ║
+  ║ requirement CONFLICT, not a discovery during rollout.            ║
+  ╚══════════════════════════════════════════════════════════════════╝
+`),
+      },
+      {
+        title: "Scale and Capacity: Estimate in Pages, Not Documents",
+        content:
+          "Documents are not a unit of work; pages are. A corpus of one hundred thousand documents means nothing until you know whether they average one page or forty.\n\nTake fifty thousand documents a day averaging three pages, giving 150,000 pages daily. Split by class, because the cost per page depends entirely on which path the class takes.\n\nCost the two paths explicitly. OCR plus a text model runs on the order of a fraction of a cent per page. A vision model reading the page directly is often ten to twenty times that. At 150,000 pages a day, that difference is the gap between a few hundred dollars a month and several thousand - and it compounds on a backfill, where the archive may be millions of pages.\n\nThat gap is why routing by class is the main cost lever in the system. Sending clean structured documents through OCR and reserving vision for messy ones captures most of the quality at a fraction of the cost.\n\nNow derive human load, and show its sensitivity, because this is the number that surprises people. If eight percent of documents have at least one field below threshold, that is 4,000 documents a day for review. At three minutes each that is 200 reviewer-hours daily, roughly 25 full-time reviewers. Move the threshold so that the low-confidence rate goes from eight percent to twelve, and you need 38 reviewers. A few percentage points of threshold movement doubles or halves staffing, which makes the confidence threshold an economic dial rather than a technical parameter.\n\nStorage is dominated by the original artefacts, which are retained indefinitely, plus every extraction version. Budget for re-processing as a routine operation.",
+        diagram: asciiDiagram(`
+  ESTIMATE IN PAGES
+
+   50 000 documents/day × ~3 pages = 150 000 pages/day
+   ▲ "100 000 documents" means nothing until you know
+     whether they average 1 page or 40
+
+  PER-PAGE COST BY PATH
+  ┌────────────────────────────┬─────────────────────────────────────┐
+  │ native text (digital PDF)  │ ≈ free            ████              │
+  │ OCR + text model           │ ~$0.002/page      ████████          │
+  │ vision model per page      │ ~$0.02-0.04/page  ████████████████  │
+  │                            │        ▲ 10-20× the OCR path        │
+  └────────────────────────────┴─────────────────────────────────────┘
+
+   150 000 pages/day
+     all vision      ─► ~$3 000-6 000/day
+     routed by class ─► ~$400/day
+   ╔══════════════════════════════════════════════════════════════╗
+   ║ ROUTING BY CLASS IS THE MAIN COST LEVER IN THE SYSTEM.       ║
+   ╚══════════════════════════════════════════════════════════════╝
+
+  HUMAN LOAD - and its brutal sensitivity
+  ┌──────────┬───────────────┬──────────────┬────────────────────────┐
+  │ low-conf │ docs to review│ reviewer-hrs │ FTE @ 8 h, 3 min/doc   │
+  ├──────────┼───────────────┼──────────────┼────────────────────────┤
+  │   4%     │   2 000/day   │   100        │  ~13                   │
+  │   8%     │   4 000/day   │   200        │  ~25                   │
+  │  12%     │   6 000/day   │   300        │  ~38                   │
+  └──────────┴───────────────┴──────────────┴────────────────────────┘
+   ▲ a few points of THRESHOLD movement doubles or halves staffing.
+     The confidence threshold is an ECONOMIC dial, not a technical
+     parameter.
+
+  STORAGE
+   originals FOREVER (audit + re-processing) ─► dominates
+   + intermediate representations + EVERY extraction version
+   ▲ budget for re-processing as routine, not exceptional
+`),
+      },
+      {
+        title: "Architecture: Cheap Paths First, Humans Last",
+        content:
+          "Ingestion detects format, and the first branch is the one most often skipped: does this document already contain text? A large fraction of real corpora are digitally generated PDFs where the text layer is present and exact. Extracting it costs essentially nothing and is more accurate than any model reading the rendered pixels. Checking for embedded text before paying to read pixels is pure profit, and it is routinely omitted because teams reach for the impressive path first.\n\nFor scans and photographs, preprocess: deskew, denoise, correct orientation. Cheap classical image operations here materially improve everything downstream, and skipping them makes the expensive model work harder on a problem that a rotation would have solved.\n\nThen the reading decision, per class. OCR plus a text model is cheap and excellent on clean structured documents. A vision model reads the page directly, handles messy layout, handwriting and unusual formats far better, and costs an order of magnitude more. Route by class, and consider a cascade: attempt the cheap path, and escalate to vision when validation fails or confidence is low.\n\nLayout analysis establishes reading order, table structure and multi-column handling. This is where silent corruption originates - text read in the wrong order produces fluent nonsense that no downstream stage can detect.\n\nSchema-constrained extraction produces output that is structurally valid by construction. Then validation, confidence scoring and routing, human review for what falls below threshold, and persistence with full provenance linking each field back to its source region.\n\nFinally the feedback loop: corrections flow into the golden set and into retraining, which is the only mechanism that improves the cheap path over time and therefore the only thing that reduces review load without lowering standards.",
+        diagram: asciiDiagram(`
+  DOCUMENT PIPELINE - cheap paths first, humans last
+
+   document in
+        │
+        ▼
+   ┌──────────────────────────────────────────────┐
+   │ format detect ── does it ALREADY have text?  │
+   │ ▲ routinely skipped. A large fraction of     │
+   │   real corpora are digital PDFs. Free and    │
+   │   MORE accurate than reading pixels.         │
+   └──────────────────────────────────────────────┘
+        │ digital PDF                    │ scan / photo
+        ▼                                ▼
+   ┌─────────────┐            ┌────────────────────────┐
+   │ native text │            │ preprocess             │
+   │ extraction  │            │ deskew · denoise ·     │
+   │ near-free   │            │ orient                 │
+   └─────────────┘            │ ▲ cheap classical ops. │
+        │                     │   Skipping them makes  │
+        │                     │   the expensive model  │
+        │                     │   solve a rotation.    │
+        │                     └───────────┬────────────┘
+        │                     ┌───────────┴───────────┐
+        │                     ▼                       ▼
+        │              ┌────────────┐        ┌──────────────┐
+        │              │ OCR + text │  ◄─────│ vision model │
+        │              │ cheap      │cascade │ messy layout │
+        │              │ clean docs │ on fail│ handwriting  │
+        │              └─────┬──────┘        └──────┬───────┘
+        └────────────────────┴───────────┬──────────┘
+                                         ▼
+                          ┌──────────────────────────────┐
+                          │ LAYOUT ANALYSIS              │
+                          │ reading order · tables ·     │
+                          │ multi-column                 │
+                          │ ▲ where SILENT corruption    │
+                          │   originates - wrong order   │
+                          │   gives fluent nonsense      │
+                          └──────────────┬───────────────┘
+                                         ▼
+                          ┌──────────────────────────────┐
+                          │ schema-constrained extraction│
+                          │ structurally valid BY        │
+                          │ CONSTRUCTION                 │
+                          └──────────────┬───────────────┘
+                                         ▼
+                          ┌──────────────────────────────┐
+                          │ VALIDATION                   │
+                          │ line items sum to subtotal?  │
+                          │ subtotal + tax = total?      │
+                          │ checksums · dates · types    │
+                          │ ▲ catches CONFIDENT errors   │
+                          └──────────────┬───────────────┘
+                                         ▼
+                             confidence PER FIELD
+                          ┌──────────────┴──────────────┐
+                          ▼                             ▼
+                   above threshold              below threshold
+                          │                             │
+                          ▼                             ▼
+                  persist + provenance            human review
+                          │                             │
+                          └──────────┬──────────────────┘
+                                     ▼
+                    corrections ──► golden set + retraining
+                    ▲ the only thing that reduces review load
+                      WITHOUT lowering standards
+`),
+      },
+      {
+        title: "Deep Dive: Confidence, Validation and the Human Handoff",
+        content:
+          "Start with the honest problem. Models are poorly calibrated, and a vision model will state a wrong total with complete fluency and a high confidence score. Raw model confidence is not trustworthy as a routing signal on its own, and a design that treats it as one will route confidently-wrong extractions straight into the database - which is precisely the failure that matters.\n\nSo construct confidence from multiple independent sources. OCR character-level confidence catches illegible source material. Model confidence catches some genuine uncertainty. Agreement between two different extraction paths on critical fields catches path-specific failures. Format and type constraints from the schema catch structurally impossible values. Reference lookups against a known vendor list catch plausible but nonexistent entities.\n\nAnd above all, arithmetic and cross-field validation, which is the most valuable signal available because it is external to the model. Line items must sum to the subtotal; subtotal plus tax must equal total; dates must be ordered; identifiers must satisfy their checksums. The model cannot talk its way past arithmetic.\n\nThis is the key architectural point: validation rules catch errors the model is confident about, which is exactly the failure mode that confidence scores miss. An invoice whose line items do not sum to its stated total contains an error somewhere, regardless of how certain the model was about any individual number.\n\nRouting policy follows from the section-one criticality. Per-field thresholds, with whole-document escalation when a critical field fails - because if the total is doubtful, verifying the address is not the priority.\n\nThe review interface deserves real attention. Show the extracted value beside the source region so a human verifies in seconds rather than re-reading the document. Review throughput depends more on interface design than on model quality, which surprises people and is a genuinely useful thing to say in an interview - a two-fold improvement in review speed is worth more than a marginal model upgrade and is usually much cheaper to obtain.\n\nFinally, distinguish structural validity from semantic correctness. Schema-constrained decoding guarantees well-formed output. A well-formed JSON object with the wrong number in it is still wrong, and only validation and humans catch that.",
+        diagram: asciiDiagram(`
+  WHY VALIDATION BEATS CONFIDENCE
+
+   model says:  total = 1 240.00   confidence 0.97   looks safe
+   line items:    420.00
+                  310.00
+                  260.00
+                 ────────
+                  990.00  + tax 89.10 = 1 079.10    ✗ MISMATCH
+
+   ╔══════════════════════════════════════════════════════════════╗
+   ║ The model was CONFIDENT and WRONG.                           ║
+   ║ Arithmetic is EXTERNAL to the model - it cannot be fooled    ║
+   ║ by fluency, so it catches exactly what confidence misses.    ║
+   ╚══════════════════════════════════════════════════════════════╝
+
+  THE CONFIDENCE STACK - independent sources
+  ┌────────────────────┬──────────────────────────────────────────┐
+  │ signal             │ catches                                  │
+  ├────────────────────┼──────────────────────────────────────────┤
+  │ OCR char confidence│ illegible source                         │
+  │ model confidence   │ some genuine uncertainty                 │
+  │ cross-field math   │ CONFIDENT errors  ◄── the valuable one   │
+  │ format / checksum  │ structurally impossible values           │
+  │ reference lookup   │ plausible but nonexistent entity         │
+  │ dual-path agreement│ path-specific failures                   │
+  └────────────────────┴──────────────────────────────────────────┘
+
+  ROUTING
+  ┌──────────────────────────────────────────────────────────────┐
+  │ per-FIELD thresholds, from the criticality table              │
+  │ critical field below threshold ─► escalate the WHOLE document │
+  │   ▲ if the total is doubtful, verifying the address is not    │
+  │     the priority                                              │
+  └──────────────────────────────────────────────────────────────┘
+
+  REVIEW UI - where throughput actually lives
+  ┌──────────────────────────────────────────────────────────────┐
+  │  ┌────────────────────┐   ┌──────────────────────────────┐   │
+  │  │  source region     │   │ extracted: total  1 240.00   │   │
+  │  │  ┌──────────────┐  │   │           ▲ flagged          │   │
+  │  │  │ TOTAL 1079.10│◄─┼───┤ [accept] [correct] [reject]  │   │
+  │  │  └──────────────┘  │   └──────────────────────────────┘   │
+  │  └────────────────────┘                                      │
+  │ verify in SECONDS, not by re-reading the document            │
+  │ ▲ a 2× review-speed gain beats a marginal model upgrade and  │
+  │   is far cheaper to obtain                                   │
+  └──────────────────────────────────────────────────────────────┘
+
+  STRUCTURAL VALIDITY ≠ SEMANTIC CORRECTNESS
+   schema-constrained decoding guarantees well-formed JSON.
+   A well-formed object with the wrong number in it is still wrong.
+`),
+      },
+      {
+        title: "Evaluation: Per-Field, and Testing the Confidence Signal Itself",
+        content:
+          "Build a labelled golden set per document class, and deliberately include difficult specimens - the skewed photograph, the coffee-stained scan, the table spanning pages, the handwritten form. A golden set of clean documents measures the easy case and reports a number that will not survive production.\n\nReport per-field accuracy, never a document-level average. Averaging across fields lets excellent address extraction mask poor total extraction, and those two errors have entirely different costs. The per-field table from the requirements section is the reporting format.\n\nTrack extraction precision and recall separately from correctness of extracted values, because they are different failures: missing a field entirely and extracting a field with the wrong value require different fixes, and an aggregate accuracy number conflates them.\n\nThen the measurement that most teams omit: evaluate the confidence signal itself. Are low-confidence extractions actually wrong more often? Are high-confidence extractions reliable? This is a calibration question, and it is the only way to detect a broken routing policy. A system where confidence does not correlate with correctness is routing at random while appearing to route intelligently, and every downstream number - automation rate, review load, escaped error rate - is then meaningless.\n\nIn production, human correction rate is the running signal. A rising correction rate on a stable document class means something changed upstream - new vendor templates, a scanner replacement, a model update.\n\nCorrections must flow into both the golden set and retraining. Into the golden set because corrected documents are by definition the hard cases and are the most valuable evaluation data you will ever get for free; into retraining because that is what shrinks the review queue over time.",
+        diagram: asciiDiagram(`
+  PER-FIELD, NEVER DOCUMENT-AVERAGE
+
+  ┌──────────────────┬──────────┬──────────┬───────────────────────┐
+  │ field            │ accuracy │ target   │                       │
+  ├──────────────────┼──────────┼──────────┼───────────────────────┤
+  │ total            │  99.2%   │  99.9%   │ ✗ below bar           │
+  │ account number   │  99.8%   │  99.9%   │ ✗ marginal            │
+  │ invoice number   │  99.5%   │  99.0%   │ ✓                     │
+  │ vendor name      │  97.1%   │  95.0%   │ ✓                     │
+  │ street address   │  91.4%   │  85.0%   │ ✓                     │
+  ├──────────────────┼──────────┼──────────┴───────────────────────┤
+  │ DOCUMENT AVERAGE │  97.4%   │ ◄── looks fine. Hides that the   │
+  │                  │          │     two fields that move money   │
+  │                  │          │     are BOTH below bar.          │
+  └──────────────────┴──────────┴──────────────────────────────────┘
+
+  TWO DIFFERENT FAILURES - do not conflate
+   extraction recall  ─ field MISSING entirely
+   value correctness  ─ field present, value WRONG
+   different fixes; one accuracy number hides which you have
+
+  IS THE CONFIDENCE SIGNAL ITSELF ANY GOOD?
+   error rate ▲
+       40% ┤ ██
+           │ ██ ██
+       20% ┤ ██ ██ ██
+           │ ██ ██ ██ ██ ██
+        0% ┤ ██ ██ ██ ██ ██ ██
+           └──────────────────────────► confidence bucket
+             .5  .6  .7  .8  .9  1.0
+     GOOD: monotonically decreasing ─► routing works
+
+   error rate ▲
+       20% ┤ ██ ██ ██ ██ ██ ██
+           └──────────────────────────► confidence bucket
+     BROKEN: flat ─► you are routing AT RANDOM while appearing
+     to route intelligently. Every downstream number -
+     automation rate, review load, escaped errors - is meaningless.
+
+  ┌──────────────────────────────────────────────────────────────┐
+  │ corrections ──► golden set (they ARE the hard cases, free)   │
+  │             └─► retraining (the only thing that shrinks the  │
+  │                 review queue without lowering standards)     │
+  └──────────────────────────────────────────────────────────────┘
+`),
+      },
+      {
+        title: "Failure Modes and Degradation",
+        content:
+          "An unseen document class producing plausible garbage. This is the worst failure because it is silent: the model has never seen a purchase order, receives one, and confidently populates the invoice schema with numbers that are in the document somewhere but mean something else. Argue for out-of-distribution detection and an explicit refuse-to-extract path. Refusing is far safer than fabricating, and a design that has no way to say 'I do not know what this is' will fabricate by construction.\n\nRotated or upside-down pages, which the orientation step should catch and which destroy OCR quality if it does not.\n\nTables spanning pages losing their header context, so that columns on page two are parsed against the wrong labels. The fix is in layout analysis: propagate the header across the page break rather than treating each page independently.\n\nMulti-column text read in the wrong order, which corrupts everything downstream and produces output that reads as fluent nonsense. This is particularly insidious because no validation rule detects it in free text - only structured fields with arithmetic relationships are protected.\n\nHandwriting, which OCR handles poorly and vision models handle better but still imperfectly. The honest response is a lower automation rate for handwritten classes rather than a pretence of parity.\n\nVision provider outage, with the OCR path as fallback at reduced quality and a raised review rate for the duration - degraded but operating beats halted.\n\nReview backlog, shed by document criticality rather than by age.\n\nAnd model upgrade changing extraction behaviour. A newer model is not automatically better on your documents, and it will differ in ways your golden set may not cover. Shadow-compare on live traffic before switching, and diff field values rather than aggregate accuracy so you can see what changed rather than only whether the total moved.",
+        diagram: asciiDiagram(`
+  FAILURE MODES
+
+  ┌────────────────────┬───────────────────────────────────────────┐
+  │ UNSEEN CLASS       │ never seen a purchase order, receives one,│
+  │ ── the worst one   │ confidently fills the INVOICE schema with │
+  │                    │ numbers that mean something else.         │
+  │                    │ SILENT. Validation may even pass.         │
+  │                    │ ► OOD detection + explicit REFUSE path    │
+  │                    │ ► a system with no way to say "I don't    │
+  │                    │   know what this is" WILL fabricate       │
+  ├────────────────────┼───────────────────────────────────────────┤
+  │ rotated page       │ orientation step must catch it; OCR       │
+  │                    │ quality collapses if it does not          │
+  ├────────────────────┼───────────────────────────────────────────┤
+  │ table spans pages  │ page 2 columns parsed against page 1      │
+  │                    │ headers ─► every row wrong                │
+  │                    │ ► propagate headers across page breaks    │
+  ├────────────────────┼───────────────────────────────────────────┤
+  │ multi-column read  │ fluent nonsense. No validation rule       │
+  │ in wrong order     │ detects it in FREE TEXT - only fields     │
+  │                    │ with arithmetic relations are protected   │
+  ├────────────────────┼───────────────────────────────────────────┤
+  │ handwriting        │ OCR poor, vision better but imperfect     │
+  │                    │ ► accept a LOWER automation rate for the  │
+  │                    │   class rather than pretend parity        │
+  ├────────────────────┼───────────────────────────────────────────┤
+  │ vision provider    │ fall back to OCR at reduced quality and   │
+  │ outage             │ raise the review rate for the duration    │
+  │                    │ ► degraded but operating beats halted     │
+  ├────────────────────┼───────────────────────────────────────────┤
+  │ review backlog     │ shed by document CRITICALITY, not age     │
+  ├────────────────────┼───────────────────────────────────────────┤
+  │ model upgrade      │ newer ≠ better ON YOUR DOCUMENTS          │
+  │                    │ ► shadow-compare on live traffic          │
+  │                    │ ► diff FIELD VALUES, not aggregate        │
+  │                    │   accuracy - see WHAT changed             │
+  └────────────────────┴───────────────────────────────────────────┘
+`),
+      },
+      {
+        title: "Cost and Trade-offs",
+        content:
+          "Per-page cost by path spans an order of magnitude, and routing by class is where the leverage sits. The native-text fast path is free, OCR plus a text model is cheap, and vision per page is expensive. A design that routes everything to vision because vision handles everything is paying ten to twenty times more than necessary for the majority of pages that did not need it.\n\nThe confidence threshold is the direct dial between machine cost and human cost, and it is the central economic trade in the system. Raise it and more documents go to review: accuracy improves, machine cost is flat, staffing rises. Lower it and automation rate improves while escaped errors increase. Because reviewer headcount is slow to change and machine capacity is not, the threshold is best set conservatively and tightened as the model improves, rather than set aggressively and relaxed under pressure.\n\nBatch versus interactive is a capacity decision as much as a latency one. Batch work belongs on cheap preemptible capacity overnight; interactive work needs provisioned capacity and pays for it. Running both on the same fast tier is a common and expensive default.\n\nAccuracy versus automation rate is the trade that cannot always be made. Pushing automation up means accepting more escaped errors, and for fields that move money that trade may simply not be available at any price - the correct answer is then to accept a lower automation rate and say so, rather than to quietly raise the threshold and hope.\n\nThe honest summary: the model is not the expensive part and rarely the limiting one. Routing, validation and review interface design determine both the cost and the achievable accuracy, and those are engineering decisions rather than model decisions.",
+        diagram: asciiDiagram(`
+  THE CENTRAL DIAL
+
+   ◄── lower threshold                    raise threshold ──►
+   ┌──────────────────────────┬──────────────────────────────┐
+   │ automation rate  UP      │ automation rate  DOWN        │
+   │ review staffing  DOWN    │ review staffing  UP          │
+   │ escaped errors   UP      │ escaped errors   DOWN        │
+   │ machine cost     flat    │ machine cost     flat        │
+   └──────────────────────────┴──────────────────────────────┘
+
+  ┌──────────────────────────────────────────────────────────────┐
+  │ Reviewer headcount is SLOW to change. Machine capacity is    │
+  │ not. So set the threshold conservatively and TIGHTEN as the  │
+  │ model improves - never set it aggressively and relax it      │
+  │ under pressure, because the relaxation lands as escaped      │
+  │ errors before the hiring lands as capacity.                  │
+  └──────────────────────────────────────────────────────────────┘
+
+  BATCH vs INTERACTIVE - a capacity decision, not just latency
+  ┌──────────────────┬───────────────────────────────────────────┐
+  │ batch backfill   │ minutes/doc ok ─► cheap preemptible,      │
+  │                  │ overnight, aggressive parallelism         │
+  │ interactive      │ seconds ─► provisioned capacity, pays for │
+  │                  │ it, usually a less thorough path          │
+  └──────────────────┴───────────────────────────────────────────┘
+   running both on the same fast tier is the common expensive default
+
+  ╔══════════════════════════════════════════════════════════════╗
+  ║ For fields that move money, the accuracy/automation trade    ║
+  ║ may not be available AT ANY PRICE. Accept a lower automation ║
+  ║ rate and say so, rather than quietly raising the threshold.  ║
+  ║                                                              ║
+  ║ The model is not the expensive part and rarely the limiting  ║
+  ║ one. Routing, validation and review UI decide both cost and  ║
+  ║ achievable accuracy - and all three are engineering.         ║
+  ╚══════════════════════════════════════════════════════════════╝
+`),
+      },
+    ],
+    examples: [
+      {
+        title: "Costing a one-million-page backfill two ways",
+        input:
+          "An archive of one million pages must be processed. Path A sends every page to a vision model at roughly three cents per page. Path B checks for native text, routes clean classes through OCR plus a text model at roughly a fifth of a cent, and escalates to vision only on validation failure.",
+        output:
+          "Path A costs about $30,000. Path B, given 30 percent native-text documents, 55 percent resolving through OCR and 15 percent escalating to vision, costs roughly $5,600 - about five times less for materially similar accuracy on the classes that matter.",
+        explanation:
+          "Step 1: One million pages at three cents each is $30,000 for the all-vision path, computed before considering whether every page needed it. Step 2: Thirty percent of the archive is digitally generated with an embedded text layer, so 300,000 pages cost essentially nothing and are extracted more accurately than any model reading rendered pixels would manage. Step 3: Of the remaining 700,000 pages, 550,000 are clean scans of structured documents that OCR plus a text model handles well, costing about $1,100. Step 4: The remaining 150,000 pages - messy scans, handwriting, unusual layouts - escalate to vision at about $4,500. Step 5: Total is roughly $5,600 against $30,000, and note where the saving came from: not from a cheaper vision model, but from asking which pages needed one. The native-text check alone accounted for nearly a third of the corpus and is the single cheapest engineering decision in the pipeline.",
+      },
+      {
+        title: "The confidently wrong total",
+        input:
+          "A vision model extracts a total of 1,240.00 with a reported confidence of 0.97. The extracted line items are 420.00, 310.00 and 260.00, with tax of 89.10.",
+        output:
+          "Cross-field validation computes 990.00 plus 89.10 equals 1,079.10, which does not match the stated total. The document is routed to review despite the high confidence, and the reviewer finds the model read a subtotal from an adjacent column as the total.",
+        explanation:
+          "Step 1: Confidence of 0.97 on a critical field would pass any threshold-based routing policy, which is precisely the point - this error is invisible to the confidence signal. Step 2: Arithmetic validation is external to the model and cannot be influenced by the model's fluency, so it detects the inconsistency regardless of how certain the model was. Step 3: The validation rule does not identify which field is wrong - the total, a line item, or the tax could each be the error - so the correct routing action is to escalate the whole document rather than to flag one field. Step 4: The reviewer's correction becomes training data and a golden-set entry, and because it is a case the model got confidently wrong it is far more valuable than a randomly sampled document. Step 5: The general principle worth stating: build validation rules wherever fields have a mathematical or logical relationship, because those relationships are the only error-detection mechanism that a confident model cannot defeat.",
+      },
+      {
+        title: "Setting the confidence threshold as an economic decision",
+        input:
+          "At the current threshold, 8 percent of documents route to review, requiring about 25 full-time reviewers, and the escaped error rate on critical fields is 0.3 percent. Finance proposes raising automation to reduce headcount to 13.",
+        output:
+          "The proposal is quantified rather than accepted or refused: dropping to about 4 percent review roughly doubles the escaped error rate on critical fields to around 0.6 percent. For fields that move money, that is presented as a business decision with a dollar figure attached, not an engineering tuning exercise.",
+        explanation:
+          "Step 1: Translate the request into the actual dial - reducing headcount from 25 to 13 means halving the review rate, which means lowering the confidence threshold. Step 2: Estimate the consequence from the calibration data, since the documents that stop being reviewed are the ones just above the new threshold, and their error rate is measurable from the existing review outcomes rather than needing to be guessed. Step 3: Express both sides in the same unit: twelve reviewer salaries saved against a doubled escaped error rate on payments, multiplied by the average value at risk per error. Step 4: Present the tradeoff to whoever owns the financial risk, because this is the same ownership point as moderation thresholds - engineering supplies the curve, the business chooses the operating point. Step 5: Offer the third option that is usually available and usually ignored: invest the headcount saving in review interface improvements and model retraining from corrections, which lowers the review rate at constant accuracy instead of trading one for the other.",
+      },
+      {
+        title: "A multi-page table losing its header",
+        input:
+          "A twelve-page invoice has a line-item table beginning on page three with column headers, continuing to page five without repeating them. Extraction produces correct rows for page three and misaligned values for pages four and five.",
+        output:
+          "Layout analysis is changed to propagate table headers across page boundaries when a table is detected as continuing. Validation catches the original error because the mis-parsed rows produce a subtotal that does not match, which is what surfaced the bug.",
+        explanation:
+          "Step 1: The immediate symptom is that quantities appear in the price column and descriptions are truncated, but only from page four onward - the page-three rows are perfect, which is the diagnostic clue. Step 2: The root cause is that layout analysis treated each page independently, so pages four and five had a table with no headers and the extractor assigned columns positionally by guess. Step 3: The fix is structural rather than a model change: detect table continuation across pages and carry the header row forward, which is a layout-analysis responsibility. Step 4: Note what caught it - arithmetic validation, because mis-assigned columns produced line items that did not sum to the subtotal. Without that rule the corruption would have been silent, since every individual value was a real number read correctly from the page. Step 5: This is the general lesson about layout: errors originating in reading order are invisible to confidence and to schema validation, and are caught only by relationships between fields.",
+      },
+    ],
+    tips: [
+      "Always check for embedded text before paying to read pixels. A large fraction of real corpora are digital PDFs, and native extraction is both free and more accurate than any model reading the rendered page.",
+      "Validate with arithmetic and cross-field rules, because they are external to the model and therefore catch the confident errors that confidence scores structurally cannot.",
+      "Set thresholds per field by criticality. A total and a street address do not deserve the same scrutiny, and treating them identically wastes review capacity on one while under-protecting the other.",
+      "Keep original artefacts forever and expect re-processing to be routine. Model upgrades, policy changes and disputes all require going back to the source pixels, and a pipeline that discards originals cannot do any of it.",
+      "Invest in the review interface. Throughput lives there far more than in model quality, and doubling review speed is usually cheaper and more certain than a marginal accuracy improvement.",
+    ],
+    tricks: [
+      "Ask which fields must be exactly right before designing anything. The per-field criticality table produced by that question becomes the routing thresholds, the evaluation format and the escalation policy, so it is the highest-leverage five minutes in the whole design.",
+      "Volunteer the refuse-to-extract path for out-of-distribution documents. Most candidates design a pipeline with no way to decline, which means it fabricates by construction when it meets something unfamiliar.",
+      "Present vision versus OCR as a per-class routing decision rather than a global choice, and mention the cheap-first cascade. Framing it as one global pick is the most common way to lose an order of magnitude of cost for no accuracy gain.",
+      "Estimate in pages, not documents. It is the unit that model cost scales with, and quoting document counts hides a forty-to-one variation in work per item.",
+      "Plot error rate against confidence bucket before trusting any routing policy. If the line is flat, the system is routing at random while looking intelligent, and every downstream metric is meaningless.",
+    ],
+    memoryAids: [
+      "Fields have different stakes. One threshold for all of them is the naive answer.",
+      "Validation catches what confidence cannot - arithmetic is external to the model and immune to fluency.",
+      "Estimate in pages, not documents. A forty-page contract and a receipt are not the same unit of work.",
+      "Refusing beats fabricating. A pipeline with no decline path invents answers for documents it has never seen.",
+      "Check for text before paying for pixels. It is the cheapest decision in the pipeline and the most often skipped.",
+    ],
+    interviewPatterns: [
+      "'How do you know an extraction is right?' The signature question. Answer with the validation stack - arithmetic, cross-field, checksums, reference lookup, dual-path agreement - and explicitly say that model confidence alone is insufficient.",
+      "'How do you handle a document type you have never seen?' Out-of-distribution detection and an explicit refuse-to-extract path, because confidently populating the wrong schema is the worst available outcome.",
+      "'How would you cut cost by half?' Native-text fast path, per-class routing between OCR and vision, and a cheap-first cascade - never by weakening validation or review.",
+      "'What goes to a human?' Per-field thresholds derived from criticality, plus whole-document escalation when any critical field fails.",
+      "'Your new model scores better on benchmarks. Do you deploy it?' Not without shadow comparison on live traffic diffed at field level, because newer is not automatically better on your specific documents.",
+      "Frequency and companies: common in fintech, insurance, healthcare and enterprise-automation interviews - Stripe, Brex, Ramp, Intuit, major insurers and health systems, and document-AI vendors. Stability: high; the pipeline shape, validation-over-confidence principle and human handoff have been stable for years while the reading models change constantly.",
+    ],
+    faq: [
+      {
+        question: "Is a vision model alone enough? Why keep OCR at all?",
+        answer:
+          "On quality, a good vision model handles nearly everything OCR does and much that it cannot - skewed photographs, handwriting, unusual layouts, dense tables. The reason to keep OCR is cost and the fact that most pages do not need the harder capability. Vision per page typically runs ten to twenty times the cost of OCR plus a text model, and on clean structured documents the two produce equivalent output, so paying the premium buys nothing on the majority of a typical corpus. The right structure is per-class routing with a cheap-first cascade: attempt OCR, and escalate to vision when validation fails or confidence is low, which concentrates spend exactly on the pages that were hard. There is also a latency argument for interactive paths, where OCR is faster, and a resilience argument, since OCR remains available as a degraded fallback when a vision provider is down.",
+        category: "architecture",
+      },
+      {
+        question: "Why is model confidence insufficient as a routing signal?",
+        answer:
+          "Because it is poorly calibrated and, more importantly, because it is generated by the same process that produced the error. A model that misreads a subtotal as a total has no internal signal that anything went wrong - it read a number, it is a plausible number, and it reports high confidence. The errors you most need to catch are exactly the ones the model is confident about, which makes confidence structurally blind to them. That is why the routing signal must be constructed from independent sources, above all arithmetic and cross-field validation, which cannot be influenced by the model's certainty. Model confidence still has a role as one input among several - it does catch genuine ambiguity such as an illegible digit - but a design that routes on it alone will pass confidently-wrong extractions straight into the database.",
+        category: "confidence",
+      },
+      {
+        question: "How do batch and interactive paths differ in design, not just latency?",
+        answer:
+          "They differ in almost every dimension that matters. Batch tolerates minutes per document, so it can run the full pipeline including dual-path extraction for critical fields, aggressive validation and vision escalation, on cheap preemptible capacity scheduled overnight. Interactive has seconds, so it typically skips dual-path agreement, uses the faster reading path, and defers expensive validation to an asynchronous pass that may correct the record after the user has left. That asynchronous correction is the design detail people miss: the interactive path should return a provisional result and reconcile later rather than either blocking the user or skipping validation entirely. Capacity provisioning differs too - batch wants throughput and can queue, interactive needs headroom for peaks - and running both on the same provisioned fast tier is a common and expensive default.",
+        category: "architecture",
+      },
+      {
+        question: "How do you handle handwriting?",
+        answer:
+          "Honestly, and with a lower automation rate. OCR engines handle printed text well and cursive handwriting poorly; vision models are substantially better but still well short of the accuracy you would accept on a printed total. The practical design treats handwritten classes as their own routing category with a lower confidence threshold, meaning more documents go to review, and sets stakeholder expectations accordingly rather than reporting an aggregate automation rate that hides the difference. Where the form is structured - boxed characters, checkboxes, defined fields - accuracy improves considerably, so it is worth influencing the form design upstream if you can, which is frequently the highest-return intervention available. What you should not do is apply the same thresholds as printed documents and let the errors escape; the correct response to a genuinely harder input is more human involvement, not more optimism.",
+        category: "quality",
+      },
+      {
+        question: "What happens when the extraction model is upgraded?",
+        answer:
+          "Treat it as a change that must be proven rather than assumed, because a newer model with better benchmark scores is not automatically better on your documents and will differ in ways your golden set may not cover. Run it in shadow on live traffic, extract with both models, and diff at the field level rather than comparing aggregate accuracy - the aggregate can be flat while one field class regresses badly. Pay particular attention to fields where the old model was reliable, since a regression there is more damaging than a missed improvement elsewhere. Then re-process history selectively: the ability to re-run the archive is why originals are retained, and a model upgrade is the main reason it happens. Prioritise re-processing by field criticality and by documents that were reviewed, since those have human labels to compare against.",
+        category: "operations",
+      },
+      {
+        question: "How do you measure accuracy when ground-truth labelling is expensive?",
+        answer:
+          "Use the labels you are already generating. Every human review produces a verified value for at least the fields that were flagged, so the review queue is a continuous source of ground truth at no marginal cost - though a biased one, since reviewed documents are by construction the harder ones. Complement it with a small stratified random sample of automated accepts, labelled deliberately, which is the only unbiased measurement of the population you are not reviewing. That sample is the document-processing analogue of auditing allow decisions in moderation, and for the same reason: errors that escape are never reported by anyone. Size it by field criticality rather than uniformly - a few hundred labelled examples on the fields that move money is worth far more than thousands spread evenly across a schema where most fields are cosmetic.",
+        category: "evaluation",
+      },
+      {
+        question: "What do you do if there is no human review capacity at all?",
+        answer:
+          "Change what the system promises, because you cannot meet a high accuracy bar on critical fields without somewhere to route uncertainty. Three viable adaptations. First, narrow the scope to fields where validation alone can establish correctness - fields with checksums, arithmetic relationships or reference-data matches can be verified without a human, and fields without those relationships cannot. Second, push the review to the point of consumption: surface low-confidence values to whoever uses the record, flagged, rather than silently persisting them, which converts a missing review team into a distributed one. Third, and most honestly, decline to automate the critical fields at all and extract only the recoverable ones. What you must not do is lower thresholds until everything passes, which converts an acknowledged staffing gap into an unacknowledged error rate that will surface as a financial incident.",
+        category: "requirements",
+      },
+    ],
+    references: [
+      {
+        source: "note",
+        attribution: "Tesseract and commercial OCR engine documentation on confidence scoring and preprocessing",
+        insight: "Character-level confidence semantics and the measurable effect of deskew, denoise and orientation correction on recognition quality.",
+      },
+      {
+        source: "paper",
+        attribution: "Xu et al., 'LayoutLM' and successors on layout-aware document understanding",
+        insight: "Joint modelling of text, position and image for document extraction, and why reading order and spatial structure carry information that pure text models discard.",
+      },
+      {
+        source: "note",
+        attribution: "Structured-output and constrained-decoding documentation from major model providers",
+        insight: "How schema-constrained generation guarantees structural validity, and the explicit caveat that structural validity says nothing about semantic correctness.",
+      },
+      {
+        source: "note",
+        attribution: "Vendor pricing pages for OCR and vision model APIs, treated as snapshot values",
+        insight: "The order-of-magnitude cost gap between OCR-plus-text and per-page vision reading that drives the per-class routing decision.",
+      },
+      {
+        source: "video",
+        attribution: "Recorded conference talks on production document AI in fintech and insurance",
+        insight: "Operational accounts of validation stacks, human-in-the-loop review interfaces and the economics of the confidence threshold.",
+      },
+    ],
+    practiceProblems: [
+      "TENFOLD VOLUME AT FIXED BUDGET. Daily volume rises from 50,000 to 500,000 documents with no budget increase. What changes? ANSWER: Attack per-page cost before anything else, since that is where the fixed budget binds. Audit native-text coverage first - if the check is missing or incomplete, adding it can remove a third of the pages from paid processing immediately. Then tighten per-class routing so that vision is reserved for classes where OCR measurably fails, using the validation-failure rate per class as the evidence rather than an assumption. Then add a cheap-first cascade wherever it is not already present. For review, the honest position is that human capacity cannot scale tenfold at fixed budget, so review must be reserved for critical fields only, with non-critical low-confidence values persisted with a flag rather than escalated. Finally, move all batch work to preemptible overnight capacity. What you should not do is lower confidence thresholds uniformly, which converts a cost problem into a silent accuracy problem on the fields that move money.",
+      "ADDING A NEW DOCUMENT CLASS. The pipeline handles invoices; it must now handle insurance claim forms. What is required, and in what order? ANSWER: Start with the per-field criticality table for the new class, because everything else derives from it and it is a stakeholder conversation rather than an engineering task. Then build a labelled golden set including difficult specimens, since without it you cannot tell whether the existing models transfer. Test the existing paths against that set before building anything new - claim forms are often more structured than invoices and may work well through OCR immediately. Define validation rules specific to the class: claim forms typically have date ordering constraints, policy-number checksums and reference lookups against a policy database, which are stronger validation signals than invoices offer. Add the class to out-of-distribution detection so that claim forms stop being misrouted into the invoice schema, which is the failure that will otherwise appear first. Set initial thresholds conservatively and tighten as correction data accumulates. Expect the review rate to be high for the first weeks and staff for it explicitly.",
+      "FULL PROVENANCE IN A REGULATED CONTEXT. A regulator requires that every extracted field be traceable to its source, for seven years. Design for it. ANSWER: Persist, per field, the source page, the bounding region on that page, the extraction path taken, the model identifier and version, the validation rules applied and their outcomes, the confidence inputs, whether a human reviewed it, who, when and what they changed. Retain the original artefact unmodified with a content hash, and store intermediate representations sufficient to reproduce the extraction. Version the schema and validation rules themselves, since a field extracted under an older rule set must be interpretable against the rules then in force - this is the same principle as versioning moderation policy. Make every record append-only: a correction creates a new version rather than overwriting, so the history of a disputed value is intact. Two practical consequences worth naming: storage is dominated by originals and grows without bound within the retention window, so plan tiering to cold storage; and re-processing after a model upgrade must write new versions rather than replacing, which means the provenance store grows on every backfill.",
+      "HALVE REVIEW LOAD WITHOUT LOSING CRITICAL-FIELD ACCURACY. Review load must drop by 50 percent while accuracy on money-moving fields is held. Where does it come from? ANSWER: Not from lowering critical-field thresholds, which violates the constraint directly. Four places, in order of return. First, non-critical fields: if low confidence on a street address currently escalates the document, stop escalating on non-critical fields alone and persist them flagged - this often accounts for a large share of the queue for no accuracy benefit where it matters. Second, review interface improvement, which reduces time per document rather than document count and therefore cuts load without changing any threshold; showing the value beside its source region routinely doubles throughput. Third, retraining on accumulated corrections, which genuinely narrows the low-confidence population over time and is the only lever that improves cost and accuracy together. Fourth, expand validation coverage: every additional arithmetic or reference-data rule resolves cases that would otherwise need a human, because a value that validates against three independent constraints needs less scrutiny than one that validates against none.",
+      "THE CORRECTION RATE JUMPED AND NOTHING WAS DEPLOYED. Human correction rate on a stable invoice class rises from 6 to 15 percent over two weeks with no pipeline change. Diagnose. ANSWER: Something upstream changed, and there are four candidates. Input quality drift - a large customer replaced their scanner, or switched from digital PDFs to scanned printouts, which would show as a shift in the native-text fraction and is the first thing to check because it is cheap to measure. Vendor template change - a major vendor redesigned their invoice layout, which shows as the correction rate concentrating in documents from that vendor, so segment by source before anything else. Silent model change - if the reading model is a hosted API, the provider may have updated it without notice, which is why pinning versions matters and why a fixed golden set should be re-scored on a schedule rather than only at deploy time. Reviewer behaviour change - new reviewers correcting values that older reviewers accepted, which is a calibration issue rather than an extraction one and is distinguished by the golden set staying flat. Check the golden set first: if it is unchanged, the model is fine and the change is in the inputs or the reviewers.",
+    ],
+  },
 ];
