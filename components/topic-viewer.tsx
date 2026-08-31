@@ -1,4 +1,5 @@
 import { Topic, Reference } from "@/data/syllabus";
+import { isPracticeVariation } from "@/data/practice-variation";
 import styles from "./topic-viewer.module.css";
 
 type TopicViewerProps = {
@@ -298,9 +299,19 @@ export function TopicViewer({ topic, masteryMap, onMasteryChange, onBackClick }:
           <p className={styles.emptyState}>No practice problems linked yet. Coming soon!</p>
         ) : (
           <ul className={styles.list}>
-            {topic.practiceProblems.map((problemId, i) => (
-              <li key={i}>{problemId}</li>
-            ))}
+            {topic.practiceProblems.map((entry, i) =>
+              isPracticeVariation(entry) ? (
+                <li key={i} className={styles.practiceVariation}>
+                  <strong className={styles.practiceVariationTitle}>{entry.variation}</strong>
+                  <p className={styles.practiceVariationTip}>{entry.tip}</p>
+                  <pre className={styles.codeBlock}>
+                    <code>{entry.snippet}</code>
+                  </pre>
+                </li>
+              ) : (
+                <li key={i}>{entry}</li>
+              )
+            )}
           </ul>
         )}
       </section>
