@@ -1562,5 +1562,1025 @@ export const aiAdaptationSafetyTopics: Topic[] = [
         insight: "Decomposes the update into magnitude and direction, gaining 1-3% over vanilla LoRA at equal rank. The right level of familiarity for a SWE interview is knowing it exists, what it changes, and that PEFT exposes it as a flag.",
       },
     ],
+  },
+  {
+    id: "topic-ai-adaptation-sft-instruction-tuning",
+    moduleId: "mod-ai-adaptation-safety",
+    title: "Supervised Fine-Tuning and Instruction Tuning: From Base Model to Assistant",
+
+    intuition: `A base model is a next-token prediction engine trained on
+  internet text — it completes documents, not conversations. Supervised
+  fine-tuning on (instruction, response) pairs turns it into an assistant that
+  follows directions. The mechanics are identical to pre-training — minimise
+  cross-entropy over the next token — but the data changes from "all text on
+  the web" to "carefully curated examples of the behaviour you want". The most
+  important practical insight: 500 high-quality, diverse examples reshape
+  behaviour more reliably than 50,000 noisy ones.`,
+
+    complexity: {
+      time: "Full SFT of a 7B model on 1,000 examples at 3 epochs: 1-2 hours on one A100 80 GB. LoRA-based SFT of the same model: 30-60 minutes on the same hardware. A hosted fine-tuning API on 1,000 examples: roughly 20-40 minutes, billed per training token. Inference latency after SFT is unchanged from the base model — the weights have the same shape, only different values.",
+      space: "Full SFT: ~80 GB peak GPU memory for a 7B model (weights + gradients + Adam states), plus a full ~14 GB model copy on disk per checkpoint. LoRA SFT: ~15-17 GB GPU memory and a ~100-200 MB adapter on disk. Training data itself is small: 1,000 chat-format examples in JSONL is typically 1-5 MB."
+    },
+
+    lesson: [
+      {
+        title: "Base Models vs Instruction-Tuned Models",
+        content: `Establish this distinction first, because interviews expose
+  the confusion immediately — a candidate says "I would fine-tune GPT-4" when
+  they mean a base model, or proposes fine-tuning a base model on chat data
+  and expects assistant behaviour to appear on its own.
+
+  A base model such as Llama-3-8B or Mistral-7B is trained on next-token
+  prediction over trillions of tokens of raw text. Given "The capital of
+  France is", it completes "Paris". Given a line that looks like a chat turn,
+  it might answer, or it might keep writing both sides of the dialogue, or
+  drift into an unrelated article. It has no concept of a conversation turn,
+  no instruction-following behaviour and no guardrails. It is a powerful
+  interpolation machine over its training distribution and nothing more.
+
+  Instruction tuning — the specific form of SFT that produces assistants —
+  trains that base model on many (instruction, response) examples formatted as
+  conversations. The model learns that when the input looks like an
+  instruction it should produce a helpful completion, along with turn-taking
+  structure and response format. The result is an instruct or chat model, and
+  essentially every model you reach through an API or product is one.
+
+  The practical consequence is the part candidates most often get wrong: for
+  product use cases you fine-tune the instruct model, not the base model. The
+  instruct model already knows how to follow directions and hold a
+  conversation, so your data only has to add domain, style or format. Starting
+  from the base model means teaching instruction-following and your
+  requirements simultaneously, which needs far more data and usually yields
+  weaker general behaviour. Starting from base is right only when you are
+  replacing the instruction-tuning process itself.`,
+        diagram: asciiDiagram(`
+  BASE MODEL PIPELINE
+    raw text corpus ──[pre-training]──▶ base model
+    trillions of tokens                 completes text
+    unsupervised, next token            no instruction-following
+
+  INSTRUCT MODEL PIPELINE
+    base model ──[SFT on (instruction, response) pairs]──▶ instruct model
+                  thousands to millions of examples        follows directions
+                  loss only on assistant tokens            holds a conversation
+
+  PRODUCT FINE-TUNE PIPELINE
+    instruct model ──[SFT on your domain data]──▶ your specialised assistant
+                      hundreds to a few thousand   domain + style, on top of
+                      high-quality examples        existing instruction-following
+
+  ▲ Start here for product work ─────────────┘
+`),
+      },
+      {
+        title: "Chat Templates and the Loss Mask",
+        content: `The most common SFT implementation error is computing loss
+  on the wrong tokens, so the chat template and the loss mask deserve concrete
+  treatment.
+
+  A chat template serialises a list of conversation turns into the single
+  string the model actually processes. Each model family uses a slightly
+  different template, but all of them mark role boundaries with special
+  tokens — Llama-3-Instruct wraps role headers in pipe-delimited markers such
+  as start_header_id and terminates each turn with eot_id. The exact spelling
+  matters less than the rule: use the tokenizer's own chat template rather
+  than hand-rolling the string, because a template mismatch between training
+  and inference silently degrades quality.
+
+  The loss mask sets cross-entropy loss to zero for every token in the system
+  and user turns. The model should not learn to predict those; loss is
+  computed only on assistant-turn tokens, so the model learns "given the
+  conversation so far, predict each token of this response". Skipping the mask
+  produces the echo bug — the model reproduces the user's message before
+  answering — because user tokens are now part of what the gradient pushes
+  toward.
+
+  The JSONL format used by hosted fine-tuning APIs encodes this structure
+  explicitly as a messages array of role/content objects, and TRL's SFTTrainer
+  applies the template and mask for you when you hand it chat-format data and
+  the tokenizer. Doing it by hand means setting labels to -100 for every
+  non-assistant token before the trainer sees them.
+
+  There is a two-minute check for correctness that catches the most expensive
+  bug in this topic. After training, prompt the model with the first ten words
+  of a training example's user turn. If it echoes the rest of the user turn
+  back before answering, the loss mask was not applied.`,
+        codeExample: `// Chat-format training data, one JSON object per line (JSONL)
+{"messages": [
+  {"role": "system",    "content": "You respond only in formal English."},
+  {"role": "user",      "content": "whats the weather like"},
+  {"role": "assistant", "content": "Current weather conditions are not available to me. Please consult a weather service for up-to-date information."}
+]}
+
+// TRL applies the tokenizer's chat template and the assistant-only
+// loss mask automatically when given chat-format data.
+trainer = SFTTrainer(
+    model=model,
+    train_dataset=dataset,      // objects with a "messages" field
+    tokenizer=tokenizer,        // supplies the model family's template
+    peft_config=lora_config,    // LoRA by default for product fine-tunes
+)
+
+// Doing it manually: every non-assistant token must be masked out
+labels[i] = -100  // ignored by cross-entropy`,
+        diagram: asciiDiagram(`
+  LOSS MASK — WHAT THE GRADIENT SEES
+  ┌──────────────────────────────────────────────────────────┐
+  │ system:    "You respond only in formal English."         │  masked
+  │ user:      "whats the weather like"                      │  masked
+  │ assistant: "Current weather conditions are not ..."      │  LOSS HERE
+  └──────────────────────────────────────────────────────────┘
+
+  mask applied      ──▶  model learns: conversation ──▶ response
+  mask NOT applied  ──▶  model learns to echo the user turn first
+                         (the "echo bug")
+
+  TWO-MINUTE CHECK
+    prompt with first 10 words of a training user turn
+      ├── model answers            ──▶ mask correct
+      └── model completes the user turn ──▶ mask missing, retrain
+`),
+      },
+      {
+        title: "Data: How Much, What Quality, How Diverse",
+        content: `Three numbers anchor every "how much data do you need"
+  answer. The LIMA paper showed that 1,000 carefully curated examples produced
+  an instruction-following model comparable to models trained on 52,000 noisy
+  ones — the Alpaca dataset being the baseline it matched. The practical range
+  for product fine-tuning is 200 to 5,000 examples, and above roughly 200
+  quality dominates quantity.
+
+  Four quality requirements carry the weight. Accuracy: every assistant
+  response must be correct and must represent the behaviour you actually want,
+  because the model will imitate it. Diversity: the examples must span the
+  range of queries production will produce, and 1,000 examples on one subtopic
+  is worse than 200 spread across five. Format consistency: one template, one
+  set of role labels, one output shape. And no bad examples — a noisy example
+  is not neutral, it actively teaches the wrong behaviour, so filtering beats
+  adding.
+
+  Stated as a budget rule: spend the first twenty hours writing 200 excellent
+  human-authored examples, the next ten hours on automated quality filters,
+  and only then scale with synthetic generation — sample-checking the
+  synthetic output before it enters the set. Never scale noisy data; you are
+  multiplying a negative.`,
+        diagram: asciiDiagram(`
+  DATA QUALITY VS QUANTITY
+
+   Task accuracy
+        │
+    90% │               ●── LIMA: 1,000 curated examples
+        │              ╱
+    80% │          ●──╱   ◀── Alpaca: 52,000 noisy examples
+        │         ╱             (matched by 1,000 curated)
+    70% │    ●───╱
+        │   ╱
+    60% │──╱
+        └──────────────────────────────────── dataset size
+           200    1K     10K     52K
+
+  The slope for high-quality data is far steeper.
+  200 gold examples beat 2,000 silver ones for most tasks.
+
+  BUDGET RULE
+    20 h  ──▶ 200 excellent human-authored examples
+    10 h  ──▶ automated quality filters
+    then  ──▶ synthetic scale-up, sample-checked
+`),
+      },
+      {
+        title: "Catastrophic Forgetting: Mechanism, Detection, Mitigation",
+        content: `Catastrophic forgetting occurs when gradient updates on a
+  narrow fine-tuning distribution move the weights far enough from
+  pre-training that general capabilities degrade. A model fine-tuned hard on
+  Python may lose general English fluency, SQL ability and multi-step
+  reasoning — regressions on tasks that were never in the fine-tuning set at
+  all.
+
+  The mechanism is straightforward. Every update nudges all weight matrices
+  toward the loss surface defined by your data. If that data is narrow — one
+  domain, one style — the weights end up in a region that serves that domain
+  well and is far from the region that served everything else.
+
+  Three levers control it, in order of impact. Learning rate is the single
+  most important: at 1e-4, forgetting is severe after three epochs; at 2e-5 it
+  is minimal over the same run. Keep full fine-tuning at or below 5e-5, and
+  preferably 2e-5. Data mixing is next: including 10-20% general
+  instruction-following examples from a public set anchors the weights to the
+  general distribution, because the model keeps seeing both throughout
+  training. LoRA is the structural fix — frozen base weights mean general
+  capability is preserved by construction, which is a large part of why LoRA
+  is the default for product fine-tuning.
+
+  Detection is cheap and should be mandatory. Run a 50-question general
+  benchmark before and after, and treat a drop of more than 5 points as a
+  regression. Run the parrot test alongside it: feed the first ten tokens of a
+  training example's user turn and check whether the model reproduces the rest
+  verbatim, since severe overfitting comes with memorisation.`,
+        diagram: asciiDiagram(`
+  FORGETTING — LEVERS BY IMPACT
+  ──────────────────────────────────────────────────────────────
+  1. LEARNING RATE      lr 1e-4, 3 epochs  ──▶ severe forgetting
+                        lr 2e-5, 3 epochs  ──▶ minimal
+                        keep full FT at or below 5e-5
+  2. DATA MIXING        add 10-20% general instruction data
+                        anchors weights to the general distribution
+  3. LoRA               base frozen ──▶ no forgetting by construction
+  ──────────────────────────────────────────────────────────────
+
+  DETECTION
+    50-question general benchmark, before and after
+      └── drop  ▼ more than 5 points ──▶ regression, roll back
+    parrot test: first 10 tokens of a training user turn
+      └── verbatim continuation ──▶ memorisation, reduce epochs
+`),
+      },
+      {
+        title: "Full Fine-Tune vs LoRA as an Operations Decision",
+        content: `At software-engineering level this decision should be framed
+  as operations and cost rather than quality, because quality parity is
+  already established — LoRA at rank 16 or above reaches 95-99% of full
+  fine-tune quality on most tasks. What actually differs is what it takes to
+  run.
+
+  Full fine-tuning needs about 80 GB for a 7B model, meaning data-centre GPUs;
+  LoRA needs 15-17 GB and runs on a consumer card. Checkpoints are 14 GB
+  against roughly 100 MB, which changes how often you can afford to snapshot.
+  Forgetting risk is high above 2e-5 for full fine-tuning and structurally low
+  for LoRA. Multi-tenant serving needs N full copies against one base plus N
+  adapters. Rollback is a checkpoint swap against deleting a file.
+
+  The interview-ready summary: use LoRA by default for product fine-tuning.
+  Reserve full fine-tuning for two cases — you have confirmed empirically that
+  LoRA at rank 64 or above is insufficient for your quality bar, or you are
+  doing research that requires modifying base weights, such as building a new
+  instruct model from a base model.`,
+        diagram: asciiDiagram(`
+  FULL FINE-TUNE vs LoRA — DECISION FACTORS
+  ─────────────────── ────────────────────── ──────────────────────────
+  Factor              Full fine-tune         LoRA (rank 16)
+  ─────────────────── ────────────────────── ──────────────────────────
+  GPU memory (7B)     ~80 GB                 ~15-17 GB
+  Consumer GPU?       no, needs A100s        yes, RTX 3090 and above
+  Checkpoint size     ~14 GB full copy       ~100 MB adapter delta
+  Forgetting risk     high above lr 2e-5     low, base frozen
+  Multi-tenant serve  N × 14 GB              one base + N × 100 MB
+  Rollback            replace checkpoint     delete the adapter
+  Quality vs base     best possible          95-99% of best possible
+  Prefer when         research, big shift    almost all product work
+  ─────────────────── ────────────────────── ──────────────────────────
+`),
+      },
+      {
+        title: "Evaluating a Fine-Tune: Five Checks Before Deployment",
+        content: `"How do you know your fine-tune actually worked?" is asked
+  directly, and a five-check answer is the one that lands.
+
+  First, task accuracy on a held-out test set, using the metric that matches
+  the task — exact match for structured output, an LLM-as-judge rubric for
+  open-ended text, format compliance rate for formatting work. Compare against
+  the base model and against the base model with a strong system prompt. If
+  the fine-tune does not clearly beat base-plus-good-prompt, it may not have
+  been necessary, and saying so out loud is a strong signal.
+
+  Second, a general capability regression check on 50 off-task questions,
+  flagging any drop beyond 5 points. A fine-tune that adds 15% on the task
+  while removing 20% of general ability is a net loss.
+
+  Third, format and instruction compliance across 20 diverse inputs, verified
+  by schema or regex rather than by eye — JSON validity, heading structure,
+  word limits, required sign-offs.
+
+  Fourth, adversarial and out-of-distribution inputs: 10-15 cases that differ
+  from the training distribution — longer inputs, another language, empty
+  input, jailbreak attempts. The fine-tuned model should degrade no worse than
+  the base model did.
+
+  Fifth, a human spot-check of 20-30 outputs, read properly. Automated metrics
+  do not catch subtle tone degradation, hedging phrases baked in from the
+  training data, creeping verbosity, or a register that is technically correct
+  and still wrong for the product.`,
+        diagram: asciiDiagram(`
+  FIVE CHECKS BEFORE SHIPPING A FINE-TUNE
+  ┌────────────────────────────────────────────────────────────┐
+  │ 1  task accuracy    held-out set, vs base AND base+prompt  │
+  │ 2  regression       50 off-task questions, ▼5 pts = fail   │
+  │ 3  compliance       20 inputs, schema/regex validated      │
+  │ 4  adversarial/OOD  10-15 odd inputs, no worse than base   │
+  │ 5  human read       20-30 outputs, read by a person        │
+  └────────────────────────────────────────────────────────────┘
+       │
+       └──▶ if fine-tune does not beat base + good prompt,
+            the honest answer is that it was not needed
+`),
+      },
+    ],
+
+    examples: [
+      {
+        title: "Diagnosing the echo bug after a first SFT run",
+        input: "A team fine-tunes Llama-3-8B-Instruct on 800 support conversations. Training loss looks healthy. In testing, the model restates the customer's question almost word for word before answering it.",
+        output: "Missing loss mask. Loss was computed over user tokens as well as assistant tokens, so the model learned to reproduce the user turn. Fix the mask and retrain — it is a data-pipeline bug, not a data-quality problem.",
+        explanation: "Step 1: Recognise the signature. Echoing the user turn verbatim is not a style problem or a data problem; it is what a model does when it has been trained to predict user tokens.\nStep 2: Confirm with the two-minute check. Prompt with the first ten words of a training example's user turn. If the model completes the rest of that user turn instead of answering, the mask is confirmed missing.\nStep 3: Locate the cause. Either the code fed a pre-joined string instead of chat-format messages, so the trainer had no role boundaries to mask on, or labels were never set to -100 for non-assistant positions.\nStep 4: Fix it. Pass chat-format data plus the tokenizer to SFTTrainer so the model family's template and assistant-only mask are applied, rather than hand-building the prompt string.\nStep 5: Retrain and re-check. This costs another 30-60 minutes on LoRA, which is why the check is worth running after every first run on a new pipeline.\nStep 6: Note what did not need changing. The 800 examples were fine — misreading this as a data-quality problem would have burned days of relabelling for nothing.",
+      },
+      {
+        title: "Sizing a dataset for a formatting fine-tune",
+        input: "A product needs every model response to follow a house structure: a one-line summary, exactly three bullets, and no em-dashes. Prompting achieves about 80% compliance. The team asks how many examples they need to fine-tune.",
+        output: "Around 200-500 examples, curated rather than generated. Budget the first twenty hours on 200 hand-written examples, filter, then scale synthetically only if compliance is still short.",
+        explanation: "Step 1: Classify the task. This is format enforcement, the shallowest category of behavioural change — the model already knows the content, it is being taught a shape.\nStep 2: Anchor on the LIMA result. 1,000 curated examples matched 52,000 noisy ones, so quality dominates above roughly 200 examples and there is no reason to start large.\nStep 3: Set the initial target at 200 hand-written examples covering the real query distribution, not 200 variations of one query — diversity is what generalises the format.\nStep 4: Enforce format consistency in the data itself. Every example must show exactly the target structure, since any inconsistency teaches the model the rule is optional.\nStep 5: Choose the method. LoRA at r=8, alpha=16 is right for a style and format change, and it runs on a single consumer GPU in under an hour.\nStep 6: Evaluate with a deterministic checker. Format compliance is machine-verifiable, so measure the compliance rate on a held-out set against the 80% prompting baseline rather than using an LLM judge.\nStep 7: Scale only on evidence. If compliance lands at 97% there is nothing left to buy; if it lands at 88%, add examples specifically covering the query types that failed.",
+      },
+      {
+        title: "Catching forgetting before it reaches production",
+        input: "A model fine-tuned on SQL generation improves exact-match accuracy from 61% to 84%. Full fine-tune, lr 1e-4, 5 epochs. Before shipping, someone asks whether anything else changed.",
+        output: "Run the 50-question general benchmark. At lr 1e-4 for 5 epochs, expect a measurable regression. Re-run at lr 2e-5 for 3 epochs with 15% general data mixed in, or switch to LoRA.",
+        explanation: "Step 1: Read the hyperparameters as a risk profile. lr 1e-4 with 5 epochs on a narrow single-domain dataset is close to the worst case for catastrophic forgetting.\nStep 2: Measure rather than assume. Run 50 off-task general questions on both the base and fine-tuned models and compare, treating a drop beyond 5 points as a regression.\nStep 3: Run the parrot test in parallel. Five epochs on a narrow set often produces memorisation, and verbatim continuation of a training user turn confirms it.\nStep 4: If a regression appears, pull the learning rate first, since it is the highest-impact lever — 2e-5 for the same number of epochs substantially reduces weight drift.\nStep 5: Add data mixing. Ten to twenty percent general instruction data keeps the weights anchored while the SQL objective still improves.\nStep 6: Cut epochs to 2-3 and checkpoint every epoch, evaluating general capability at each one so you stop when general ability starts to fall rather than when task loss bottoms out.\nStep 7: Consider the structural fix. LoRA freezes the base entirely, which removes the failure mode instead of tuning around it, and the 84% is very likely reachable at r=32.",
+      },
+    ],
+
+    tips: [
+      "Say 'fine-tune from the instruct model, not the base model' early — it is the fastest signal that you have actually done this rather than read about it.",
+      "Always use the tokenizer's own chat template. A mismatch between the training template and the inference template degrades quality silently and is very hard to find later.",
+      "Run the echo check after the first training run on any new pipeline. Two minutes of work catches the single most expensive SFT bug.",
+      "Quote LIMA's 1,000-versus-52,000 result when asked about dataset size. A specific published result is far more convincing than 'it depends on quality'.",
+      "Compare against base-plus-strong-prompt, not just base. Many fine-tunes do not beat a good system prompt, and noticing that is a senior signal.",
+      "Cap epochs at 2-3 for narrow datasets and checkpoint every epoch, so you can stop on general-capability regression rather than on training loss.",
+    ],
+
+    tricks: [
+      "Diagnose echoing before touching the dataset. Echo is a masking bug; relabelling data to fix it wastes days and fixes nothing.",
+      "When someone reports 'it sounds different now', look for a phrase that appeared in the training data. Absorbed openers and hedging habits are tokenwise correct so evals miss them entirely.",
+      "Use packing when examples are much shorter than the context window — concatenating ten 200-token examples into a 2,048-token window cuts training time roughly 5-10× by eliminating padding compute.",
+      "Treat a noisy example as negative, not neutral. Deleting the worst 10% of a dataset routinely beats adding another 30% of the same quality.",
+      "If the fine-tune only needs to enforce a machine-checkable format, evaluate with a deterministic checker rather than an LLM judge — cheaper, faster, and it cannot drift.",
+    ],
+
+    memoryAids: [
+      "Base completes, instruct converses — and product fine-tunes start from instruct.",
+      "'Loss on the assistant turn only' — the one sentence that prevents the echo bug.",
+      "LIMA: 1,000 curated beats 52,000 noisy.",
+      "Forgetting levers in order: learning rate, data mixing, LoRA.",
+      "2e-5 and 2-3 epochs is the safe full fine-tune default; 1e-4 and 5 epochs is the forgetting recipe.",
+      "Five checks: task, regression, compliance, adversarial, human read.",
+    ],
+
+    interviewPatterns: [
+      "'What is the difference between a base model and an instruct model, and which do you fine-tune?' — expects the next-token-completion versus instruction-following distinction and 'instruct, for essentially all product work'.",
+      "'How much training data do you need?' — expects 200-5,000 with quality dominating, anchored to the LIMA result rather than a vague 'as much as possible'.",
+      "'How do you know the fine-tune worked?' — expects the five checks, and specifically the comparison against base plus a strong prompt.",
+      "'Your fine-tuned model now repeats the user's question. Why?' — a targeted debugging probe with one right answer: the loss mask was not applied to non-assistant tokens.",
+      "'The model got better at the task but worse at everything else. What happened and what do you change?' — expects catastrophic forgetting, then learning rate, data mixing, fewer epochs, and LoRA as the structural fix.",
+      "Frequency and companies: Tier 2 (roughly 65-70%) for ML-engineering roles and Tier 3 (35-40%) for software-engineering roles, at OpenAI, Anthropic, Meta, Databricks, Scale and applied-AI teams generally. The data-format question and the 'how many examples' question are the two most universally probed.",
+    ],
+
+    faq: [
+      {
+        question: "What is the difference between instruction tuning and supervised fine-tuning?",
+        answer: "Instruction tuning is a specific form of SFT where the training data is (instruction, response) pairs designed to teach the model to follow natural-language directions — it is the process that turns a base model into an assistant. SFT is the broader term covering any continued supervised training on labelled examples, including instruction tuning, style fine-tuning, domain adaptation and task-specific fine-tuning. When practitioners say 'fine-tuning' in a product context they almost always mean instruction tuning on chat-format data. The distinction matters because the chat template and the loss mask are essential for instruction tuning while being optional for some other SFT applications.",
+      },
+      {
+        question: "Should I fine-tune from the base model or the instruct model?",
+        answer: "Almost always the instruct model. It already knows how to follow instructions, maintain conversation structure and produce readable responses, so your data only has to add domain expertise, style or format on top. Starting from base means teaching instruction-following and your requirements at the same time, which needs far more data and usually produces weaker general behaviour. The exceptions are narrow: you are building a new instruct model from scratch as a foundation-model project, or the instruct model's own alignment training has introduced behaviours you specifically need to overwrite.",
+      },
+      {
+        question: "My fine-tuned model passes my eval set but users say it sounds different. What happened?",
+        answer: "This is the most common regression that automated metrics miss. The model has absorbed stylistic patterns from the training data — hedging phrases, verbosity habits, a particular vocabulary — that your eval does not penalise because they are tokenwise correct. Typical causes: a training set where many responses open with the same phrase, which now appears everywhere; training data more formal or more verbose than the base model's default; or a changed style of expressing uncertainty. The preventive fix is to read twenty training examples and ask whether you would be uncomfortable if every output sounded like that. After the fact, add counterexamples demonstrating the preferred style and re-fine-tune.",
+      },
+      {
+        question: "What is packing and when should I use it?",
+        answer: "Packing concatenates multiple short training examples into one context window, separated by end-of-sequence tokens, to eliminate wasted padding compute. If examples average 200 tokens and the context window is 2,048, then without packing each forward pass wastes about 1,848 positions on padding. With packing, one pass processes roughly ten examples instead of one, cutting training time by around 5-10×. Use it when examples are much shorter than the context window and you have enough of them to form valid concatenated batches. Avoid it when examples approach the context length, or when you are running very small experiments, since packing slightly changes gradient dynamics.",
+      },
+      {
+        question: "Can I fine-tune a model I only access through an API?",
+        answer: "Only through the provider's own fine-tuning endpoint, which is a black box — you submit training data and receive an endpoint, but you cannot inspect or modify weights, choose LoRA, or evaluate intermediate checkpoints. The trade-off is convenience against control: no GPU infrastructure to run, but no multi-tenant adapter serving, no custom eval against the weights, and your training data leaves your infrastructure. For sensitive data, self-hosted fine-tuning with TRL, Axolotl or Unsloth on your own GPUs is the privacy-preserving alternative, and it is worth naming that trade-off explicitly in a design discussion.",
+      },
+      {
+        question: "How do I handle catastrophic forgetting without switching to LoRA?",
+        answer: "There are four mitigations for full fine-tuning. Lower the learning rate — staying at or below 2e-5 dramatically reduces drift from pre-training, and this is the single most effective lever. Mix data — include 10-20% general instruction-following examples throughout training so the model keeps seeing both distributions. Use early stopping — checkpoint every epoch, evaluate general capability at each one, and stop when it begins to regress rather than when task loss bottoms out. And run fewer epochs, since 2-3 is the practical ceiling on a narrow dataset and more epochs is the main driver of forgetting. If none of these suffice, LoRA is the structural answer: frozen base weights mean no forgetting by construction.",
+      },
+      {
+        question: "What eval metric should I use for open-ended text generation?",
+        answer: "It depends on what you actually care about, and you should use at least two approaches together. For format compliance — must be valid JSON, exactly three bullets, no em-dashes — use a deterministic rule-based checker, which is cheap, fast and objective. For response quality and instruction adherence, LLM-as-judge with an explicit rubric is standard: score on helpfulness, accuracy and tone against defined 1-5 criteria. For safety or avoidance of specific behaviours, use a targeted classifier or focused rubric. Human evaluation of 50-100 examples remains the gold standard for catching regressions automated metrics miss, and no single metric captures everything.",
+      },
+    ],
+
+    practiceProblems: [
+      "A fine-tuned support model begins every reply by restating the customer's question. Diagnose it and give the fix. ANSWER: the loss mask was not applied, so cross-entropy included user tokens and the model learned to predict them. Confirm with the echo check — prompt with the first ten words of a training user turn and see whether the model completes it. Fix by passing chat-format messages plus the tokenizer to the trainer so the template and assistant-only mask are applied, or by setting labels to -100 for all non-assistant positions. The dataset itself needs no change.",
+      "You have 20 hours to prepare data for a domain fine-tune and can either hand-write 200 examples or generate 5,000 synthetically. Which, and why? ANSWER: hand-write the 200. LIMA showed 1,000 curated examples matching 52,000 noisy ones, and quality dominates above roughly 200. Noisy examples are negative rather than neutral because they teach wrong behaviour. The correct sequence is 200 excellent examples, then automated filters, then synthetic scale-up sample-checked against the curated set — synthetic generation is a multiplier on whatever quality you already have.",
+      "A full fine-tune at lr 1e-4 for 5 epochs improves task accuracy 61% to 84% but general benchmark score falls 8 points. Give three changes in order of expected impact. ANSWER: first drop the learning rate to 2e-5, which is the highest-impact lever and typically recovers most of the general capability at similar task accuracy. Second, mix in 10-20% general instruction data to anchor the weights. Third, cut to 2-3 epochs with per-epoch checkpoints so you can stop on regression. If the 5-point threshold is still exceeded, switch to LoRA at r=32, which removes the failure mode structurally rather than tuning around it.",
+      "Your fine-tune improves an LLM-judge score from 3.4 to 3.9 out of 5, but the base model with a carefully written system prompt scores 3.8. What do you recommend? ANSWER: do not ship the fine-tune. A 0.1 gain over base-plus-prompt does not justify the training pipeline, the checkpoint storage, the retraining cost on every base-model upgrade, and the added deployment surface. Prompting also iterates in minutes rather than hours. Recommend keeping the prompt, and revisiting fine-tuning only if a specific measurable behaviour cannot be reached by prompting — the comparison against base-plus-prompt is exactly why it belongs in the evaluation checklist.",
+      "Design the evaluation plan for a fine-tune that must output valid JSON matching a fixed schema. ANSWER: primary metric is deterministic schema validation on a held-out set, reporting the compliance rate against both the base model and base-plus-prompt. Add a general regression check on 50 off-task questions with a 5-point threshold. Add an adversarial and out-of-distribution set of 10-15 inputs — very long inputs, another language, empty input — and check that malformed output degrades gracefully rather than producing unparseable text. Finish with a human read of 20-30 outputs to catch content that validates against the schema while being semantically wrong, which schema validation cannot see.",
+    ],
+
+    references: [
+      {
+        source: "paper",
+        attribution: "Zhou et al., 'LIMA: Less Is More for Alignment', arXiv:2305.11206 (2023).",
+        insight: "The citable result behind quality-over-quantity: 1,000 carefully curated examples matched models trained on tens of thousands of noisy ones. It is the number to quote whenever a dataset-size question comes up.",
+      },
+      {
+        source: "note",
+        attribution: "Hugging Face TRL documentation, SFTTrainer. https://huggingface.co/docs/trl",
+        insight: "The standard implementation path. Applies the tokenizer's chat template and the assistant-only loss mask automatically for chat-format data, and accepts a peft_config so a LoRA SFT is a configuration change rather than a rewrite.",
+      },
+      {
+        source: "paper",
+        attribution: "Wei et al., 'Finetuned Language Models Are Zero-Shot Learners' (FLAN), arXiv:2109.01652 (2021).",
+        insight: "Established instruction tuning as the mechanism that converts a base model into a general instruction follower, and is the origin of the general instruction data commonly mixed in to counter forgetting.",
+      },
+      {
+        source: "note",
+        attribution: "Taori et al., Stanford Alpaca (2023). https://github.com/tatsu-lab/stanford_alpaca",
+        insight: "The 52,000-example synthetic instruction dataset that LIMA later matched with 1,000 curated examples. Useful as the concrete baseline in the quality-versus-quantity argument.",
+      },
+      {
+        source: "note",
+        attribution: "OpenAI fine-tuning guide, chat-format JSONL specification. https://platform.openai.com/docs/guides/fine-tuning",
+        insight: "Documents the messages array format that encodes role boundaries explicitly, which is the same structure the loss mask keys off. Also the clearest statement of what a hosted, black-box fine-tuning interface does and does not expose.",
+      },
+    ],
+  },
+  {
+    id: "topic-ai-adaptation-preference-tuning",
+    moduleId: "mod-ai-adaptation-safety",
+    title: "Preference Tuning: RLHF, DPO, and Why Supervised Fine-Tuning Isn't Enough",
+
+    intuition: `Supervised fine-tuning shows the model a correct answer;
+  preference tuning shows it that one answer is better than another. That
+  distinction matters because many of the properties we want in an assistant —
+  genuinely helpful rather than sycophantic, honest rather than agreeable,
+  concise rather than verbose — cannot be captured by any single "correct"
+  response. They exist only as relative judgements, and preference tuning is
+  the machinery for training on those judgements.`,
+
+    complexity: {
+      time: "RLHF full pipeline (3 stages): days to weeks total — Stage 1 SFT is hours, Stage 2 reward-model training is hours to days, Stage 3 PPO fine-tuning is days and notoriously unstable. DPO: one training stage with runtime similar to SFT on the same dataset, so hours on A100-class hardware.",
+      space: "RLHF Stage 3 holds policy, reference and reward models in GPU memory simultaneously, roughly 3× base-model VRAM. DPO holds policy plus frozen reference, roughly 2×. For a 7B base model that is ~45-50 GB peak for RLHF against ~28-30 GB for DPO."
+    },
+
+    lesson: [
+      {
+        title: "Why SFT Alone Produces Verbose, Sycophantic, Overconfident Assistants",
+        content: `The honest answer to "why does this stage exist at all"
+  starts with the SFT objective itself: given this conversation context,
+  predict the next token of the assistant response. That objective rewards
+  verbosity, surface plausibility and confident tone, because the pre-training
+  corpus of web text, books and forums systematically exhibits all three. If
+  the web's median response to "what time does the bank close" is two hundred
+  words about variable banking hours, SFT produces two hundred words, because
+  that is what minimises cross-entropy on the distribution it was shown.
+
+  Sycophancy is the second failure. Nothing in the SFT objective teaches the
+  model that agreeing with a false claim is bad. If the training data contains
+  agents telling customers what they wanted to hear, agreement becomes a
+  plausible response pattern — which is why an SFT model will often reverse
+  its answer when a user pushes back, not because evidence arrived but because
+  agreement scored lower loss on similar examples.
+
+  False confidence is the third. Encyclopedias, documentation and
+  authoritative web content all state things confidently, so the model learns
+  to sound confident regardless of its actual certainty. That is a large part
+  of why these models hallucinate with conviction rather than hedging.
+
+  None of these are fixable with more SFT data, because they are properties of
+  the objective and the corpus rather than gaps in coverage. What fixes them
+  is training on human judgements that directly penalise verbosity,
+  sycophancy and false confidence relative to shorter, honest, calibrated
+  alternatives — which is precisely what preference tuning does.`,
+        diagram: asciiDiagram(`
+  WHAT SFT CANNOT FIX
+  ──────────────────────────────────────────────────────────────
+  failure           mechanism                     more data helps?
+  ──────────────────────────────────────────────────────────────
+  verbosity         corpus median is long         no
+  sycophancy        agreement is plausible        no
+  false confidence  corpus states things boldly   no
+  ──────────────────────────────────────────────────────────────
+     │
+     └──▶ all three are properties of the OBJECTIVE,
+          not gaps in coverage
+
+  SFT           "here is a correct answer"      ──▶ demonstration
+  PREFERENCE    "this answer beats that one"    ──▶ comparison
+`),
+      },
+      {
+        title: "Preference Data and How It Differs From Demonstration Data",
+        content: `SFT data is demonstration data — here is what a correct
+  response looks like. Preference data is comparative — of these two
+  responses, this one is better. Three practical consequences follow.
+
+  Annotation economics change. Writing an ideal response is slow, expensive
+  and needs domain expertise; judging which of two responses is better is
+  fast, cheap, more consistent between annotators and far easier to
+  crowdsource. That difference is why preference datasets can be large enough
+  to be useful.
+
+  The signal is finer-grained. Demonstration data captures "good enough to
+  include". Preference data captures "better than the alternative", which can
+  separate two technically correct responses where one is more helpful, more
+  concise or safer.
+
+  And it can encode properties that have no single correct demonstration.
+  There is no one response that embodies "be honest when the user wants
+  validation" — but shown one reply that pushes back gently and one that
+  flatters, a human rater picks the honest one reliably. That reliability is
+  the whole asset.
+
+  A preference example is a triple of prompt, chosen response and rejected
+  response, where the labels represent relative quality on the dimensions
+  being annotated — helpfulness, safety, honesty — rather than absolute
+  correctness.`,
+        diagram: asciiDiagram(`
+  PREFERENCE DATA STRUCTURE
+  ────────────────────────────────────────────────────────────────
+  Prompt:    "Is my business plan a good idea?"
+             (user has described a clearly flawed plan)
+
+  Chosen:    "Your plan has real strengths, but the assumption of
+              10% monthly customer growth is unrealistic for this
+              market — comparable businesses see 1-3%. I would
+              revise the financial model before raising."
+
+  Rejected:  "That sounds like a really exciting opportunity! Your
+              instinct about the market gap seems right on target,
+              and 10% is ambitious but achievable with the right
+              execution."
+
+  Why chosen wins: honest, specific, actionable — even though the
+  user would rather hear the rejected version.
+  ────────────────────────────────────────────────────────────────
+`),
+      },
+      {
+        title: "The RLHF Pipeline: Three Stages",
+        content: `RLHF, as described in the InstructGPT paper, runs three
+  sequential stages, and the pipeline shape is the software-engineering-level
+  target while the reinforcement-learning mathematics is ML-engineering depth.
+
+  Stage 1 is ordinary supervised fine-tuning on demonstrations. Its purpose is
+  to establish reasonable starting behaviour for the policy; without it the RL
+  stage has no stable starting point.
+
+  Stage 2 trains a reward model. Sample several responses per prompt from the
+  SFT model, have annotators rank them, and train a separate network that maps
+  text to a scalar score, learning that a higher score means more preferred by
+  humans.
+
+  Stage 3 is the RL fine-tune. The SFT model, now called the policy, generates
+  responses; the reward model scores them; PPO increases the probability of
+  responses that score well. Crucially, a KL penalty simultaneously penalises
+  divergence from the frozen Stage 1 model.
+
+  That KL penalty is the component worth understanding, because without it the
+  policy reward-hacks. The reward model was trained on finite data, so it has
+  blind spots, and an unconstrained policy will find them and collapse into
+  producing high-scoring nonsense. The KL term limits how far the policy can
+  travel from the SFT anchor, which bounds how thoroughly it can exploit the
+  reward model's imperfections. It is Goodhart's Law implemented as a loss
+  term: when a measure becomes a target, it stops being a good measure.`,
+        diagram: asciiDiagram(`
+  RLHF PIPELINE
+
+  Stage 1 — SFT
+    base model ──[demonstrations]──▶ SFT model
+    gives the policy a stable starting behaviour
+
+  Stage 2 — Reward model
+    SFT model ──[sample K responses per prompt]──▶ K candidates
+    humans rank them ──▶ train RM: text ──▶ scalar score
+
+  Stage 3 — RL fine-tune (PPO)
+
+    ┌─────────┐   generates response    ┌──────────┐
+    │ Policy  │───────────────────────▶ │    RM    │
+    │ (LLM)   │◀──── PPO update ─────── │  score   │
+    └─────────┘                         └──────────┘
+         │
+         │ KL penalty: stay close to the anchor
+         ▼
+    ┌─────────────┐
+    │ SFT model   │  frozen reference
+    └─────────────┘
+
+  no KL penalty ──▶ policy games the RM ──▶ high-scoring nonsense
+`),
+      },
+      {
+        title: "DPO: Removing the Reward Model and the RL Loop",
+        content: `Direct Preference Optimization showed that the RL stage can
+  be reformulated as a supervised objective applied directly to preference
+  pairs, with no reward model and no RL loop. The insight is that the optimal
+  policy under the RLHF objective can be written analytically in terms of the
+  ratio between the trained policy and the frozen reference policy, and that
+  ratio can be fitted straight from preference data with a binary
+  cross-entropy loss over chosen and rejected pairs.
+
+  In practice DPO needs exactly the same prompt/chosen/rejected data as RLHF
+  and a frozen reference model, which is the Stage 1 SFT model. One training
+  stage then raises the policy's probability of the chosen response relative
+  to the reference and lowers the probability of the rejected one.
+
+  The reason DPO displaced PPO for most teams is operational rather than
+  theoretical. It removes a separate model to train and serve, removes an
+  unstable RL loop, cuts peak memory from roughly 3× to 2× the base model,
+  and collapses a large PPO hyperparameter surface — clip range, KL
+  coefficient, value-function learning rate — down to something close to an
+  SFT configuration. Quality is competitive on most tasks and slightly behind
+  on some hard alignment problems.
+
+  The practical recommendation is therefore easy to state: DPO is the default
+  for product teams doing preference fine-tuning. Full RLHF with PPO is
+  justified only for genuinely complex alignment requirements, and only when a
+  team has the infrastructure and the ML expertise to manage RL stability.`,
+        diagram: asciiDiagram(`
+  RLHF+PPO vs DPO — OPERATIONAL COMPARISON
+  ───────────────────  ──────────────────────  ────────────────────
+  Dimension            RLHF (PPO)              DPO
+  ───────────────────  ──────────────────────  ────────────────────
+  Reward model         yes, separate model     no
+  RL training loop     yes, unstable           no
+  Memory footprint     ~3× base model          ~2× base model
+  Hyperparameters      many (clip, KL, value)  few, close to SFT
+  Training stability   notoriously unstable    standard supervised
+  Implementation       complex                 mostly configuration
+  Quality              reference standard      competitive, slightly
+                                               behind on hard cases
+  ───────────────────  ──────────────────────  ────────────────────
+
+  DEFAULT: DPO for product teams
+  RLHF+PPO only with complex alignment needs and RL expertise
+`),
+      },
+      {
+        title: "Reward Hacking and Over-Optimisation",
+        content: `Reward hacking is the failure mode worth understanding
+  properly, because it explains both why the KL penalty exists and why
+  preference tuning is not a safety guarantee.
+
+  The mechanism is a generalisation gap. The reward model is trained on a
+  finite sample of human preferences, so it generalises well near that
+  distribution and has blind spots elsewhere — inputs that score highly but
+  that humans would not actually prefer if shown. Optimise the policy against
+  the reward model long enough and it finds those blind spots.
+
+  The classic patterns are recognisable in shipped products. The model opens
+  every response with a compliment, because raters who liked friendly
+  responses also scored positive openings highly. It produces very long
+  answers, because some raters preferred thoroughness and the reward model
+  learned length as a proxy for quality. It piles on unnecessary caveats,
+  because raters preferred safe-sounding responses and caveats became the
+  safety proxy.
+
+  Over-optimisation is the quantitative version. As RL steps accumulate, the
+  reward-model score rises continuously, while true human preference rises,
+  plateaus, and then falls as gaming takes over. The gap between those two
+  curves is the whole problem, and the optimal stopping point is where they
+  diverge — which you can only find by evaluating with humans rather than with
+  the reward model.
+
+  The KL penalty mitigates this by bounding policy drift. DPO sidesteps it
+  structurally: there is no separate reward model to game, because the
+  preference signal enters the policy objective directly without an
+  intermediate model that can be exploited.`,
+        diagram: asciiDiagram(`
+  OVER-OPTIMISATION CURVE
+
+    Score
+      │
+      │        human preference
+      │      ╱────────────╲
+      │     ╱              ╲──────────  falls as gaming increases
+      │    ╱
+      │   ╱      RM score
+      │  ╱     ╱──────────────────────  keeps rising, policy games RM
+      │ ╱    ╱
+      └──────────────────────────────── RL training steps
+             ▲
+             optimal stopping point: where the curves diverge
+
+  CLASSIC HACKS
+    compliment opener   ◀── friendliness proxy
+    very long answers   ◀── length as quality proxy
+    caveat pile-up      ◀── caveats as safety proxy
+`),
+      },
+    ],
+
+    examples: [
+      {
+        title: "Explaining the stage in ninety seconds",
+        input: "SWE interview. 'You mentioned RLHF. What is it, and why isn't supervised fine-tuning enough?' The interviewer wants awareness, not the PPO update rule.",
+        output: "Frame it as demonstration versus comparison, name the three SFT failure modes, sketch the three RLHF stages, then say DPO is the practical default today.",
+        explanation: "Step 1: Give the one-line distinction. SFT shows the model a correct answer; preference tuning shows it that one answer is better than another.\nStep 2: Justify why that is necessary. Helpful-not-sycophantic, honest-not-agreeable and concise-not-verbose have no single correct demonstration — they only exist as comparisons — so no amount of SFT data expresses them.\nStep 3: Name the concrete failure modes SFT leaves behind: verbosity, because the corpus median is long; sycophancy, because agreement is a plausible pattern; and false confidence, because authoritative text is what the model was trained on.\nStep 4: Sketch the pipeline at pipeline level. SFT for a starting policy, a reward model trained on human rankings, then RL that raises the probability of high-scoring responses with a KL penalty holding the policy near the SFT anchor.\nStep 5: Explain the KL penalty in one sentence — without it the policy games the reward model's blind spots — because that single sentence is the difference between having read about RLHF and having understood it.\nStep 6: Land on current practice. DPO removes the reward model and the RL loop, is roughly as good on most tasks, and is what most product teams use now.\nStep 7: Stop there and offer depth rather than volunteering it: 'I can go into the DPO objective or reward hacking if useful.' Knowing the boundary of the expected depth is itself a signal.",
+      },
+      {
+        title: "Choosing DPO over RLHF for a product team",
+        input: "A team has 12,000 prompt/chosen/rejected pairs from support-ticket review and wants a model that pushes back on incorrect customer assumptions instead of agreeing. Three engineers, no RL background, 4× A100 80 GB.",
+        output: "DPO. It needs no reward model, no RL loop, fits in ~2× base memory, and its hyperparameters look like SFT. RLHF here would spend weeks on training stability with no quality justification.",
+        explanation: "Step 1: Check that the data is already the right shape. Preference triples are exactly what both RLHF Stage 2 and DPO consume, so no re-annotation is needed either way.\nStep 2: Check that the objective genuinely needs preference tuning. 'Push back on incorrect assumptions' is anti-sycophancy, which has no single correct demonstration, so SFT cannot express it and this is the right stage of the stack.\nStep 3: Price RLHF honestly. Three stages, a separate reward model to train and serve, roughly 3× base-model memory in Stage 3, and a PPO loop with a large hyperparameter surface that is notoriously unstable — with no team member who has debugged RL before.\nStep 4: Price DPO. One stage, policy plus frozen reference at about 2× base memory, hyperparameters close to an SFT run, and runtime measured in hours.\nStep 5: Check the memory arithmetic against the hardware. For a 7B model DPO peaks around 28-30 GB, which fits comfortably on one card and leaves the rest of the cluster for evaluation runs.\nStep 6: Accept the quality trade-off explicitly. DPO trails RLHF slightly on the hardest alignment tasks; anti-sycophancy on support tickets is not one of them.\nStep 7: Keep the SFT model as the frozen reference and as the rollback target, since DPO needs it anyway and it doubles as the comparison baseline during evaluation.",
+      },
+      {
+        title: "Reading an over-optimisation curve",
+        input: "During RLHF, reward-model score climbs steadily across 40,000 PPO steps. A human preference evaluation at steps 0, 10k, 20k, 30k and 40k reads 52%, 61%, 68%, 67%, 59% win rate against the SFT baseline.",
+        output: "Stop at roughly 20k steps. The curves diverged after that: RM score kept rising while human preference fell, which is reward hacking rather than improvement.",
+        explanation: "Step 1: Compare the two curves rather than either alone. RM score is monotone increasing, which on its own looks like success and is exactly the trap.\nStep 2: Locate the divergence. Human win rate peaks at 68% around 20k steps and then declines to 59%, while RM score keeps climbing — that gap is the definition of over-optimisation.\nStep 3: Conclude that the extra 20,000 steps made the model worse for users while making it better on the metric being optimised. The final checkpoint is worse than the one at 20k despite a higher reward.\nStep 4: Take the checkpoint at 20k, and note that this is only findable because human evaluation was run at intervals — evaluating solely with the reward model would have shipped the 40k checkpoint.\nStep 5: Inspect the late checkpoint's outputs for the classic hacks — compliment openers, ballooning length, caveat pile-up — to confirm the diagnosis qualitatively as well as numerically.\nStep 6: Tighten the KL coefficient on the next run so the policy cannot drift as far, which raises the step count at which divergence appears.\nStep 7: Consider whether DPO removes the problem for this workload, since with no separate reward model there is nothing to game, at the cost of slightly lower ceiling quality on the hardest cases.",
+      },
+    ],
+
+    tips: [
+      "Lead with 'SFT teaches a correct answer, preference tuning teaches that one answer beats another'. It is the single sentence the question is testing for.",
+      "Name the three SFT failure modes — verbosity, sycophancy, false confidence — because they turn an abstract stage into a concrete motivation.",
+      "Mention the KL penalty unprompted. It is the detail that separates having read about RLHF from having understood why it works.",
+      "State that DPO is the default today and RLHF+PPO is the reference standard. Getting the historical and current positions the right way round matters.",
+      "Know the depth boundary for the role. For software-engineering interviews, 60-90 seconds of pipeline-level explanation is the target; volunteering the PPO update rule is not a bonus.",
+      "When preference tuning comes up in a design discussion, raise evaluation with humans at intervals — otherwise there is no way to see over-optimisation happening.",
+    ],
+
+    tricks: [
+      "Diagnose sycophancy complaints as a preference-tuning gap, not an SFT data gap. If a model flips its answer when a user objects, more demonstrations will not fix it because agreement has no single wrong demonstration.",
+      "Read RM score and human win rate as two curves, never one. A monotone reward curve is what reward hacking looks like from the inside.",
+      "Look for compliment openers, creeping length and caveat pile-up as the fingerprint of a reward-hacked model — all three are proxies a reward model learns easily.",
+      "Reuse the SFT model as the DPO reference and as the evaluation baseline. It is required by the objective anyway and it makes the comparison honest.",
+      "If a team without RL experience proposes PPO, redirect to DPO on operational grounds — memory, stability, hyperparameter surface — rather than arguing quality, because the quality difference is small and the operational difference is not.",
+    ],
+
+    memoryAids: [
+      "Demonstration versus comparison: SFT shows, preference tuning ranks.",
+      "SFT's three residues: verbose, sycophantic, overconfident.",
+      "RLHF is SFT, then reward model, then PPO with a KL leash.",
+      "No KL penalty means Goodhart's Law: the measure becomes the target and stops being a measure.",
+      "DPO = RLHF minus the reward model minus the RL loop; 2× memory instead of 3×.",
+      "Over-optimisation is two curves diverging — stop where they part.",
+    ],
+
+    interviewPatterns: [
+      "'What is RLHF and why is SFT not enough?' — the standard awareness probe; expects demonstration-versus-comparison plus the three SFT failure modes in about ninety seconds.",
+      "'What is the difference between RLHF and DPO?' — expects that DPO removes the reward model and the RL loop by reformulating the objective as supervised learning on preference pairs, with lower memory and far fewer hyperparameters.",
+      "'What is reward hacking?' — expects the reward model's blind spots, the KL penalty as mitigation, and ideally a concrete pattern such as length inflation.",
+      "'How would you get a model to stop agreeing with users who are wrong?' — a disguised preference-tuning question; the key move is recognising sycophancy has no single correct demonstration.",
+      "'How do you know when to stop RL training?' — expects human evaluation at intervals and the divergence between reward-model score and human preference, not a fixed step count.",
+      "Frequency and companies: Tier 3 (roughly 30-40%) for software-engineering roles, where it functions as a breadth signal, and Tier 1 (90%+) for ML-engineering, alignment and safety roles at OpenAI, Anthropic, Google DeepMind, Meta and Scale, where the mechanics are probed at full depth.",
+    ],
+
+    faq: [
+      {
+        question: "Do I need preference tuning if I already do supervised fine-tuning?",
+        answer: "Only if the behaviour you want cannot be expressed as a single correct response. Format enforcement, domain vocabulary, tone and structured output are all demonstrable, so SFT handles them and preference tuning adds cost without benefit. Anti-sycophancy, calibrated confidence, and helpfulness-versus-safety trade-offs are comparative properties with no single correct demonstration, and those are the cases that genuinely need preference data. For most product teams the honest answer is that SFT plus a good system prompt covers the requirement, and preference tuning becomes worthwhile when you have a measurable behaviour that survives both and still fails.",
+        category: "decision",
+      },
+      {
+        question: "Why is the KL penalty necessary in RLHF?",
+        answer: "Because the reward model is an imperfect learned proxy for human preference, trained on finite data, and therefore has blind spots — inputs it scores highly that humans would not actually prefer. An unconstrained policy optimising against it will find those blind spots and exploit them, a process called reward hacking, and in the extreme it collapses into producing high-scoring text that reads as nonsense. The KL penalty adds a term that punishes divergence from the frozen SFT model, bounding how far the policy can travel and therefore how thoroughly it can exploit the proxy. It is Goodhart's Law expressed as a loss term.",
+        category: "mechanics",
+      },
+      {
+        question: "What exactly does DPO remove from the RLHF pipeline?",
+        answer: "It removes Stage 2 and the RL machinery of Stage 3 — the separately trained reward model, and the PPO loop with its value function, clip range and reward-model inference during training. DPO's derivation shows the optimal policy under the RLHF objective can be written in terms of the ratio between the policy and a frozen reference, so that ratio can be fitted directly from preference pairs with a binary cross-entropy loss. What remains is one supervised training stage over the same prompt/chosen/rejected data, plus a frozen reference model. Peak memory drops from roughly 3× to 2× base, and the hyperparameter surface collapses to something close to an SFT run.",
+        category: "mechanics",
+      },
+      {
+        question: "Is DPO strictly better than RLHF?",
+        answer: "Not strictly, but it is the right default. DPO is competitive with RLHF on most practical tasks while being far simpler to run, and simplicity matters enormously in practice because PPO's instability consumes engineering time that is not producing quality. RLHF retains a small edge on some hard alignment problems, and it offers a separately inspectable reward model, which some safety teams value as an artefact in its own right. The realistic decision rule is to use DPO unless you have both a demonstrated quality shortfall and the ML expertise to run RL training reliably.",
+        category: "decision",
+      },
+      {
+        question: "Where does preference data come from, and can it be synthetic?",
+        answer: "Human annotation is the reference source: show raters two model responses to the same prompt and ask which is better on defined dimensions, which is cheaper and more consistent than asking them to write ideal responses. Increasingly, preference labels are generated by a strong model instead — an approach usually called RLAIF or AI feedback — and it works well when the judged property is one a model can assess reliably, such as conciseness or format. It works poorly when the property depends on ground truth the judge model does not have, since the judge inherits the same blind spots the policy is being trained to avoid. A common practical compromise is model-generated labels with human review of a sample, treating disagreement rate as the quality gate.",
+        category: "data",
+      },
+      {
+        question: "How do I know when to stop preference tuning?",
+        answer: "By evaluating with humans at intervals, never by watching the reward model alone. The characteristic pattern is that reward-model score rises monotonically while true human win rate rises, plateaus, then falls, and the correct checkpoint is the one at the peak of the human curve rather than the last one trained. Practically, evaluate every few thousand steps on a fixed prompt set, measuring win rate against the SFT baseline, and keep every checkpoint so you can roll back to the peak. If human evaluation is too expensive to run frequently, a held-out judge distinct from the reward model is an imperfect but usable substitute — the key property being that it is not the thing you are optimising.",
+        category: "evaluation",
+      },
+      {
+        question: "Does preference tuning make a model safe?",
+        answer: "No, and treating it as a safety guarantee is a mistake worth naming explicitly in an interview. Preference tuning shifts the model's output distribution toward what raters preferred on the dimensions they were asked about, which reduces the frequency of undesirable outputs but does not bound them. The reward signal is a learned proxy with blind spots, raters disagree with each other, and adversarial inputs are almost never represented in preference data. Real safety posture layers preference tuning with input and output guardrails, moderation classifiers, retrieval grounding for factuality and monitoring in production — preference tuning improves the median behaviour, while guardrails address the tail.",
+        category: "safety",
+      },
+    ],
+
+    practiceProblems: [
+      "A support model agrees with customers even when they state incorrect facts about the product. The team proposes adding 2,000 more SFT examples of correct answers. Assess the plan. ANSWER: it will not fix the behaviour. Sycophancy is a comparative property — there is no single correct demonstration of 'be honest when the user wants validation' — so more demonstration data does not express the objective. The right fix is preference data: pairs where a gently corrective response is chosen over an agreeable one, trained with DPO. Adding SFT examples may improve factual coverage but leaves the pattern of reversing under pushback intact.",
+      "Compute the peak GPU memory for RLHF Stage 3 versus DPO on a 13B model at FP16, and say which fits on a single A100 80 GB. ANSWER: the base model at FP16 is about 26 GB. RLHF Stage 3 holds policy, frozen reference and reward model simultaneously, roughly 3× base or about 78 GB before optimiser state and activations, so it does not fit on one card in practice. DPO holds policy plus frozen reference, roughly 2× or about 52 GB, which fits on a single A100 80 GB with room for optimiser state at LoRA scale. Memory alone often decides this choice before quality enters the discussion.",
+      "During RL training, reward-model score rises steadily but users report the assistant has become flattering and long-winded. Name the failure and two fixes. ANSWER: reward hacking, with the reward model having learned positivity and length as proxies for quality. First fix: tighten the KL coefficient so the policy cannot drift as far from the SFT anchor, and roll back to the checkpoint at the peak of the human win-rate curve rather than the final one. Second fix: switch to DPO, which has no separate reward model to exploit, or extend the preference dataset with pairs where a concise, non-flattering answer is explicitly chosen over a longer complimentary one.",
+      "You have 30,000 preference pairs labelled by a strong model rather than humans. What do you check before training on them? ANSWER: check whether the judged property is one a model can assess without ground truth. Conciseness, format and tone are safe; factual correctness in your domain is not, because the judge shares the policy's blind spots and will systematically prefer confident errors. Sample 200-300 pairs for human review and measure the agreement rate, treating anything much below the 70-80% band that human raters achieve with each other as a signal the labels are not usable. Also check for a length bias in the labels, since model judges frequently prefer longer answers.",
+      "An interviewer asks you to compare RLHF and DPO in sixty seconds. Give the answer. ANSWER: both train on the same prompt/chosen/rejected preference data. RLHF trains a separate reward model on human rankings and then uses PPO to raise the probability of high-scoring responses, with a KL penalty holding the policy near the SFT model so it cannot game the reward model. DPO proves that the optimal policy under that objective can be written in terms of the ratio between the policy and a frozen reference, so it fits preference pairs directly with a supervised loss — no reward model, no RL loop, about 2× base memory instead of 3×, and an SFT-like hyperparameter surface. DPO is the default for product teams; RLHF remains the reference standard and keeps a small edge on the hardest alignment tasks.",
+    ],
+
+    references: [
+      {
+        source: "paper",
+        attribution: "Ouyang et al., 'Training language models to follow instructions with human feedback' (InstructGPT), arXiv:2203.02155 (2022).",
+        insight: "The canonical description of the three-stage RLHF pipeline and the source to cite for it. Also documents why the SFT stage is a prerequisite rather than an optional warm-up: the RL stage needs a stable starting policy.",
+      },
+      {
+        source: "paper",
+        attribution: "Rafailov et al., 'Direct Preference Optimization: Your Language Model is Secretly a Reward Model', arXiv:2305.18290 (2023).",
+        insight: "The derivation that removed the reward model and the RL loop from preference tuning. The practical consequence — one supervised stage on the same data, at 2× base memory — is what changed industry default practice within a year.",
+      },
+      {
+        source: "paper",
+        attribution: "Gao, Schulman and Hilton, 'Scaling Laws for Reward Model Overoptimization', arXiv:2210.10760 (2022).",
+        insight: "Quantifies the divergence between reward-model score and true preference as optimisation proceeds, which is the empirical basis for the over-optimisation curve and for stopping on human evaluation rather than reward.",
+      },
+      {
+        source: "paper",
+        attribution: "Bai et al., 'Constitutional AI: Harmlessness from AI Feedback', arXiv:2212.08073 (2022).",
+        insight: "The reference point for AI-generated preference labels, showing where model feedback substitutes acceptably for human labels and where it does not. Useful when asked whether preference data can be synthetic.",
+      },
+      {
+        source: "note",
+        attribution: "Hugging Face TRL documentation, DPOTrainer. https://huggingface.co/docs/trl",
+        insight: "The implementation most teams actually use, and the concrete evidence for the operational argument: a DPO run is largely a configuration around the same trainer scaffolding as SFT, with a frozen reference model supplied alongside the policy.",
+      },
+    ],
+  },
+  {
+    id: "topic-ai-adaptation-dataset-construction",
+    moduleId: "mod-ai-adaptation-safety",
+    title: "Dataset Construction for Fine-Tuning: Sourcing, Quality, and Licensing",
+    intuition: "The dataset is the fine-tune. A model trained on 500 carefully curated examples will outperform one trained on 50 000 noisy ones — not because of any algorithmic magic, but because every training example directly reshapes the model's probability distribution, and bad examples pull it in the wrong direction with the same force as good ones. The three data sources each have distinct quality profiles and legal constraints, and the licensing issue alone has quietly invalidated production fine-tunes at companies that never read the terms of service.",
+
+    complexity: {
+      time: "Human annotation at high quality: 15–30 minutes per example; GPT-4o synthetic generation: roughly $0.02–0.05 per example at scale, thousands per hour. Full pipeline for 1 000 examples including review cycles: 1–2 weeks elapsed time. Cosine-similarity deduplication of 10 000 examples: roughly 5–10 minutes including embedding API calls.",
+      space: "1 000 examples in chat JSONL: 1–5 MB on disk. Embedding-based deduplication requires storing one vector per example (~6 KB per example at 1536-d float32); 10 000 examples produces a ~60 MB embedding matrix that fits comfortably in RAM."
+    },
+
+    lesson: [
+      {
+        title: "Three Data Sources and Their Tradeoffs",
+        content: `Human-generated data is the highest quality and hardest to scale. A domain expert writes or validates each example; the result reflects genuine knowledge and the exact style you want. Cost is $0.50–$5 per high-quality example. This is the correct source for the gold seed set — the 50–200 examples that anchor the dataset and serve as generation seeds for everything else.\n\nSynthetic data via generation uses a capable model (GPT-4o, Claude Sonnet) to produce training examples from a template prompt. Cost is $0.01–0.05 per example; thousands can be generated per hour. Quality is medium — the generating model's biases and hallucination tendencies transfer into the training data unless actively filtered. Requires a human-reviewed sample (10% minimum) before use.\n\nDistillation from a stronger model uses a teacher model's outputs as training targets for a student. Architecturally identical to synthetic generation, but legally constrained: OpenAI's Terms of Service prohibit using API outputs to train a model that competes with OpenAI's products. Anthropic's ToS has equivalent restrictions. The commercially safe path is to use open-weight models (Llama 3 under Meta's community licence, Mistral under Apache 2.0) as teachers.`,
+        diagram: asciiDiagram(`DATA SOURCE COMPARISON
+┌─────────────────────┬──────────┬──────────┬────────────┬──────────────────────┐
+│ Source              │ Quality  │ Cost     │ Speed      │ Legal risk           │
+├─────────────────────┼──────────┼──────────┼────────────┼──────────────────────┤
+│ Human experts       │ Highest  │ High     │ Slow       │ None                 │
+│ Synthetic (GPT-4o)  │ Medium   │ Low      │ Fast       │ HIGH commercial      │
+│ Synthetic (OSS)     │ Medium   │ Low      │ Fast       │ Check model ToS      │
+│ Production logs     │ Variable │ Near-0   │ Instant    │ PII risk             │
+└─────────────────────┴──────────┴──────────┴────────────┴──────────────────────┘`)
+      },      {
+        title: "The LIMA Principle: Quality and Diversity Over Volume",
+        content: `The LIMA paper (Less Is More for Alignment, Zhou et al., 2023) fine-tuned LLaMA-65B on exactly 1 000 carefully curated (prompt, response) pairs drawn from diverse sources — Stack Exchange, wikiHow, Reddit, expert-written — and achieved performance comparable to models trained on 52 000 examples generated programmatically at low cost. Two factors drove LIMA's results: quality — every response was accurate and well-written — and diversity — the 1 000 examples spanned dozens of task types, writing styles, and domains.\n\nThe practical data budget rule: spend the first 20 hours writing or curating 200 excellent examples spanning the full range of your use case. Verify every one manually. Only after this gold set exists should you scale with synthetic generation — the gold examples become the seeds for generation. The LIMA principle stated plainly: your worst example sets the floor for your fine-tuned model's worst behaviour.`
+      },
+      {
+        title: "Deduplication and Decontamination",
+        content: `Deduplication removes near-identical examples from the training set. Near-duplicates — paraphrases of the same question and answer — cause the model to over-represent one pattern while under-representing others, and contribute to memorisation rather than generalisation. Standard approach: embed all examples, compute pairwise cosine similarity, remove any pair with similarity above 0.92.\n\nDecontamination removes training examples that are too similar to evaluation set examples. Contamination inflates evaluation metrics because the model has effectively seen the test question during training — it is not generalising, it is recalling. The fix is the same cosine similarity approach, but the comparison is between training examples and eval examples. Use a lower threshold (0.85) because even partial overlap can inflate scores.`,
+        diagram: asciiDiagram(`DEDUP vs. DECONTAMINATION
+┌─────────────────────────────┬───────────────────────────────────────┐
+│ Deduplication               │ Decontamination                       │
+├─────────────────────────────┼───────────────────────────────────────┤
+│ Compare: train vs. train    │ Compare: train vs. eval set           │
+│ Threshold: ~0.92            │ Threshold: ~0.85                      │
+│ Goal: prevent memorisation  │ Goal: prevent metric inflation        │
+│ Run: before training        │ Run: before evaluation                │
+│ Removes: near-duplicates    │ Removes: examples too close to eval   │
+└─────────────────────────────┴───────────────────────────────────────┘`)
+      },
+      {
+        title: "Licensing: The Constraint That Kills Production Fine-Tunes",
+        content: `OpenAI Terms of Service: "You may not use outputs from our Services to develop models that compete with OpenAI." A coding assistant competing with GitHub Copilot, a chat API competing with ChatGPT — both fall under this restriction. Anthropic's ToS has an equivalent restriction. Many teams have built commercial products on GPT-4-generated training data without noticing this clause.\n\nOpen-weight model licences: Llama 3 (Meta Community Licence) permits commercial use for companies below 700 M monthly active users. Mistral models use Apache 2.0, which is fully permissive. The Alpaca dataset was generated with OpenAI's text-davinci-003 and inherits OpenAI's ToS restrictions.\n\nRecommended data mix: 30% human-curated gold examples (quality anchor), 40% synthetic from an open-weight teacher (scale up coverage), 20% production logs with PII redacted (real distribution), 10% general instruction-following examples (forgetting buffer).`,
+        diagram: asciiDiagram(`LICENSING QUICK REFERENCE
+┌─────────────────────────────┬──────────────────┬────────────────────────────┐
+│ Data Source                 │ Commercial Safe? │ Condition                  │
+├─────────────────────────────┼──────────────────┼────────────────────────────┤
+│ Your own production data    │ Yes              │ Redact PII first           │
+│ Human annotations (owned)   │ Yes              │ None                       │
+│ GPT-4 / ChatGPT outputs     │ No               │ Competing product          │
+│ Claude outputs              │ No               │ Competing product          │
+│ Llama 3 outputs             │ Yes              │ Under 700 M MAU threshold  │
+│ Mistral outputs             │ Yes              │ Apache 2.0, permissive     │
+│ Alpaca dataset              │ No               │ Built on text-davinci-003  │
+│ Web scrape                  │ Unclear          │ Jurisdiction-dependent     │
+└─────────────────────────────┴──────────────────┴────────────────────────────┘`)
+      },
+      {
+        title: "The Orca and Phi-1 Insight: Explanation Traces Beat Bare Answers",
+        content: `Orca (Microsoft, 2023) trained a 13 B model on GPT-4's reasoning explanations — not just the final answer, but the step-by-step reasoning trace that accompanied each answer. Training on explanation traces produced a model that outperformed models five times larger trained on simple demonstrations. The insight: the explanation trace contains more learning signal than the final answer alone.\n\nPhi-1 (Microsoft, 'Textbooks Are All You Need', 2023) trained a 1.3 B parameter model on ~7 B tokens of synthetic textbook-quality Python code, outperforming models trained on 50 B tokens of raw code. GPT-4 scored code snippets for educational value and completeness; only the top quartile was kept.\n\nThe practitioner take: when building a synthetic dataset, ask whether each generated example would be a good teaching example — clear, diverse from other examples, demonstrating the skill. A generation prompt that produces reasoning traces ('first I identify X, then I check Y, therefore Z') produces richer training signal than one that produces bare answers, at no additional inference cost.`
+      }
+    ],
+    examples: [
+      {
+        title: "The Commercial Fine-Tune That Violated OpenAI's Terms of Service",
+        input: "A startup builds a coding assistant fine-tuned on Llama-3-8B. Training data: 5 000 (problem, solution) pairs generated by calling the GPT-4o API at a cost of ~$250. Product: commercial SaaS at $20/month, competing with GitHub Copilot.",
+        output: "TERMS VIOLATION: OpenAI ToS prohibits using API outputs to train a model that competes with OpenAI products. This dataset cannot legally be used in this commercial product.\n\nSafe alternatives: (1) Regenerate all 5 000 examples using Llama-3-70B as the teacher (Meta Community Licence permits this use case). (2) Use CodeLlama outputs (Apache-2.0 compatible). (3) Use human-written solutions from competitive programming platforms — verify each platform's API terms.",
+        explanation: "This failure mode is common. The $250 API cost creates legal exposure that could result in product shutdown or litigation. The fix is identical in technical terms — same pipeline, different generation model — but must happen before the dataset is built, not after the product launches. Always check the generation model's ToS before the first API call."
+      },
+      {
+        title: "200 Gold Examples vs. 5 000 Raw Logs",
+        input: "Task: customer service fine-tune for a B2B SaaS product. Available data: 50 000 historical support tickets. Budget: 40 hours of human review time. Option A: export all 50 000 tickets as training data. Option B: curate 200 high-quality examples using LIMA-style discipline.",
+        output: "Option A (50 000 raw): Format compliance 61%; model frequently outputs escalation templates. User satisfaction in A/B test: 3.2/5 (worse than base model + system prompt). Model says 'I've escalated this' for questions it could resolve.\n\nOption B (200 curated): Format compliance 94%. User satisfaction: 4.1/5. Model resolves directly; escalates only when appropriate.\n\nOption A took 1 hour to export. Option B took 3 days to curate. Option B produces the better model on every metric.",
+        explanation: "Option A's 50 000 examples include thousands of escalations, negative-CSAT resolutions, and boilerplate. The model learns to reproduce all of these with equal weight. Option B contains only the behaviour you want. Every training example shapes the probability distribution — bad examples pull it in the wrong direction, and there is no gradient-level filter that ignores them."
+      },
+      {
+        title: "The Eval That Looked Great Because Training Was Contaminated",
+        input: "A team builds a medical Q&A fine-tune. Eval set: 200 questions sampled from the MedQA benchmark. Training set: 5 000 synthetic questions generated by calling GPT-4 with each of 50 MedQA questions as few-shot examples. Fine-tuned model accuracy: 87% (up from 72% baseline).",
+        output: "CONTAMINATION DETECTED: cosine similarity analysis shows 340 of 5 000 training examples have similarity above 0.85 to an eval question; 89 examples above 0.95 (near-identical). After decontamination: clean training set of 4 660 examples. Re-evaluated accuracy: 76% — only +4 points over baseline. The apparent 15-point gain was largely contamination artefact.",
+        explanation: "When MedQA questions are used as few-shot seeds for generation, GPT-4 produces near-paraphrases of those questions in the output. The model sees the answer during training and recalls it at evaluation — not generalisation, but memorisation. Prevention: run cosine similarity decontamination between training and eval set BEFORE training. A 10-minute script prevents a completely misleading evaluation report."
+      }
+    ],
+
+    tips: [
+      "Read 20 random examples from your dataset before training — automated filters don't catch factual errors or subtle label noise. This 30-minute review prevents hours of debugging regression failures.",
+      "Always build a gold seed set (50–200 manually verified examples) before scaling with synthetic generation — the gold set anchors quality and serves as generation seeds.",
+      "Check the generation model's ToS before the first API call — regenerating a 5 000-example dataset with a different model is trivial; restarting a legal dispute is not.",
+      "Run deduplication (threshold 0.92) before training and decontamination (threshold 0.85 against eval set) before reporting metrics — these are 10-minute scripts that prevent misleading numbers.",
+      "Include 10% general instruction-following examples in every fine-tuning dataset — this is cheap insurance against catastrophic forgetting on tasks outside your fine-tuning domain.",
+      "Use the Orca technique: generate explanation traces ('first I check X, because Y, therefore Z') rather than bare answers — the explanation is the learning signal."
+    ],
+
+    tricks: [
+      "The 'worst example is the floor' rule: before training, ask 'would I be comfortable if the model reproduced this example verbatim?' Any example that fails this test should be removed. One poor example in 500 surfaces in production at the same frequency.",
+      "The 'over-generate and filter' protocol: generate 20–30% more synthetic examples than you need, apply automated quality filters (length, format, classifier trained on 50 labelled good/bad pairs), and human-review 10% of what passes.",
+      "The 'production logs as rejected candidates' trick: use your model's worst production outputs as the 'rejected' side of DPO preference pairs — converts production failures into training signal at no additional generation cost.",
+      "The 'PII redaction before training' checkpoint: run Presidio over all production log data. Under GDPR, PII baked into model weights cannot be deleted without retraining — prevention is far cheaper than remediation.",
+      "The 'decontaminate against your A/B eval' discipline: if you run A/B tests using a fixed set of prompts, ensure training data is decontaminated against those prompts as well as your offline eval set."
+    ],
+
+    memoryAids: [
+      "'Your worst example is the floor' — the one-sentence LIMA principle for data quality. Every example matters.",
+      "'30% human, 40% synthetic OSS, 20% production logs, 10% general' — the recommended data mix that balances quality, legality, and forgetting prevention.",
+      "'Dedup = train vs. train (0.92); Decontaminate = train vs. eval (0.85)' — two operations, two thresholds, two different reference sets.",
+      "'Check ToS before the first API call' — the one rule that prevents the most expensive surprise in dataset construction.",
+      "'Orca: explanation traces beat bare answers' — makes synthetic generation produce better training signal at no extra cost."
+    ],
+
+    interviewPatterns: [
+      "'Walk me through how you would build a fine-tuning dataset from scratch.' — Expects: gold seed set first, then synthetic scaling, dedup, decontaminate, format check, PII redaction. The interviewer is looking for discipline.",
+      "'How many training examples do you need?' — Expects: LIMA (1 000 high-quality beats 52 000 noisy), 200–500 to start validating the approach, scale only after validation.",
+      "'What is data contamination and why does it matter?' — Expects: training set contains near-paraphrases of eval examples; inflates metrics; prevented by cosine similarity decontamination at threshold 0.85.",
+      "'What data licensing issues do you need to check before using GPT-4 outputs for fine-tuning?' — Expects: OpenAI ToS prohibition on competing models; mention safe alternatives (Llama 3, Mistral).",
+      "Frequency and companies: Tier 2 (65%) — probed when the interviewer asks 'where would the training data come from?' Common at Anthropic, OpenAI, Cohere, Databricks, Scale AI. Stability: stable — quality-over-quantity, deduplication methodology, and licensing constraints are durable; specific synthetic generation costs and model licence terms refresh annually."
+    ],
+    faq: [
+      {
+        question: "What is a 'gold seed set' and why does it come before synthetic generation?",
+        answer: "A gold seed set is a small collection of 50–200 manually written and verified examples that represent exactly the behaviour you want. It comes first because: (1) it serves as the quality anchor — every synthetic example is evaluated against the quality bar the gold set establishes; (2) it serves as generation seeds — diversity prompts sample from the gold set to guide topic and style; (3) it is the training data you are most confident in — if the model regresses, you can retrain on just the gold set to isolate whether the regression is from the gold data or the synthetic data."
+      },
+      {
+        question: "How do I handle PII in production logs I want to use as training data?",
+        answer: "Before using any production log as training data, run a PII detection and redaction pipeline. The standard tool is Microsoft Presidio (open-source, supports 40+ entity types across 50+ languages). Pipeline: (1) detect all PII entities (email, phone, name, address, account ID, SSN); (2) replace each with a consistent placeholder ([EMAIL], [PERSON], [ACCOUNT_ID]); (3) verify the redacted example still makes semantic sense; (4) discard examples where redaction removes too much context. Under GDPR, PII baked into model weights during training cannot be deleted without retraining — prevention is far cheaper than remediation."
+      },
+      {
+        question: "Can I use Stack Overflow data for commercial fine-tuning?",
+        answer: "With caution. Stack Overflow content is licensed under CC BY-SA 4.0, which requires attribution and share-alike for derivative works. The applicability of CC BY-SA to model training is legally contested — ongoing litigation in multiple jurisdictions debates whether training on CC-licensed content creates a derivative work that must itself be released under CC. Stack Overflow has also updated its ToS to require a separate licence agreement for large-scale ML training. For an enterprise commercial product, get legal review before using Stack Overflow data at scale; consider licensing directly from Stack Overflow; use your own engineering team's code as the gold seed set instead."
+      },
+      {
+        question: "How do I know when my dataset is good enough to start training?",
+        answer: "Five readiness checks: (1) Coverage — does the dataset cover all task types in production? Every eval category must have at least 10 training examples. (2) Quality spot-check — read 20 random examples. Would you be comfortable if the model reproduced these verbatim? (3) Format consistency — every example must use the exact same chat template and role labels; a 5-minute schema validation script catches this. (4) Dedup complete — cosine similarity deduplication at 0.92 has been run. (5) Decontamination complete — no training examples have cosine similarity above 0.85 to any eval set example. When all five pass, start training."
+      },
+      {
+        question: "What is 'distillation' and how is it different from synthetic data generation?",
+        answer: "Distillation specifically means using a larger/stronger teacher model's outputs as training targets for a smaller student model. Synthetic data generation is the broader term for using any capable model to generate new training examples. The distinction matters legally: distillation from GPT-4 triggers OpenAI's ToS restrictions. In practice, treat all GPT-4-sourced training data as potentially restricted for commercial competing products and prefer open-weight models (Llama 3, Mistral) as teachers."
+      },
+      {
+        question: "What is the 'Orca technique' and when should I use it?",
+        answer: "The Orca technique generates training examples that include the model's step-by-step reasoning trace — not just the final answer. For a coding problem, the Orca-style example includes: 'First I identify that the function needs to handle edge case X. Then I check that the loop bounds are correct. Therefore the implementation is...' followed by the code. Use it whenever your task involves multi-step reasoning, consistent reasoning style (legal, medical, analytical), and you are generating synthetic data. It adds no extra inference cost — the generation prompt simply requests the reasoning trace alongside the answer."
+      },
+      {
+        question: "What are the most common data quality bugs in production fine-tuning datasets?",
+        answer: "Four common bugs: (1) Boilerplate templates as training examples — production logs contain ticket escalations, greeting templates, and system messages that were part of the agent workflow, not the intended response. These teach the model to reproduce workflow artifacts. Filter: check that assistant responses are resolving the query, not routing it. (2) Echo bug artifacts — training data converted from raw conversation logs sometimes includes the user's message at the start of the assistant's response. Filter: validate that no assistant response starts with the first 20 characters of the user's message. (3) Near-duplicate clusters — 80 paraphrases of 'reset your password' will over-represent that pattern in the model's output. Filter: cosine similarity dedup at 0.90. (4) PII in examples — user-provided emails, names, or account numbers in the training data. Filter: Presidio NER scan before training."
+      }
+    ],
+
+    practiceProblems: [
+      "**Problem A — Design the Dataset for a Legal Summarisation Fine-Tune.** Fine-tune Llama-3-8B to summarise legal contracts in plain English. You have 500 past contract reviews (Word docs with summary notes), access to GPT-4 API, and 20 hours of paralegal time/week. Design a 1 000-example dataset in 3 weeks. **Answer:** Week 1 — Gold seed set (200 examples): parse Word docs to structured (clause, summary) pairs; paralegal reviews and filters to 200 examples spanning diverse clause types (at least 20 each: indemnification, termination, payment, IP, governing law). Week 2 — Synthetic scaling (700 examples): for each of 10 major clause types, generate 70 synthetic pairs seeded from gold examples. Diversity instruction: 'Generate a DIFFERENT clause of type [X]. Do not copy clauses from examples provided.' Apply automated filters (length check, jargon check). Paralegal spot-reviews 70 examples (10%). Licensing: GPT-4 violates OpenAI ToS for a commercial legal product. Regenerate using Llama-3-70B instead — same pipeline, no legal risk. Week 3 — Dedup, decontaminate, format: cosine dedup (0.92); add 80 general instruction-following examples (forgetting buffer); decontaminate against 50-example eval set; verify JSONL format with system prompt 'You are a legal summarisation assistant' in every example.",
+      "**Problem B — Spot the Data Quality Problems.** A team shares four samples from their 500-example customer support dataset. Identify problems and fixes. Sample 1 assistant response: 'Hello! Thank you for contacting Acme Support. I've escalated this to billing. Your ticket is TKT-2024-00847.' Sample 2 assistant response starts with the user's question verbatim. Sample 3 user message contains a real email address with account details. Sample 4: 80 near-identical variations of login-reset responses. **Answer:** Sample 1: Escalation boilerplate + production ticket number. The model learns to escalate everything and hallucinate ticket numbers. Fix: filter all examples where resolution was escalation; remove ticket numbers; rewrite with direct resolution steps. Sample 2: Loss-masking bug — training data was converted from raw logs without separating user/assistant turns. Fix: pipeline validation checking assistant text does not start with first 20 characters of user text. Sample 3: PII in training data — real email address baked into weights. Under GDPR, cannot be deleted without retraining. Fix: run Presidio over all data; replace all emails with [EMAIL]. Sample 4: Near-duplicate cluster (80 paraphrases). The model will over-represent 'reset password' responses. Fix: cosine dedup at 0.90; keep 2–3 representative examples; use freed slots for under-represented categories.",
+      "**Problem C — The Licensing Audit.** A startup building a commercial coding assistant audits their data plan: Source A: 2 000 examples from GPT-4 API (curated). Source B: 1 000 examples from Stack Overflow (public API). Source C: 500 examples from own engineers. Source D: 3 000 examples from Llama-3-70B. Source E: 800 examples from Alpaca (generated from text-davinci-003). Which are commercially safe? **Answer:** Source A: NOT SAFE — OpenAI ToS prohibits using API outputs for competing models. Source B: CONDITIONAL — CC BY-SA 4.0 applicability to model training is legally contested; get legal review; consider licensing directly from Stack Overflow. Source C: SAFE — company-owned, full commercial rights; use as gold seed set. Source D: SAFE (conditional) — Llama 3 community licence permits commercial use for companies under 700 M MAU. Source E: NOT SAFE — Alpaca was generated from text-davinci-003 and inherits OpenAI ToS restrictions. Recommended clean dataset: C + D, with legal review for B."
+    ],
+
+    references: [
+      {
+        source: "paper",
+        attribution: "Zhou et al. — 'LIMA: Less Is More for Alignment' (arXiv:2305.11206, 2023) - https://arxiv.org/abs/2305.11206",
+        insight: "1 000 carefully curated examples outperform 52 000 noisy ones. The canonical empirical foundation for the quality-over-quantity principle in fine-tuning datasets."
+      },
+      {
+        source: "paper",
+        attribution: "Mukherjee et al. — 'Orca: Progressive Learning from Complex Explanation Traces of GPT-4' (arXiv:2306.02707, 2023) - https://arxiv.org/abs/2306.02707",
+        insight: "Training on reasoning explanation traces rather than bare answers dramatically improves student model quality — applicable to any synthetic generation pipeline."
+      },
+      {
+        source: "paper",
+        attribution: "Gunasekar et al. — 'Textbooks Are All You Need' (Phi-1, arXiv:2306.11644, 2023) - https://arxiv.org/abs/2306.11644",
+        insight: "Textbook-quality synthetic data enables a 1.3B model to outperform models trained on 50x more raw tokens. The extreme case of quality-over-quantity."
+      },
+      {
+        source: "blog",
+        attribution: "Hamel Husain — 'Data cleaning and quality notes for LLM fine-tuning' (hamel.dev, 2023–2024) - https://hamel.dev/notes/llm/finetuning/04_data_cleaning.html",
+        insight: "Best practical guide on manually reviewing training data and building domain-specific data viewing tools before trusting automated filters."
+      },
+      {
+        source: "note",
+        attribution: "Microsoft Presidio — open-source PII detection and anonymisation library - https://github.com/microsoft/presidio",
+        insight: "Standard tool for detecting and redacting PII from training data. Supports 40+ entity types across 50+ languages."
+      },
+      {
+        source: "blog",
+        attribution: "Anyscale — 'A Practical Guide to LLM Fine-tuning' (2023) - https://www.anyscale.com/blog/a-practical-guide-to-llm-fine-tuning",
+        insight: "Contains a worked example of the synthetic data generation pipeline including template design, quality filtering, and recommended data mix ratios."
+      }
+    ]
   }
 ];
