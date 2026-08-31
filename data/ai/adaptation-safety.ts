@@ -17,6 +17,11 @@ export const aiAdaptationSafetyTopics: Topic[] = [
     title: "Quantization for Serving: INT8, INT4, FP8 & Formats",
     intuition: "A 70B model in full 32-bit precision requires 280GB of GPU memory — which costs thousands of dollars per hour to serve. Quantization is the engineering trick of representing model weights in fewer bits, trading a small amount of quality for a large reduction in memory and cost, often with zero perceptible quality degradation for most tasks.",
 
+    complexity: {
+      time: "Quantization does not change the shape of the compute; it changes how many bytes have to cross the memory bus to do it. Decode is memory-bandwidth-bound, so halving weight precision roughly halves the bytes read per token: an A100 at ~2TB/s streaming a 70B model reads 140GB per token step at FP16, a ceiling of about 14 tokens/second, versus 35GB at INT4, a ceiling of about 57. Realised speedups are smaller than the byte ratio because dequantization costs compute. Budget roughly 1.5x for INT8 on hardware with native INT8 tensor cores and 2-3x for INT4 at production batch sizes, and close to nothing at batch size 1, where you are latency-bound rather than bandwidth-bound.",
+      space: "The governing formula is bits/8 x parameters_in_billions = GB of weights. A 70B model is 140GB at FP16, 70GB at INT8 and 35GB at INT4 - the difference between needing two A100-80GB cards, needing one, and needing one with ~45GB left over. That last figure is the point candidates miss: quantization buys KV cache headroom, and KV cache is what actually caps concurrency. Freeing 35GB on an 80GB card roughly triples the number of concurrent sequences you can hold, so the throughput win usually exceeds the raw bandwidth win by a wide margin."
+    },
+
     lesson: [
       {
         title: "The Core Concept: Representing Weights in Fewer Bits",
@@ -73,6 +78,14 @@ export const aiAdaptationSafetyTopics: Topic[] = [
       "Math, code precision, and low-resource language tasks degrade faster under quantization — include them in your quantization eval."
     ],
 
+    tricks: [
+      "MEMORY MATH IN ONE LINE: 'bits over eight, times billions of parameters, equals gigabytes.' Say it out loud and then apply it: '70B at INT4 is four over eight times seventy, so 35 gigabytes.' Doing the arithmetic in front of the interviewer is worth more than quoting a remembered number.",
+      "THE HEADROOM ARGUMENT: 'The weights saving is not the real win. Going INT4 on an 80GB card leaves me 45GB of KV cache instead of nothing, which is what actually raises concurrency.' This reframes quantization from a cost trick to a throughput lever and almost always lands.",
+      "FORMAT PICKER: 'GPU serving, want speed - AWQ. GPU serving, want accuracy - GPTQ. CPU or laptop - GGUF.' Three formats, one sentence, no hedging.",
+      "THE REFUSAL CASE: 'I would not quantize a model doing numerical reasoning, byte-exact code generation, or low-resource languages without an eval gate, because those degrade first.' Naming where the technique fails is a stronger signal than advocating for it.",
+      "GATE, DON'T GUESS: 'My rule is under 2% pass-rate drop ships, 2-5% goes to review, over 5% does not ship.' A concrete threshold converts an opinion into a policy."
+    ],
+
     memoryAids: [
       "GAG = three formats: GPTQ (GPU, Hessian-calibrated), AWQ (GPU, activation-aware), GGUF (CPU/edge). 'GPUs Appreciate Quantization, GGUFs Run Free.'",
       "Memory formula: bits/8 × param_count_in_billions = GB. FP16 70B = 16/8 × 70 = 140GB. INT4 70B = 4/8 × 70 = 35GB.",
@@ -103,6 +116,16 @@ export const aiAdaptationSafetyTopics: Topic[] = [
         question: "What's the difference between quantizing weights vs. quantizing activations?",
         answer: "Weight quantization quantizes the stored model weights (parameters) to lower precision. Activation quantization quantizes the intermediate values computed during the forward pass. Weight-only quantization (like GPTQ, AWQ, GGUF) is safer and more common because weights are static and can be calibrated offline. Activation quantization is more aggressive but harder — activations have dynamic ranges and outlier values that are input-dependent, making them harder to quantize without quality loss. The most aggressive approach (W4A8: 4-bit weights, 8-bit activations) achieves the most memory savings but requires careful calibration to avoid quality degradation. For practical serving, weight-only INT4 is the common choice; W8A8 (8-bit weights and activations) is used in LLM.int8() and is widely available.",
         category: "Technical"
+      },
+      {
+        question: "Why does quantization hurt math and code tasks more than conversational ones?",
+        answer: "Because those tasks have sharp, discrete correctness boundaries while conversation has a broad plateau of acceptable outputs. In free-form chat, a token whose probability shifts slightly under reduced precision usually yields a paraphrase that is just as good, so the error is invisible. In arithmetic or code, the correct answer is a single token sequence: one digit wrong or one identifier misspelled and the output is simply wrong, with no partial credit. There is a mechanical reason too. Multi-step reasoning compounds small perturbations, so a tiny logit shift at step one can flip a decision at step seven, and quantization error accumulates across a long chain in a way it never does in a two-sentence reply. This is exactly why your quantization eval set must include math, code and any low-resource languages you serve rather than being drawn only from general chat traffic - a suite of conversational prompts will report a 0.5% drop on a model that has quietly become unusable for your code path.",
+        category: "Technical"
+      },
+      {
+        question: "When is quantization-aware training worth it over post-training quantization?",
+        answer: "Almost never for the models most teams serve, and the honest interview answer is to say so. Post-training quantization such as GPTQ, AWQ or GGUF needs a few hundred calibration samples and finishes in minutes to hours on a single GPU; quantization-aware training simulates low precision during training itself, so it needs the full training pipeline, the original dataset and orders of magnitude more compute. The payoff is real but narrow: QAT typically recovers one to three points of accuracy relative to PTQ, and that only matters when you are pushing to very low precision such as INT4 or below, on a small model where there is little redundancy to absorb the error, and the workload is accuracy-critical. The practical rule is to try PTQ first, evaluate it, and only consider QAT if PTQ misses your quality bar and you already own the training pipeline. If you are quantizing someone else's open-weights checkpoint, PTQ is effectively your only option and the question is moot.",
+        category: "Practical"
       }
     ],
 
@@ -139,6 +162,11 @@ export const aiAdaptationSafetyTopics: Topic[] = [
     moduleId: "mod-ai-adaptation-safety",
     title: "OWASP Top 10 for LLM Applications",
     intuition: "The OWASP LLM Top 10 is the field's consensus checklist of the most critical security vulnerabilities in AI applications — knowing it by name and example is the minimum bar for any engineer building AI systems, because interviewers treat it as a signal of whether you've thought about security at all.",
+
+    complexity: {
+      time: "Working the list as a review exercise takes about 90 minutes, roughly eight minutes per category to state the threat, name one concrete exploit and name the control. In an interview you will never be asked to recite all ten. You get two or three minutes to reach for the two or three that apply to the system on the whiteboard, so drill retrieval by system type rather than by list order. The controls carry real runtime cost as well: an input classifier adds 20-50ms, an output moderation pass adds another 20-50ms, and a human approval gate on a privileged action moves latency from milliseconds to minutes.",
+      space: "Ten flat categories sit right at the edge of what is reliably recallable under pressure, so compress them into four clusters. Input-side covers prompt injection and insecure output handling. Data-side covers training data poisoning and sensitive information disclosure. Resource-side covers model denial of service and supply chain vulnerabilities. Agency-side covers excessive agency, overreliance, insecure plugin design and model theft. Four clusters of two to four items is a far more robust structure to hold than a list of ten, and the cluster name usually tells you which family of control applies before you have recalled the individual entry."
+    },
 
     lesson: [
       {
@@ -219,6 +247,14 @@ export const aiAdaptationSafetyTopics: Topic[] = [
       "Never put credentials, API keys, or sensitive business logic in system prompts (LLM07) — assume they will be extracted."
     ],
 
+    tricks: [
+      "CLUSTER, DON'T LIST: 'I think of the ten as four groups - input, data, resource, agency.' Naming the grouping shows you understand the taxonomy rather than having memorised a page, and it gives you a place to start when you cannot recall an item.",
+      "MAP TO THE SYSTEM ON THE BOARD: 'For this RAG system the live ones are LLM01 prompt injection through retrieved documents, LLM06 sensitive information disclosure through the index, and LLM02 insecure output handling if we render model output as HTML.' Three named, scoped to their design, beats ten recited.",
+      "THE INDEX IS AN ATTACK SURFACE: 'Anything my retriever can reach, an attacker who can write into that corpus controls.' One sentence that converts LLM01 from a prompt problem into an architecture problem.",
+      "PAIR EACH THREAT WITH A CONTROL: never name a risk without immediately naming its mitigation - 'excessive agency, so I scope the tool allowlist and require approval for writes.' Naming risks alone reads as a checklist; naming the pair reads as ownership.",
+      "SAY WHAT YOU ARE NOT DOING: 'I am not implementing all ten. For an internal read-only assistant, model theft and DoS are not worth the spend.' Explicit deprioritisation with a reason is a senior signal; blanket coverage is not."
+    ],
+
     memoryAids: [
       "PSIDAG SUM: Prompt injection, Sensitive disclosure, Supply chain, Data poisoning, Agency (excessive), (improper) output handling (SQL), System prompt leakage, (Vector) embedding, Misinformation, Unbounded consumption. The 'PS IDA G SUM' mnemonic is imperfect but covers all 10.",
       "The three 'I' vulnerabilities: Injection (01), Improper output handling (05), Information disclosure (02). These are all about data flowing where it shouldn't.",
@@ -262,6 +298,11 @@ export const aiAdaptationSafetyTopics: Topic[] = [
           {label: "NIST AI RMF", url: "https://www.nist.gov/system/files/documents/2023/01/26/AI%20RMF%201.0.pdf"},
           {label: "MITRE ATLAS", url: "https://atlas.mitre.org/"}
         ]
+      },
+      {
+        question: "Is the OWASP LLM Top 10 a checklist you are expected to implement in full?",
+        answer: "No, and treating it as one is a mild anti-pattern that interviewers notice. It is a shared vocabulary and a prompt for threat modelling, not a compliance checklist, and the categories vary enormously in relevance depending on what you are building. An internal read-only document assistant has a genuine prompt injection and sensitive information disclosure problem, but essentially no model theft exposure and little reason to invest in denial-of-service protection. A public agent that can call payment APIs inverts those priorities completely, and excessive agency becomes the category that matters most. The way to use it well is as a checklist for the threat modelling conversation rather than for the implementation: walk the ten, decide which apply to this system and this trust boundary, then invest in those and say out loud which ones you are deprioritising and why. In an interview, naming two or three categories that genuinely apply to the design on the board, with a control for each, scores far better than enumerating all ten generically - the enumeration signals recall, the selection signals judgement.",
+        category: "Practical"
       }
     ],
 
@@ -303,6 +344,11 @@ export const aiAdaptationSafetyTopics: Topic[] = [
     moduleId: "mod-ai-adaptation-safety",
     title: "Prompt Injection In Depth: Direct, Indirect & the Lethal Trifecta",
     intuition: "Prompt injection is the unsolved problem at the heart of agentic AI security: because LLMs can't distinguish 'instructions from the operator' from 'text that looks like instructions from the operator,' any system that processes untrusted content and has tool access is structurally vulnerable — and the current defenses are incomplete by design.",
+
+    complexity: {
+      time: "Detection is cheap, prevention is not. A classifier-based injection detector adds 20-50ms per request and catches known patterns. A second model acting as a judge adds 200-500ms and catches more. Neither is sound, and you should say so rather than presenting either as a fix. Budget for defence in depth and be explicit that you are buying risk reduction, not a guarantee. The genuinely expensive control is architectural: routing a privileged action through human approval converts a millisecond decision into a human-latency one, which is why you apply it only to the actions whose blast radius justifies it.",
+      space: "The model to hold is that there is one context window and no trust boundary inside it. System prompt, user turn, retrieved chunks and tool output all arrive as the same undifferentiated token stream, and the model has no mechanism for treating one region as privileged over another. That single fact is why 'the system prompt tells it to ignore instructions in documents' is never a control. Everything you design is an attempt to reimpose a boundary the architecture does not provide: privilege separation enforced outside the model, allowlists on tool arguments, and a standing assumption that every token that entered from outside your system is attacker-controlled."
+    },
 
     lesson: [
       {
@@ -452,6 +498,14 @@ export const aiAdaptationSafetyTopics: Topic[] = [
       "Disable markdown external image rendering in AI UIs — it eliminates a significant class of invisible exfiltration attacks."
     ],
 
+    tricks: [
+      "LEAD WITH UNSOLVED: 'Prompt injection has no complete solution today - I am going to reduce blast radius, not eliminate the class.' Interviewers are testing whether you know this. Claiming a fix is the fastest way to lose the round.",
+      "ONE CONTEXT, NO BOUNDARY: 'The system prompt and a retrieved document are the same token stream to the model, so instructions in a document are indistinguishable from mine.' This is the sentence that shows you understand the mechanism rather than the symptom.",
+      "DIRECT VERSUS INDIRECT: 'Direct is the user attacking their own session, which mostly costs them. Indirect is a poisoned document attacking a different user, which is the one that matters.' Drawing the distinction unprompted is a strong signal.",
+      "MOVE THE CONTROL OUTSIDE: 'The authorisation check lives in the tool layer, not in the prompt. If the model asks to delete a record it does not own, the API refuses regardless of what convinced it.' Enforcement outside the model is the only defence that actually holds.",
+      "BLAST RADIUS FIRST: 'Before hardening, I ask what the worst single action this agent can take is. If the answer is send an email, I mitigate. If it is issue a refund, I gate on approval.' Sizing the damage before choosing the control is how senior candidates open this topic."
+    ],
+
     memoryAids: [
       "The Lethal Trifecta = 'PCE': Private data + Content (untrusted) + Exfiltration capability. Remove any one of P, C, or E and the attack chain breaks.",
       "Dual-LLM: Privileged (tools, trusted input), Quarantined (untrusted content, no tools), Controller (validates between them). 'PQC = Privileged, Quarantined, Controller.'",
@@ -552,6 +606,11 @@ export const aiAdaptationSafetyTopics: Topic[] = [
     moduleId: "mod-ai-adaptation-safety",
     title: "Guardrails, Moderation & PII: Input/Output Safety in Production",
     intuition: "The LLM is only one layer of a safe AI system — wrapping it with input filters, output validators, PII detection, and human escalation paths is what turns a capable but naive model into a trustworthy production service. Guardrails are the seat belt you add after building the car.",
+
+    complexity: {
+      time: "Guardrails are a latency budget negotiation. A regex or Presidio-style PII scan on input costs single-digit milliseconds. A small classifier such as Llama Guard adds 20-50ms. A full LLM-as-judge review of the output adds 200-500ms and roughly doubles token cost. The asymmetry that decides the architecture is that input checks run before generation and can overlap with retrieval, while output checks are strictly serial with generation and land directly on user-visible latency. That is the argument for pushing as much as possible to the input side and reserving expensive output review for genuinely high-risk surfaces.",
+      space: "Three layers with quite different storage consequences. Input filtering is stateless and stores nothing. Output filtering is also stateless, but it needs the complete generation before it can decide, which is what breaks token-by-token streaming and forces either buffering or chunk-wise re-checking. Audit logging is the stateful layer and the real storage cost: if you retain prompts and completions for incident review you have created a new store of sensitive data, so redaction has to happen before the log write rather than after. Candidates who point out that the audit log is itself a compliance liability are signalling production experience."
+    },
 
     lesson: [
       {
@@ -713,6 +772,14 @@ export const aiAdaptationSafetyTopics: Topic[] = [
       "Know that EU AI Act, GDPR, and NIST AI RMF exist and can name them — but deep implementation knowledge is beyond SWE interview scope."
     ],
 
+    tricks: [
+      "THREE LAYERS, NAMED: 'Input filter, output filter, audit log.' Say the three before describing any one of them - the structure is most of the answer and it stops you rambling through individual checks.",
+      "THE STREAMING TRADE: 'Output moderation needs the whole completion, so either I buffer and lose streaming, or I moderate per chunk and accept that a violation can be visible for a few hundred milliseconds before I retract it.' Naming this tension unprompted is a strong senior signal.",
+      "REDACT BEFORE YOU LOG: 'PII redaction runs before the audit write, otherwise my compliance control has created a compliance problem.' One line that shows you have actually operated one of these systems.",
+      "CHEAP FIRST, EXPENSIVE LAST: 'Regex catches structured PII for microseconds, the classifier handles the fuzzy cases for 30ms, and the LLM judge only sees what survives both.' A cascade by cost is the standard production shape and it justifies itself on latency.",
+      "FAIL CLOSED ON THE RISKY PATH: 'If the moderation service times out, a general chat request proceeds and a medical advice request does not.' Differentiating failure mode by surface, rather than picking one global policy, is what separates a considered answer from a slogan."
+    ],
+
     memoryAids: [
       "IMOP = four guardrail layers: Input filter, Moderation (output), Output validation, PIi handling. 'I MOPped up the safety issues.'",
       "PII leakage path: input → RAG context → LLM output → trace. Filter at EVERY stage, not just the last one.",
@@ -748,6 +815,11 @@ export const aiAdaptationSafetyTopics: Topic[] = [
         question: "How do you handle the case where moderation is too strict and blocks legitimate content?",
         answer: "Over-refusal is a real product problem — a chatbot that refuses too many legitimate requests loses user trust. The solution is calibration: (1) Track your refusal rate as a product metric alongside safety failures; (2) Sample a random set of refusals weekly, have a human reviewer classify as correct refusal vs. false positive; (3) Adjust classifier thresholds or add domain-specific allowlists for content categories that are frequently false-positived in your domain; (4) For Llama Guard: define a custom 'safe' category that explicitly permits your domain's edge cases (medical harm reduction, security research). The balance is: safety failures are more costly than over-refusal in most regulated domains, so err toward refusal and tune back; for consumer entertainment applications, over-refusal is more costly and you tune toward permissiveness.",
         category: "Calibration"
+      },
+      {
+        question: "How do output guardrails interact with streaming responses?",
+        answer: "Badly, and this is the tension worth raising before the interviewer does. Streaming exists so the user sees the first token in a few hundred milliseconds instead of waiting several seconds for a complete answer, but a classifier can only judge text it has actually seen. That leaves three options, each with an explicit cost. You can buffer the full completion, moderate it, then release it, which is safe and throws away the entire benefit of streaming. You can stream optimistically and moderate in chunks, which preserves perceived latency but means a violating span can be on the user's screen for a few hundred milliseconds before you retract it - acceptable for profanity, not acceptable for self-harm content. Or you can stream but hold a trailing window of a sentence or two, moderating just behind the visible edge, which is the common production compromise: it costs a small amount of perceived latency and shrinks but does not close the exposure window. The right answer is surface-dependent, and saying that explicitly is the point. A consumer chat product usually streams with chunk-wise moderation; a clinical or financial assistant usually buffers and accepts the slower first token.",
+        category: "Practical"
       }
     ],
 

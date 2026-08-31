@@ -2448,27 +2448,28 @@ export const aiMockTopics: Topic[] = [
   },
 
   // ─────────────────────────────────────────────────────────────────────────
-  // M3: Mock Round — Agent Design Round
+  // M3: Mock Round — Recommendation System with Embeddings
   // ─────────────────────────────────────────────────────────────────────────
   {
-    id: "topic-ai-mocks-agent-design-round",
+    id: "topic-ai-mocks-recommendation-round",
     moduleId: "mod-ai-mocks",
-    title: "Mock Round: Designing an AI Agent System",
+    title: "Mock Round: Recommendation System with Embeddings",
 
-    intuition: `This mock covers a category of AI system design that has become the
-  fastest-growing interview area since 2024: autonomous agent architecture.
-  The prompt is deliberately broad — "design an AI agent that can autonomously
-  answer complex research questions" — which tests whether a candidate can
-  scope an open-ended AI problem, choose the right agent pattern (ReAct vs
-  plan-and-execute vs event-driven), design the tool layer, solve the context
-  management problem, and address safety and evaluation without being led.
-  A Senior candidate passes phases 1 and 2 cleanly; a Staff candidate adds
-  depth on memory tiers, tool safety contracts, and trajectory-level evaluation
-  in phases 3 and 4.`,
+    intuition: `This mock covers one of the most frequently assigned AI system design
+  problems at FAANG and ML-forward companies: personalised recommendation at
+  scale. The prompt — "design the homepage recommender for a video streaming
+  platform with 200 million users" — tests whether a candidate can navigate the
+  full ML system lifecycle: capacity estimation for both the model and the vector
+  index, the two-tower architecture and in-batch negative training, the
+  offline/nearline/online computation trifecta, cold start for both users and
+  items, MMR-based diversity enforcement, and offline-versus-online eval.
+  A Senior candidate completes the core architecture and explains two-tower
+  training correctly; a Staff candidate adds the sampling-bias correction,
+  the nearline feature-store latency design, and guardrail metrics in A/B tests.`,
 
     complexity: {
-      time: "45-minute round: 10 min requirements + tool inventory, 15 min architecture + ReAct deep dive, 11 min memory and context management, 9 min safety + evaluation",
-      space: "Conceptual surface: ReAct loop mechanics, tool registry design, three-tier memory model (working context / episodic store / semantic long-term), prompt injection defences, trajectory-level evaluation methodology"
+      time: "45-minute round: 5 min requirements, 8 min capacity estimation, 15 min high-level architecture + two-tower deep dive, 8 min cold start, 7 min diversity and ranking, 5 min eval and monitoring",
+      space: "Conceptual surface: two-tower model architecture, in-batch negatives with sampling-bias correction, HNSW approximate nearest-neighbour index, offline/nearline/online trifecta, MMR diversity, Recall@K and NDCG offline metrics, guardrail metrics in A/B tests"
     },
 
     lesson: [
