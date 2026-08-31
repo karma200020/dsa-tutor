@@ -82,11 +82,36 @@ Found: [-1,-1,2], [-1,0,1]
       }
     ],
     practiceProblems: [
-      "prob-two-sum",
-      "prob-two-sum-ii",
-      "prob-3sum",
-      "prob-3sum-closest",
-      "prob-4sum"
+      {
+        variation: "Two Sum II — the input array is already sorted, return 1-indexed positions",
+        tip: "Sorting removes the need for the hash map entirely. Walk two pointers inward: if the sum is too small move left up, if too large move right down. O(n) time and O(1) space, beating the hashmap on memory, and remember the answer is 1-indexed.",
+        snippet: "int l = 0, r = n - 1;\nwhile (l < r) {\n  int sum = a[l] + a[r];\n  if (sum == target) return {l + 1, r + 1};\n  if (sum < target) ++l;\n  else --r;\n}\nreturn {};"
+      },
+      {
+        variation: "Count all pairs summing to target instead of returning one pair",
+        tip: "Returning early is wrong once you must count, and duplicates make it subtle: [1,1,1] with target 2 has three pairs, not one. Accumulate counts as you scan, adding the number of previously-seen complements before recording the current value. Still O(n) time, O(n) space.",
+        snippet: "std::unordered_map<int,int> seen;\nlong long pairs = 0;\nfor (int x : a) {\n  auto it = seen.find(target - x);\n  if (it != seen.end()) pairs += it->second;\n  ++seen[x];\n}\nreturn pairs;"
+      },
+      {
+        variation: "3Sum — find all unique triplets summing to zero",
+        tip: "The hash-map trick doesn't extend cleanly because deduplication dominates. Sort, fix the first index, then run the sorted two-pointer scan on the suffix; that is O(n^2). The whole difficulty is skipping equal values at all three positions so you never emit a duplicate triplet.",
+        snippet: "std::sort(a.begin(), a.end());\nfor (int i = 0; i + 2 < n; ++i) {\n  if (i && a[i] == a[i-1]) continue;\n  int l = i + 1, r = n - 1;\n  while (l < r) {\n    int s = a[i] + a[l] + a[r];\n    if (s < 0) ++l;\n    else if (s > 0) --r;\n    else { out.push_back({a[i],a[l],a[r]});\n           while (l<r && a[l]==a[l+1]) ++l;\n           while (l<r && a[r]==a[r-1]) --r;\n           ++l; --r; }\n  }\n}"
+      },
+      {
+        variation: "3Sum Closest — return the triplet sum nearest to target, not equal to it",
+        tip: "There is no exact match to short-circuit on, so you must scan the full two-pointer sweep and track the best absolute difference seen. The pointer-movement rule is unchanged: move left up when the sum is under target, right down when over. Still O(n^2) after the sort.",
+        snippet: "std::sort(a.begin(), a.end());\nint best = a[0] + a[1] + a[2];\nfor (int i = 0; i + 2 < n; ++i) {\n  int l = i + 1, r = n - 1;\n  while (l < r) {\n    int s = a[i] + a[l] + a[r];\n    if (std::abs(s - target) < std::abs(best - target)) best = s;\n    if (s < target) ++l; else if (s > target) --r; else return s;\n  }\n}\nreturn best;"
+      },
+      {
+        variation: "4Sum — k = 4, and the sums can overflow 32-bit int",
+        tip: "Generalise by adding one more fixed index outside the two-pointer scan, giving O(n^3). Two things bite here: you need dedup skips on both fixed indices, and a + b + c + d of four INT_MAX-ish values overflows int, so accumulate in long long. Prune early when the smallest possible remaining sum already exceeds target.",
+        snippet: "std::sort(a.begin(), a.end());\nfor (int i=0;i+3<n;++i) { if (i && a[i]==a[i-1]) continue;\n  for (int j=i+1;j+2<n;++j) { if (j>i+1 && a[j]==a[j-1]) continue;\n    int l=j+1, r=n-1;\n    while (l<r) {\n      long long s = (long long)a[i]+a[j]+a[l]+a[r];\n      if (s<target) ++l; else if (s>target) --r;\n      else { out.push_back({a[i],a[j],a[l],a[r]});\n             while (l<r && a[l]==a[l+1]) ++l;\n             while (l<r && a[r]==a[r-1]) --r;\n             ++l; --r; }\n    } } }"
+      },
+      {
+        variation: "Two Sum over a stream — numbers arrive over time and queries interleave with inserts",
+        tip: "You cannot sort or two-pointer because the data isn't final. Maintain a running multiset-style count map: `add` is O(1), and `find` scans the distinct keys for a complement in O(k). The self-pair case (x + x == target) needs the count to be at least two, which is the usual bug.",
+        snippet: "std::unordered_map<int,int> cnt;\nvoid add(int x) { ++cnt[x]; }\nbool find(int target) {\n  for (auto& [v, c] : cnt) {\n    int need = target - v;\n    if (need == v ? c > 1 : cnt.count(need)) return true;\n  }\n  return false;\n}"
+      }
     ]
   },
 
@@ -158,12 +183,36 @@ Answer: 3 (abc, bca, cab, abc)
       }
     ],
     practiceProblems: [
-      "prob-longest-substring-no-repeat",
-      "prob-min-window-substring",
-      "prob-longest-k-distinct",
-      "prob-permutation-in-string",
-      "prob-find-all-anagrams",
-      "prob-max-consecutive-ones"
+      {
+        variation: "Max Consecutive Ones III — fixed budget of k zero-flips",
+        tip: "This is the canonical 'longest window satisfying a constraint' shape: the window is valid while the count of zeros inside is at most k. Expand right unconditionally, and shrink from the left only while the invariant is broken. Each index enters and leaves once, so O(n) time and O(1) space.",
+        snippet: "int l = 0, zeros = 0, best = 0;\nfor (int r = 0; r < n; ++r) {\n  if (a[r] == 0) ++zeros;\n  while (zeros > k) { if (a[l] == 0) --zeros; ++l; }\n  best = std::max(best, r - l + 1);\n}\nreturn best;"
+      },
+      {
+        variation: "Fixed-size window instead of variable — maximum average subarray of length k",
+        tip: "When the size is fixed, the while-shrink loop disappears: you slide by adding the entering element and subtracting the leaving one. Compare sums rather than averages to stay in integer arithmetic and avoid floating-point comparison bugs. O(n) time, O(1) space.",
+        snippet: "long long sum = 0;\nfor (int i = 0; i < k; ++i) sum += a[i];\nlong long best = sum;\nfor (int r = k; r < n; ++r) {\n  sum += a[r] - a[r - k];\n  best = std::max(best, sum);\n}\nreturn (double)best / k;"
+      },
+      {
+        variation: "Longest substring with at most K distinct characters",
+        tip: "The validity predicate is now on the number of distinct keys, so a plain counter isn't enough — you need a map and must erase a key when its count hits zero, or the distinct count never drops. Shrink while map.size() > k. O(n) time with O(k) space.",
+        snippet: "std::unordered_map<char,int> cnt;\nint l = 0, best = 0;\nfor (int r = 0; r < (int)s.size(); ++r) {\n  ++cnt[s[r]];\n  while ((int)cnt.size() > k) {\n    if (--cnt[s[l]] == 0) cnt.erase(s[l]);\n    ++l;\n  }\n  best = std::max(best, r - l + 1);\n}\nreturn best;"
+      },
+      {
+        variation: "Find All Anagrams / Permutation in String — window must match a multiset exactly",
+        tip: "Exact multiset matching means the window size is pinned to the pattern length, and 'valid' means every count matches, not just a bound. Track a single `matched` counter of characters at exactly the right count so each step is O(1) instead of comparing 26 buckets. O(n) overall.",
+        snippet: "std::array<int,26> need{}, win{};\nfor (char c : p) ++need[c-'a'];\nint m = p.size();\nfor (int r = 0; r < (int)s.size(); ++r) {\n  ++win[s[r]-'a'];\n  if (r >= m) --win[s[r-m]-'a'];\n  if (r >= m-1 && win == need) out.push_back(r-m+1);\n}"
+      },
+      {
+        variation: "Minimum Window Substring — smallest window covering a multiset, duplicates included",
+        tip: "You are minimising instead of maximising, which flips the loop: shrink aggressively *while the window is still valid* and record the answer inside the shrink loop. Duplicates matter, so track how many required characters are still missing rather than how many distinct ones you have. O(n + m).",
+        snippet: "std::unordered_map<char,int> need;\nfor (char c : t) ++need[c];\nint missing = t.size(), l = 0, bl = 0, blen = INT_MAX;\nfor (int r = 0; r < (int)s.size(); ++r) {\n  if (need[s[r]]-- > 0) --missing;\n  while (missing == 0) {\n    if (r - l + 1 < blen) { blen = r - l + 1; bl = l; }\n    if (++need[s[l]] > 0) ++missing;\n    ++l;\n  }\n}\nreturn blen == INT_MAX ? \"\" : s.substr(bl, blen);"
+      },
+      {
+        variation: "Longest subarray with sum at most K when negative numbers are allowed",
+        tip: "Negatives break the sliding window outright: growing the window no longer monotonically grows the sum, so shrinking from the left is not a valid repair. Switch to prefix sums plus an ordered structure (or a monotonic deque for the 'sum at least K' variant), giving O(n log n) or O(n). Say explicitly that the window invariant is gone.",
+        snippet: "// prefix[i] = sum of first i elements; find longest j-i with prefix[j]-prefix[i] <= K\nstd::map<long long,int> firstIdx; // prefix value -> earliest index\nlong long pre = 0; firstIdx[0] = -1;\nint best = 0;\nfor (int i = 0; i < n; ++i) {\n  pre += a[i];\n  auto it = firstIdx.lower_bound(pre - K); // smallest prefix >= pre-K\n  if (it != firstIdx.end()) best = std::max(best, i - it->second);\n  firstIdx.emplace(pre, i); // keep earliest occurrence only\n}\nreturn best;"
+      }
     ]
   },
 
@@ -235,11 +284,36 @@ sum(0,0,1,1)=prefix[2][2]-prefix[0][2]-prefix[2][0]+prefix[0][0]=10-0-0+0=10 â�
       }
     ],
     practiceProblems: [
-      "prob-range-sum-query",
-      "prob-subarray-sum-k",
-      "prob-2d-range-sum",
-      "prob-maximum-subarray",
-      "prob-continuous-subarray-sum"
+      {
+        variation: "Range Sum Query — Immutable: many queries, array never changes",
+        tip: "Recomputing each query is O(n) per call. Build a prefix array once in O(n) so every query is O(1) as prefix[r+1] - prefix[l]. Use the size-(n+1) shifted form so l = 0 needs no special case, and use long long because the running total overflows int quickly.",
+        snippet: "std::vector<long long> pre(n + 1, 0);\nfor (int i = 0; i < n; ++i) pre[i + 1] = pre[i] + a[i];\n// query [l, r] inclusive:\nauto query = [&](int l, int r) { return pre[r + 1] - pre[l]; };"
+      },
+      {
+        variation: "Subarray Sum Equals K — count subarrays, with negative values allowed",
+        tip: "Negatives kill the sliding-window approach, so use the prefix-difference identity: a subarray ending at i sums to K exactly when some earlier prefix equals pre[i] - K. Store prefix counts in a hash map seeded with {0: 1} for subarrays starting at index 0. O(n) time and O(n) space.",
+        snippet: "std::unordered_map<long long,int> seen{{0, 1}};\nlong long pre = 0; int count = 0;\nfor (int x : a) {\n  pre += x;\n  auto it = seen.find(pre - K);\n  if (it != seen.end()) count += it->second;\n  ++seen[pre];\n}\nreturn count;"
+      },
+      {
+        variation: "Continuous Subarray Sum — subarray sum is a multiple of k",
+        tip: "Divisibility replaces equality, so key the map on pre % k rather than pre itself: two equal remainders mean the span between them is divisible by k. Store the earliest index per remainder because the problem requires length at least 2. Normalise negative remainders with ((x % k) + k) % k.",
+        snippet: "std::unordered_map<int,int> firstIdx{{0, -1}};\nlong long pre = 0;\nfor (int i = 0; i < n; ++i) {\n  pre += a[i];\n  int r = k ? (int)(((pre % k) + k) % k) : (int)pre;\n  auto it = firstIdx.find(r);\n  if (it != firstIdx.end()) { if (i - it->second >= 2) return true; }\n  else firstIdx[r] = i;\n}\nreturn false;"
+      },
+      {
+        variation: "2D range sum — rectangle queries on an immutable matrix",
+        tip: "The 1D trick generalises via inclusion-exclusion: build a 2D prefix where P[i][j] is the sum of the rectangle from the origin, then each query is one add and two subtracts plus the double-subtracted corner. O(mn) build, O(1) per query. Pad by one row and column to remove boundary checks.",
+        snippet: "std::vector<std::vector<long long>> P(m+1, std::vector<long long>(n+1, 0));\nfor (int i = 0; i < m; ++i)\n  for (int j = 0; j < n; ++j)\n    P[i+1][j+1] = a[i][j] + P[i][j+1] + P[i+1][j] - P[i][j];\nauto query = [&](int r1,int c1,int r2,int c2) {\n  return P[r2+1][c2+1] - P[r1][c2+1] - P[r2+1][c1] + P[r1][c1];\n};"
+      },
+      {
+        variation: "Range Sum Query — Mutable: updates interleave with queries",
+        tip: "A prefix array makes updates O(n) because every later entry shifts, which is fatal when updates are frequent. Switch to a Fenwick (binary indexed) tree, giving O(log n) for both update and prefix query. Remember Fenwick is 1-indexed and update takes a delta, not the new value.",
+        snippet: "std::vector<long long> bit; int N;\nvoid add(int i, long long delta) {          // i is 1-based\n  for (; i <= N; i += i & -i) bit[i] += delta;\n}\nlong long pre(int i) {                       // sum of [1, i]\n  long long s = 0;\n  for (; i > 0; i -= i & -i) s += bit[i];\n  return s;\n}\n// range [l, r] 1-based: pre(r) - pre(l - 1)"
+      },
+      {
+        variation: "Maximum subarray sum — you need the best subarray, not a queried one",
+        tip: "Prefix sums still apply: the best subarray ending at i is pre[i] minus the smallest prefix seen so far, so one pass tracking the running minimum solves it. That is exactly Kadane's algorithm in prefix form, O(n) time and O(1) space. Initialise the running minimum to 0 (the empty prefix), not to pre[0].",
+        snippet: "long long pre = 0, minPre = 0, best = LLONG_MIN;\nfor (int x : a) {\n  pre += x;\n  best = std::max(best, pre - minPre);\n  minPre = std::min(minPre, pre);\n}\nreturn best;"
+      }
     ]
   },
 
@@ -336,11 +410,36 @@ Both move 1 step at a time
       }
     ],
     practiceProblems: [
-      "prob-detect-cycle",
-      "prob-find-cycle-start",
-      "prob-find-middle",
-      "prob-remove-nth-from-end",
-      "prob-reorder-list"
+      {
+        variation: "Find the middle node — and the second middle when the length is even",
+        tip: "Two pointers with fast moving twice as far land slow on the middle in one pass, no length count needed. The parity convention is the whole trick: looping while fast and fast->next exist gives the second middle on even lists; while fast->next and fast->next->next gives the first. O(n) time, O(1) space.",
+        snippet: "ListNode* slow = head; ListNode* fast = head;\nwhile (fast && fast->next) {  // second middle on even length\n  slow = slow->next;\n  fast = fast->next->next;\n}\nreturn slow;"
+      },
+      {
+        variation: "Detect a cycle and return the node where it begins",
+        tip: "Detection alone isn't enough; you need Floyd's second phase. After the pointers meet, reset one to the head and advance both one step at a time — they meet exactly at the cycle entry, because the distance from head to entry equals the distance from the meeting point to entry. Still O(n) time and O(1) space.",
+        snippet: "ListNode *s = head, *f = head;\nwhile (f && f->next) {\n  s = s->next; f = f->next->next;\n  if (s == f) {\n    s = head;\n    while (s != f) { s = s->next; f = f->next; }\n    return s;                 // cycle entry\n  }\n}\nreturn nullptr;"
+      },
+      {
+        variation: "Remove the Nth node from the end in one pass",
+        tip: "Counting the length first needs two passes. Instead give the fast pointer an n-step head start so the gap between the pointers equals n, then advance both until fast falls off the end. Use a dummy node before the head so deleting the first node needs no special case.",
+        snippet: "ListNode dummy{0, head};\nListNode *slow = &dummy, *fast = &dummy;\nfor (int i = 0; i < n; ++i) fast = fast->next;\nwhile (fast->next) { slow = slow->next; fast = fast->next; }\nListNode* dead = slow->next;\nslow->next = dead->next;\ndelete dead;\nreturn dummy.next;"
+      },
+      {
+        variation: "Happy Number — cycle detection on a function, not on a list",
+        tip: "There is no linked list at all, but the sequence x -> digitSquareSum(x) is a functional graph, so Floyd's applies unchanged with `next` replaced by the function. This gets you O(1) space where a visited-set costs O(k). The cycle either closes on 1 (happy) or somewhere else.",
+        snippet: "auto step = [](int x) { int s = 0; while (x) { int d = x % 10; s += d * d; x /= 10; } return s; };\nint slow = n, fast = n;\ndo {\n  slow = step(slow);\n  fast = step(step(fast));\n} while (slow != fast);\nreturn slow == 1;"
+      },
+      {
+        variation: "Palindrome Linked List in O(1) space",
+        tip: "Copying values into a vector is O(n) space; the follow-up forbids it. Find the middle with fast/slow, reverse the second half in place, then walk the two halves in lockstep comparing values. Restore the reversed half before returning if the caller may reuse the list.",
+        snippet: "ListNode *s = head, *f = head;\nwhile (f && f->next) { s = s->next; f = f->next->next; }\nListNode *prev = nullptr;\nwhile (s) { ListNode* nx = s->next; s->next = prev; prev = s; s = nx; }\nfor (ListNode *a = head, *b = prev; b; a = a->next, b = b->next)\n  if (a->val != b->val) return false;\nreturn true;"
+      },
+      {
+        variation: "Find the Duplicate Number in an array of n+1 values in 1..n, read-only and O(1) space",
+        tip: "Sorting mutates and a seen-set costs O(n) space, both banned. Treat the array as a function i -> a[i]: because a value repeats, that functional graph must contain a cycle, and the duplicate is the cycle entry. Run Floyd's two-phase algorithm on indices for O(n) time and O(1) space.",
+        snippet: "int slow = a[0], fast = a[a[0]];\nwhile (slow != fast) { slow = a[slow]; fast = a[a[fast]]; }\nslow = 0;\nwhile (slow != fast) { slow = a[slow]; fast = a[fast]; }\nreturn slow;"
+      }
     ]
   },
 
@@ -435,11 +534,36 @@ Result: [3,4,4,-1]
       }
     ],
     practiceProblems: [
-      "prob-next-greater-element",
-      "prob-daily-temperatures",
-      "prob-largest-rectangle",
-      "prob-trapping-rain-water",
-      "prob-remove-k-digits"
+      {
+        variation: "Daily Temperatures — return the distance to the next warmer day, not its value",
+        tip: "Same monotonic stack, but push indices instead of values so you can subtract positions when you pop. Keep the stack decreasing; every element is pushed and popped once, giving O(n) time and O(n) space. Entries left on the stack at the end keep their default answer of 0.",
+        snippet: "std::vector<int> res(n, 0);\nstd::stack<int> st;               // indices, temps decreasing\nfor (int i = 0; i < n; ++i) {\n  while (!st.empty() && t[i] > t[st.top()]) {\n    res[st.top()] = i - st.top();\n    st.pop();\n  }\n  st.push(i);\n}\nreturn res;"
+      },
+      {
+        variation: "Next Greater Element II — the array is circular",
+        tip: "Wrapping means an element's answer may live before it, so a single left-to-right pass is insufficient. Iterate 2n times using i % n for indexing, and only push during the first lap so no index is inserted twice. Still O(n) time and O(n) space.",
+        snippet: "std::vector<int> res(n, -1);\nstd::stack<int> st;\nfor (int i = 0; i < 2 * n; ++i) {\n  int j = i % n;\n  while (!st.empty() && a[j] > a[st.top()]) { res[st.top()] = a[j]; st.pop(); }\n  if (i < n) st.push(j);\n}\nreturn res;"
+      },
+      {
+        variation: "Trapping Rain Water — the answer is an area, and ties must not double count",
+        tip: "Water above each bar is min(maxLeft, maxRight) - height, which the two-pointer form computes in O(n) time and O(1) space — strictly better than the stack version's O(n) space. Always advance the side with the smaller bar, because that side's max is the true limiter.",
+        snippet: "int l = 0, r = n - 1, lm = 0, rm = 0; long long water = 0;\nwhile (l < r) {\n  if (h[l] < h[r]) {\n    lm = std::max(lm, h[l]);\n    water += lm - h[l];\n    ++l;\n  } else {\n    rm = std::max(rm, h[r]);\n    water += rm - h[r];\n    --r;\n  }\n}\nreturn water;"
+      },
+      {
+        variation: "Largest Rectangle in Histogram — you need both boundaries, not just one side",
+        tip: "Each bar's rectangle extends until a strictly smaller bar on either side, so a popped element's width is bounded by the new index on the right and the element below it on the left. Push a sentinel of height 0 at the end so nothing is stranded on the stack. O(n) time and O(n) space.",
+        snippet: "std::stack<int> st; long long best = 0;\nfor (int i = 0; i <= n; ++i) {\n  int cur = (i == n) ? 0 : h[i];\n  while (!st.empty() && cur < h[st.top()]) {\n    int ht = h[st.top()]; st.pop();\n    int left = st.empty() ? -1 : st.top();\n    best = std::max(best, (long long)ht * (i - left - 1));\n  }\n  st.push(i);\n}\nreturn best;"
+      },
+      {
+        variation: "Remove K Digits — build the smallest number by deleting exactly k digits",
+        tip: "Here the stack is increasing rather than decreasing, because you want small digits early. Pop a larger previous digit whenever the incoming one is smaller and you still have deletions left. Two traps: spend any leftover k from the back, and strip leading zeros before returning.",
+        snippet: "std::string st;\nfor (char c : num) {\n  while (k && !st.empty() && st.back() > c) { st.pop_back(); --k; }\n  st.push_back(c);\n}\nst.resize(st.size() - k);                 // unused deletions\nint p = 0; while (p + 1 < (int)st.size() && st[p] == '0') ++p;\nstd::string r = st.substr(p);\nreturn r.empty() ? \"0\" : r;"
+      },
+      {
+        variation: "Sliding Window Maximum — next-greater logic constrained to a window of size k",
+        tip: "A stack cannot express expiry, so switch to a monotonic deque: pop smaller values from the back to keep it decreasing, and pop from the front once the index falls out of the window. The front is always the window maximum, so it is O(n) time and O(k) space, beating the O(n log k) heap.",
+        snippet: "std::deque<int> dq;                       // indices, values decreasing\nfor (int i = 0; i < n; ++i) {\n  while (!dq.empty() && dq.front() <= i - k) dq.pop_front();\n  while (!dq.empty() && a[dq.back()] <= a[i]) dq.pop_back();\n  dq.push_back(i);\n  if (i >= k - 1) out.push_back(a[dq.front()]);\n}"
+      }
     ]
   },
 

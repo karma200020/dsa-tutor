@@ -1,4 +1,6 @@
 // Complete SWE Interview Syllabus with Module Dependencies
+import type { PracticeEntry } from "./practice-variation";
+export type { PracticeEntry, PracticeVariation } from "./practice-variation";
 export type Track = "DSA" | "LLD" | "HLD" | "AI" | "OS" | "CPP";
 export type Level = "Beginner" | "Intermediate" | "Advanced";
 export type MasteryStatus = "not-started" | "learning" | "practiced" | "interview-ready";
@@ -57,7 +59,7 @@ export interface Topic {
   memoryAids?: string[]; // Mnemonics and recall cues
   interviewPatterns?: string[]; // How interviewers ask this
   references?: Reference[];
-  practiceProblems?: string[]; // Problem IDs
+  practiceProblems?: PracticeEntry[]; // Problem IDs, or structured problem variations
   faq?: FaqItem[]; // Frequently asked interview questions with concise answers
   
   // Legacy fields (still supported)

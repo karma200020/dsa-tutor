@@ -639,3 +639,25 @@
 .faqSourceLinks a:focus-visible {
   color: var(--color-cyan);
 }
+
+.practiceVariation {
+  list-style: none;
+  margin-left: -20px;
+  padding: 14px 16px;
+  background: #0f172a;
+  border: 1px solid #334155;
+  border-radius: 6px;
+}
+
+.practiceVariationTitle {
+  display: block;
+  color: #e2e8f0;
+  font-size: 15px;
+  margin-bottom: 6px;
+}
+
+.practiceVariationTip {
+  color: #cbd5e1;
+  line-height: 1.6;
+  margin: 0;
+}
