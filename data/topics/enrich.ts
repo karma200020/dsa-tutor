@@ -62,7 +62,7 @@ function buildFallbackTopic(moduleId: string, moduleTitle: string): Topic {
       { source: "leetcode", attribution: "LeetCode", insight: `Practice the ${cleanTitle} pattern in interview-style questions.` },
       { source: "note", attribution: "NeetCode / TakeUForward", insight: `Use this module as a framework for learning ${cleanTitle.toLowerCase()} with clear interview patterns.` }
     ],
-    practiceProblems: [`${moduleId}-practice-1`, `${moduleId}-practice-2`],
+    practiceProblems: [],
   };
 }
 
@@ -147,9 +147,12 @@ function enrichTopic(topic: Topic, enrichers: TrackEnrichers): Topic {
           insight: `Review the state, failure modes, and complexity of ${title} after each practice run.`
         }
       ];
+  // A topic with no authored practice content used to be back-filled with fake
+  // slug IDs (`practice-<id>-core`), which the UI rendered as literal text. An
+  // empty list is honest: TopicViewer already shows an explicit empty state.
   const practiceProblems = topic.practiceProblems && topic.practiceProblems.length > 0
     ? topic.practiceProblems
-    : [`practice-${topic.id}-core`, `practice-${topic.id}-edge-case`];
+    : [];
   const trackFaq = enricher && enricher.buildFaq ? enricher.buildFaq(topic, title, complexity) : null;
   const faq = topic.faq && topic.faq.length > 0
     ? topic.faq
