@@ -1,17 +1,19 @@
-import { Topic } from "@/data/syllabus";
 import styles from "./mastery-tracker.module.css";
 
 type MasteryTrackerProps = {
   masteryMap: Record<string, "not-started" | "learning" | "practiced" | "interview-ready">;
-  allTopics: Topic[];
+  // Only the total is needed: every other bucket is derivable from masteryMap,
+  // whose keys are always real topic ids. Taking a number instead of the topic
+  // array keeps the home page from having to load any topic content.
+  totalTopics: number;
 };
 
-export function MasteryTracker({ masteryMap, allTopics }: MasteryTrackerProps) {
-  const totalTopics = allTopics.length;
-  const notStarted = allTopics.filter((t) => !masteryMap[t.id] || masteryMap[t.id] === "not-started").length;
-  const learning = allTopics.filter((t) => masteryMap[t.id] === "learning").length;
-  const practiced = allTopics.filter((t) => masteryMap[t.id] === "practiced").length;
-  const interviewReady = allTopics.filter((t) => masteryMap[t.id] === "interview-ready").length;
+export function MasteryTracker({ masteryMap, totalTopics }: MasteryTrackerProps) {
+  const statuses = Object.keys(masteryMap).map((id) => masteryMap[id]);
+  const learning = statuses.filter((s) => s === "learning").length;
+  const practiced = statuses.filter((s) => s === "practiced").length;
+  const interviewReady = statuses.filter((s) => s === "interview-ready").length;
+  const notStarted = totalTopics - learning - practiced - interviewReady;
 
   const readinessPct = totalTopics === 0 ? 0 : Math.round((interviewReady / totalTopics) * 100);
   const learned = learning + practiced;
