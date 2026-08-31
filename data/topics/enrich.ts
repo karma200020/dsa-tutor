@@ -14,7 +14,9 @@ export type TrackEnricher = {
 // Enrichment is chosen per topic by the topic's own track, not by which dataset
 // it was collected into: the DSA dataset also absorbs mod-lld*/mod-hld* topics
 // from expanded-coverage.ts, and those must keep their LLD/HLD treatment.
-export type TrackEnrichers = Partial<Record<"DSA" | "LLD" | "HLD" | "AI", TrackEnricher>>;
+export type TrackEnrichers = Partial<
+  Record<"DSA" | "LLD" | "HLD" | "AI" | "OS" | "CPP", TrackEnricher>
+>;
 
 function buildFallbackTopic(moduleId: string, moduleTitle: string): Topic {
   const cleanTitle = moduleTitle.replace(/[:()]/g, "").trim();

@@ -3,7 +3,7 @@ import { Module, Topic } from "@/data/syllabus";
 import styles from "./module-list.module.css";
 
 type ModuleListProps = {
-  track: "DSA" | "LLD" | "HLD" | "AI";
+  track: "DSA" | "LLD" | "HLD" | "AI" | "OS" | "CPP";
   masteryMap: Record<string, "not-started" | "learning" | "practiced" | "interview-ready">;
   onMasteryUpdate: (topicId: string, status: "not-started" | "learning" | "practiced" | "interview-ready") => void;
   onTopicClick: (topic: Topic) => void;

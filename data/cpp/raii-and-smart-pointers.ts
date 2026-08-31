@@ -11,7 +11,7 @@ function asciiDiagram(art: string): string {
 export const cppRaiiTopics: Topic[] = [
   {
     id: "topic-cpp-raii-principle-and-scope-guards",
-    moduleId: "mod-cpp-raii",
+    moduleId: "mod-cpp-raii-and-smart-pointers",
     title: "RAII: Tying Resource Lifetime to Object Lifetime",
     intuition:
       "RAII is the observation that C++ already guarantees one thing absolutely - destructors of automatic objects run when the scope exits, including during exception unwinding - so if you make acquisition happen in a constructor and release happen in a destructor, correctness stops depending on programmer memory. Every resource fits: memory, file descriptors, mutexes, sockets, database transactions, OpenGL handles, even a temporary change to global state. It is the single idea that separates C++ from C in day-to-day reliability, and interviews test it because a candidate who reaches for try/finally patterns has not internalised it.",
@@ -323,7 +323,7 @@ public:
   },
   {
     id: "topic-cpp-raii-unique-ptr",
-    moduleId: "mod-cpp-raii",
+    moduleId: "mod-cpp-raii-and-smart-pointers",
     title: "std::unique_ptr: Exclusive Ownership at Zero Cost",
     intuition:
       "unique_ptr is a raw pointer that knows how to delete itself and refuses to be copied. That refusal is the whole design: exclusive ownership is expressed in the type system, so the compiler rejects the code that would have caused a double free, and the destructor removes the code that would have caused a leak. With a stateless deleter it is exactly the size of a raw pointer and compiles to identical machine code, which is why 'zero-overhead abstraction' is not marketing here - there is genuinely nothing to pay for.",
@@ -617,7 +617,7 @@ std::optional<Config> cfg;                  // prefer this over unique_ptr<Confi
   },
   {
     id: "topic-cpp-raii-shared-ptr-and-control-blocks",
-    moduleId: "mod-cpp-raii",
+    moduleId: "mod-cpp-raii-and-smart-pointers",
     title: "std::shared_ptr and the Control Block",
     intuition:
       "shared_ptr is two pointers: one to the object and one to a control block holding a strong count, a weak count, and a type-erased deleter. Almost every shared_ptr question in an interview is really a question about the control block - why the handle is 16 bytes, why make_shared is faster, why constructing two shared_ptrs from one raw pointer double-frees, why the count is atomic but the object is not thread-safe, and why weak_ptr can outlive the object. Draw the control block and the answers fall out.",
@@ -930,7 +930,7 @@ void keep(std::shared_ptr<Widget> w);          // only when it stores the pointe
   },
   {
     id: "topic-cpp-raii-weak-ptr-and-cycles",
-    moduleId: "mod-cpp-raii",
+    moduleId: "mod-cpp-raii-and-smart-pointers",
     title: "weak_ptr, Reference Cycles, and Caches",
     intuition:
       "Reference counting cannot collect cycles. Two objects that hold shared_ptrs to each other keep each other's strong count at one forever, so neither destructor ever runs and the memory leaks silently with no invalid pointer to catch. weak_ptr is the escape hatch: a non-owning observer that participates in the control block but not in the strong count, and that can be atomically upgraded to a shared_ptr only if the object is still alive. Every parent-child graph, observer list, and cache in C++ is a weak_ptr question in disguise.",
@@ -1253,7 +1253,7 @@ b->on_click = [w = std::weak_ptr(b)] {        // fix: capture weakly
   },
   {
     id: "topic-cpp-raii-rule-of-zero-three-five",
-    moduleId: "mod-cpp-raii",
+    moduleId: "mod-cpp-raii-and-smart-pointers",
     title: "Rule of Zero, Three, Five and Custom Deleters",
     intuition:
       "The compiler generates copy, move, and destruction for you, but the generation rules interact: declaring a destructor suppresses the move operations, declaring a move suppresses copy. The Rule of Zero says the best class manages no resource directly, so all six special members can be generated correctly and you write none. When you must manage a resource - the Rule of Three, extended to Five by move semantics - you write all of them consistently. Custom deleters are how you attach non-delete cleanup to a smart pointer so that Rule of Zero applies again.",

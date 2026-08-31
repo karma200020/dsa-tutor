@@ -6,7 +6,7 @@ const asciiDiagram = (art: string): string =>
 export const cppConcurrencyTopics: Topic[] = [
   {
     id: "topic-cpp-concurrency-threads-and-lifetime",
-    moduleId: "mod-cpp-concurrency",
+    moduleId: "mod-cpp-concurrency-and-memory-ordering",
     title: "Threads, Locks, and Task Futures: The Concurrency Foundations",
     intuition:
       "C++11 gave the language a memory model and a threading library at the same time, which is the more important half: before it, multithreaded C++ was defined only by the platform, and the compiler was free to make optimisations that broke it. std::thread itself is a thin, deliberately unforgiving wrapper - it terminates the process if you destroy a joinable thread, it copies its arguments rather than referencing them, and it gives you no cancellation. C++20's std::jthread fixes the two worst parts by joining in its destructor and carrying a stop token, and it should be the default in new code.",
@@ -657,7 +657,7 @@ if (f.wait_for(std::chrono::seconds(0)) == std::future_status::ready) { }
   },
   {
     id: "topic-cpp-concurrency-sync-primitives",
-    moduleId: "mod-cpp-concurrency",
+    moduleId: "mod-cpp-concurrency-and-memory-ordering",
     title: "Shared Mutexes, call_once, and the C++20 Coordination Primitives",
     intuition:
       "A plain mutex is a blunt instrument: it serialises everything, including readers that only observe. The library provides a graded set of tools above it - shared_mutex for read-heavy state, call_once for exactly-once initialisation that is safe and cheap, and the C++20 additions latch, barrier, and counting_semaphore for the coordination shapes that people previously hand-rolled out of a mutex and a condition variable, usually with a bug. Choosing correctly matters because each of these has a cost profile, and the intuitive choice is often the wrong one: shared_mutex is slower than a mutex for short critical sections despite allowing concurrent readers.",
@@ -1300,7 +1300,7 @@ public:
   },
   {
     id: "topic-cpp-concurrency-atomics-and-the-memory-model",
-    moduleId: "mod-cpp-concurrency",
+    moduleId: "mod-cpp-concurrency-and-memory-ordering",
     title: "std::atomic, the Memory Model, and Compare-and-Swap",
     intuition:
       "C++11 did something more significant than adding a thread library: it gave the language a memory model, which for the first time made multithreaded C++ a defined thing rather than a platform accident. The model says what a thread is allowed to observe of another thread's writes, and it is deliberately weak so that both compilers and processors keep their reordering freedom. std::atomic is the interface to it. An atomic is not merely a variable you may touch from two threads without tearing; it is a synchronisation point that constrains reordering of everything around it, and that second role is what makes the ordering parameter matter.",
@@ -1842,7 +1842,7 @@ std::uint64_t id = next_id.fetch_add(1, std::memory_order_relaxed);
   },
   {
     id: "topic-cpp-concurrency-memory-orderings",
-    moduleId: "mod-cpp-concurrency",
+    moduleId: "mod-cpp-concurrency-and-memory-ordering",
     title: "Memory Orderings, Happens-Before, and Fences",
     intuition:
       "The memory orderings look like a menu of performance options, but they are really a menu of guarantees, and the only one that matters is happens-before: the partial order that determines whether a thread is allowed to see a write. A release store and an acquire load on the same atomic object build one edge in that order, and everything a thread did before the release becomes visible to a thread that observes it through the acquire. Once you think in terms of edges rather than barriers, the whole scheme becomes mechanical - you look for the pair, and if you cannot name both halves, the code is wrong.",
@@ -2397,7 +2397,7 @@ public:
   },
   {
     id: "topic-cpp-concurrency-false-sharing-and-performance",
-    moduleId: "mod-cpp-concurrency",
+    moduleId: "mod-cpp-concurrency-and-memory-ordering",
     title: "False Sharing, Cache Coherence, and Scalable Design",
     intuition:
       "Correct concurrent code that does not scale is the normal outcome, and the reason is almost always the cache coherence protocol rather than the synchronisation primitives. Hardware moves memory between cores in fixed-size lines, typically 64 bytes, and it can only track ownership at that granularity - so two threads writing to two entirely unrelated variables that happen to share a line will fight over it as though they shared the variable. That is false sharing, and it can cost an order of magnitude on a benchmark whose source contains no bug at all. Designing for scalability means designing for what each core writes and where it lives, not merely for correctness.",

@@ -6,7 +6,7 @@ const asciiDiagram = (art: string): string =>
 export const cppModernTopics: Topic[] = [
   {
     id: "topic-cpp-modern-standard-evolution",
-    moduleId: "mod-cpp-modern",
+    moduleId: "mod-cpp-modern-cpp-and-interview-patterns",
     title: "C++11 to C++23: What Changed and Why It Matters",
     intuition:
       "Modern C++ is not a collection of new syntax so much as a change in what the default correct answer is. Before C++11 the default was manual resource management, output parameters, and copying; after it the default is RAII, value semantics with cheap moves, and letting the compiler deduce what it can. Each standard since has continued the same programme: C++14 filled in what C++11 shipped incomplete, C++17 removed boilerplate and added vocabulary types, C++20 delivered the four features that had been in progress for a decade, and C++23 has been consolidation. Knowing which standard introduced what matters in interviews because it tells the interviewer whether you have kept up.",
@@ -659,7 +659,7 @@ int x2 = compute();                          // just use a value
   },
   {
     id: "topic-cpp-modern-lambdas-and-captures",
-    moduleId: "mod-cpp-modern",
+    moduleId: "mod-cpp-modern-cpp-and-interview-patterns",
     title: "Lambdas, Captures, and Callable Objects",
     intuition:
       "A lambda is not a special language entity so much as syntactic sugar for a compiler-generated class with an overloaded call operator, and once you see it that way every rule follows mechanically. The captures become member variables, so capturing by reference stores a reference that can dangle exactly as a member reference would; the body becomes operator() marked const by default, which is why mutating a by-value capture requires the mutable keyword; and a capture-free lambda has no members, which is why it can convert to a plain function pointer. Captures are where essentially all lambda bugs live, and the dangerous ones all involve reference capture outliving its referent.",
@@ -1286,7 +1286,7 @@ auto lam = [] { return ++s_count; };   // legal with NO capture: a
   },
   {
     id: "topic-cpp-modern-constexpr-and-compile-time",
-    moduleId: "mod-cpp-modern",
+    moduleId: "mod-cpp-modern-cpp-and-interview-patterns",
     title: "constexpr, consteval, and Compile-Time Computation",
     intuition:
       "constexpr began in C++11 as a narrow promise - this function is simple enough that I can evaluate it during compilation - and has grown into a second, nearly complete language that runs inside the compiler. The payoff is not merely speed: a value computed at compile time can be used where the language demands a constant, such as an array bound or a template argument, and any error in computing it becomes a compile error rather than a runtime failure. The related keywords sharpen the intent that constexpr leaves ambiguous: consteval demands compile-time evaluation, constinit demands compile-time initialisation without demanding constness, and const has never meant either.",
@@ -1937,7 +1937,7 @@ auto debug_result = my_constexpr_fn(input);   // ordinary breakpoint
   },
   {
     id: "topic-cpp-modern-vocabulary-types",
-    moduleId: "mod-cpp-modern",
+    moduleId: "mod-cpp-modern-cpp-and-interview-patterns",
     title: "optional, variant, string_view, span: The Vocabulary Types",
     intuition:
       "Vocabulary types exist so that two libraries written by strangers can express the same idea with the same type. Before C++17 a function that might not return a value returned a bool and an out parameter, or a pointer that might be null, or a sentinel value, and every codebase chose differently - std::optional made maybe-a-value a single spelling everyone recognises. The same logic gave us variant for a value that is one of several types, string_view and span for non-owning views over contiguous data, and expected in C++23 for a result that may instead be an error. Every one of them trades an ownership question for a lifetime obligation, which is where their bugs come from.",
@@ -2578,7 +2578,7 @@ auto [k, v] = get();
   },
   {
     id: "topic-cpp-modern-interview-traps",
-    moduleId: "mod-cpp-modern",
+    moduleId: "mod-cpp-modern-cpp-and-interview-patterns",
     title: "Classic Interview Traps and the Undefined Behaviour Catalogue",
     intuition:
       "Almost every hard C++ interview question is drawn from a small catalogue of traps that have been catching people for thirty years, and they persist because each one is a place where the language's syntax or its optimiser's assumptions diverge from ordinary intuition. The most vexing parse turns a variable definition into a function declaration; the static initialisation order fiasco makes correctness depend on link order; slicing silently discards half an object; a missing virtual destructor leaks without a diagnostic. What unifies them is undefined behaviour: the compiler is entitled to assume it never happens, so the symptom appears far from the cause, often only under optimisation, and often only in production.",

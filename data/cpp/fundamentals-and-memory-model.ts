@@ -18,7 +18,7 @@ function asciiDiagram(art: string): string {
 export const cppFundamentalsTopics: Topic[] = [
   {
     id: "topic-cpp-fundamentals-compilation-model",
-    moduleId: "mod-cpp-fundamentals",
+    moduleId: "mod-cpp-fundamentals-and-memory-model",
     title: "The C++ Compilation Model: Preprocess, Compile, Assemble, Link",
     intuition:
       "C++ does not compile a program; it compiles one translation unit at a time and then asks a linker to staple the results together. Almost every confusing build error a candidate meets in an interview - undefined reference, duplicate symbol, template not instantiated - is explained by that single fact. The compiler sees one file at a time and knows nothing about the others; the linker sees only symbol names and addresses and knows nothing about types. Once you can say which of those two tools produced an error, you can usually name the fix in one sentence.",
@@ -290,7 +290,7 @@ main.cpp sees declaration                 │ used as Stack<int>
   },
   {
     id: "topic-cpp-fundamentals-translation-units-odr",
-    moduleId: "mod-cpp-fundamentals",
+    moduleId: "mod-cpp-fundamentals-and-memory-model",
     title: "Declarations, Definitions, and the One Definition Rule",
     intuition:
       "The One Definition Rule is C++'s answer to a hard question: how can a language with separate compilation, inline functions, and templates guarantee that every entity means exactly one thing? The answer is a rule with three clauses - one definition per translation unit, one definition per program for non-inline entities, and identical token sequences for entities allowed to repeat. The dangerous clause is the third, because violating it is explicitly ill-formed no diagnostic required, meaning the compiler and linker are allowed to accept your program and produce nonsense.",
@@ -537,7 +537,7 @@ static int g_call_count = 0;      // internal linkage
   },
   {
     id: "topic-cpp-fundamentals-linkage-and-storage-duration",
-    moduleId: "mod-cpp-fundamentals",
+    moduleId: "mod-cpp-fundamentals-and-memory-model",
     title: "Linkage, Storage Duration, and the Many Meanings of static",
     intuition:
       "Every name in C++ carries two nearly independent properties that beginners conflate: linkage, which answers 'who else can refer to this name?', and storage duration, which answers 'when does this object exist?'. The keyword static is notorious precisely because it means a different thing in each of its three positions - internal linkage at namespace scope, per-class rather than per-object at class scope, and static storage duration inside a function. Separating the two axes turns a confusing keyword into a small, memorisable table.",
@@ -776,7 +776,7 @@ void handle(const std::string& id) {
   },
   {
     id: "topic-cpp-fundamentals-object-lifetime",
-    moduleId: "mod-cpp-fundamentals",
+    moduleId: "mod-cpp-fundamentals-and-memory-model",
     title: "Object Lifetime, Initialisation, and Destruction Order",
     intuition:
       "In C++ an object's lifetime is a precisely defined interval, not a vague notion of 'while the pointer is valid'. It begins when storage is obtained and initialisation completes, and it ends when the destructor call starts or the storage is released. Every use outside that window is undefined behaviour, and almost every serious C++ bug - use after free, use after move, dangling reference, reading a base member during construction of a derived class - is a lifetime question in disguise. Learn to draw the interval and the bugs become visible.",
@@ -1024,7 +1024,7 @@ std::string_view good = owned;`
   },
   {
     id: "topic-cpp-fundamentals-stack-heap-static",
-    moduleId: "mod-cpp-fundamentals",
+    moduleId: "mod-cpp-fundamentals-and-memory-model",
     title: "Stack, Heap, and Static Storage: Layout, Cost, and Failure Modes",
     intuition:
       "A C++ process divides its address space into regions with radically different cost and lifetime characteristics. The stack is a per-thread bump allocator that is nearly free but small and strictly scoped. The heap is a general allocator that is flexible but costs hundreds of cycles, can fragment, and must be released explicitly. Static storage is laid out by the linker and lives forever. Choosing the wrong region is the single most common cause of both crashes and poor performance in C++ code, so knowing what each one costs is a load-bearing skill.",

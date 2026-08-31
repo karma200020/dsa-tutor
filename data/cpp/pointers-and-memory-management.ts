@@ -11,7 +11,7 @@ function asciiDiagram(art: string): string {
 export const cppPointersTopics: Topic[] = [
   {
     id: "topic-cpp-pointers-pointers-vs-references",
-    moduleId: "mod-cpp-pointers",
+    moduleId: "mod-cpp-pointers-and-memory-management",
     title: "Pointers versus References: Semantics, const, and API Design",
     intuition:
       "A pointer is an object holding an address; a reference is an alias for an existing object. That one-sentence difference generates every practical distinction - a pointer can be null, reassigned, and stored in a container, while a reference must bind at initialisation, can never rebind, and has no independent identity. Interviews use this pair to test whether you choose interfaces deliberately: a reference parameter says 'this argument must exist', a pointer parameter says 'this argument is optional', and getting that wrong is how null checks get scattered through a codebase.",
@@ -280,7 +280,7 @@ int  safe   = std::max(1, 2);    // copy the result instead
   },
   {
     id: "topic-cpp-pointers-new-delete-and-arrays",
-    moduleId: "mod-cpp-pointers",
+    moduleId: "mod-cpp-pointers-and-memory-management",
     title: "new, delete, and the Array Forms: What the Expressions Really Do",
     intuition:
       "A new-expression is two operations welded together - allocate raw storage, then construct an object in it - and a delete-expression is their exact mirror. Once you see the seam, the rules stop being arbitrary: new[] must record the element count somewhere so delete[] can run the right number of destructors, which is why mixing new with delete[] is undefined behaviour rather than merely untidy. Modern C++ answers all of this by telling you to never write these expressions in application code, but you must still be able to explain them, because every container and smart pointer is built on them.",
@@ -561,7 +561,7 @@ std::pmr::vector<int> v{&pool};`
   },
   {
     id: "topic-cpp-pointers-dangling-and-leaks",
-    moduleId: "mod-cpp-pointers",
+    moduleId: "mod-cpp-pointers-and-memory-management",
     title: "Dangling Pointers, Double Frees, and Leaks: Diagnosis and Prevention",
     intuition:
       "Memory bugs in C++ come in exactly three shapes: using memory after its object is gone, releasing the same memory twice, and never releasing it at all. All three are ownership failures - the code cannot answer 'who owns this and until when?'. That is why the cure is not more discipline but a change of representation: make ownership explicit in the type system and the entire category disappears. Interviews probe this because the symptoms are notoriously non-local, appearing far from the defect, so the ability to reason backwards from a corrupted heap is a genuinely hard-won skill.",
@@ -834,7 +834,7 @@ heaptrack ./app && heaptrack_gui heaptrack.app.*.gz`
   },
   {
     id: "topic-cpp-pointers-alignment-and-layout",
-    moduleId: "mod-cpp-pointers",
+    moduleId: "mod-cpp-pointers-and-memory-management",
     title: "Alignment, Padding, and Object Representation",
     intuition:
       "Hardware does not read bytes; it reads aligned words. Every type therefore carries an alignment requirement, and the compiler inserts padding so that each member lands on a suitable boundary. That single mechanism explains why reordering three members can shrink a struct by a third, why a struct is never smaller than its largest member's alignment, why alignas(64) is the standard cure for false sharing, and why casting a char* to an int* and dereferencing it is undefined behaviour. In performance interviews, struct layout is the highest-leverage change you can make without altering a single algorithm.",
@@ -1133,7 +1133,7 @@ std::uint32_t read_le32(const std::byte* p) {
   },
   {
     id: "topic-cpp-pointers-placement-new-and-manual-lifetime",
-    moduleId: "mod-cpp-pointers",
+    moduleId: "mod-cpp-pointers-and-memory-management",
     title: "Placement new, Manual Lifetime, and Building Containers",
     intuition:
       "Placement new is the tool that splits allocation from construction. Once you can obtain storage separately and decide later - or never - to build an object in it, you can write std::vector, std::optional, small-buffer-optimised types, object pools, and arena allocators. Everything that makes containers fast rests on this: reserved capacity holds raw bytes, not default-constructed objects. The price is that you become responsible for the other half of the lifetime too, calling destructors explicitly and getting the exception-safety ordering right by hand.",

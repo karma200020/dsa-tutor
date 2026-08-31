@@ -7,7 +7,7 @@ function asciiDiagram(art: string): string {
 export const cppMoveTopics: Topic[] = [
   {
     id: "topic-cpp-move-value-categories",
-    moduleId: "mod-cpp-move",
+    moduleId: "mod-cpp-move-semantics-and-value-categories",
     title: "Value Categories: lvalue, prvalue, xvalue",
     intuition:
       "Every expression in C++ has a type and a value category, and the category decides which overloads it can bind to, whether it can be moved from, and whether it names an object at all. C++11 replaced the old lvalue/rvalue split with a three-way system built on two questions: does the expression have identity, and can it be moved from. Getting these right is what makes std::move, perfect forwarding, and copy elision comprehensible instead of magical - every confusing move-semantics question reduces to a value-category question.",
@@ -324,7 +324,7 @@ const Immovable& r = make();   // the prvalue is materialised into a temporary
   },
   {
     id: "topic-cpp-move-std-move-and-move-only-types",
-    moduleId: "mod-cpp-move",
+    moduleId: "mod-cpp-move-semantics-and-value-categories",
     title: "std::move, Moved-From States, and Move-Only Types",
     intuition:
       "std::move is a cast, not an operation - it changes which overload is chosen and nothing else. The move that follows is written by the class author, and its contract is that the source is left valid but unspecified. Move-only types such as unique_ptr, thread, and future use this to express exclusive ownership in the type system, so the compiler rejects accidental sharing rather than leaving it to a code review. Most confusion about moves disappears once you see std::move as a request and the class's move constructor as the thing that decides what actually happens.",
@@ -680,7 +680,7 @@ void take_by_value(std::array<char, 4096> a);   // bad: 4 KB copied, no move`
   },
   {
     id: "topic-cpp-move-forwarding-references",
-    moduleId: "mod-cpp-move",
+    moduleId: "mod-cpp-move-semantics-and-value-categories",
     title: "Forwarding References and Reference Collapsing",
     intuition:
       "T&& in a deduced context is not an rvalue reference - it is a forwarding reference that binds to anything and remembers what it bound to. The mechanism is template argument deduction plus reference collapsing: an lvalue argument deduces T as an lvalue reference, so T&& collapses back to an lvalue reference, while an rvalue deduces T as a plain type and T&& stays an rvalue reference. Understanding those two rules explains std::forward, why auto&& works, why the overload set gets hijacked, and why emplace_back can construct anything.",
@@ -1024,7 +1024,7 @@ auto&& bad = get_vector().front();           // dangling: the vector died`
   },
   {
     id: "topic-cpp-move-copy-elision-rvo",
-    moduleId: "mod-cpp-move",
+    moduleId: "mod-cpp-move-semantics-and-value-categories",
     title: "Copy Elision, RVO, and NRVO",
     intuition:
       "The cheapest move is the one that never happens. Copy elision lets the compiler construct an object directly in its final destination instead of building it somewhere else and transferring it. Since C++17 this is guaranteed for prvalues, which is why a factory can return a type with no copy or move constructor at all. Named return value optimisation, the case where you return a local variable, remains optional and is easy to defeat accidentally - most often by writing std::move on the return, which is the single most common well-intentioned pessimisation in C++.",
@@ -1383,7 +1383,7 @@ int main() {
   },
   {
     id: "topic-cpp-move-parameter-design",
-    moduleId: "mod-cpp-move",
+    moduleId: "mod-cpp-move-semantics-and-value-categories",
     title: "Move-Aware API Design: Sinks, Views, and Overloads",
     intuition:
       "Once moves exist, parameter and return types become design decisions with measurable costs. The question to ask of every parameter is whether the function observes the argument, stores it, or modifies the caller's object - and each answer has a canonical signature. Getting this right eliminates whole categories of hidden copies without any std::move at the call site, and getting it wrong produces code that looks modern and still deep-copies on every call. The same reasoning extends to return types, ref-qualified members, and when to reach for string_view or span instead of a value.",

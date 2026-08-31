@@ -6,7 +6,7 @@ const asciiDiagram = (art: string): string =>
 export const cppStlTopics: Topic[] = [
   {
     id: "topic-cpp-stl-sequence-containers",
-    moduleId: "mod-cpp-stl",
+    moduleId: "mod-cpp-stl-containers-and-algorithms",
     title: "Sequence Containers: vector, deque, list, and array",
     intuition:
       "Choosing a container is choosing a memory layout, and on modern hardware the layout dominates the asymptotic complexity for anything smaller than tens of thousands of elements. std::vector wins by default because it is a single contiguous allocation that the prefetcher can stream through; list has better insertion complexity on paper and loses badly in practice because every node is a separate cache miss. Interview answers that recite Big-O without mentioning contiguity are incomplete, and production code that reaches for list because insertion is O(1) is usually slower than the vector it replaced.",
@@ -459,7 +459,7 @@ std::vector<int>().swap(big);              // the guaranteed idiom (pre-C++11
   },
   {
     id: "topic-cpp-stl-associative-and-unordered",
-    moduleId: "mod-cpp-stl",
+    moduleId: "mod-cpp-stl-containers-and-algorithms",
     title: "Associative and Unordered Containers: map, set, and the Hash Variants",
     intuition:
       "C++ ships two families of key-value containers with the same interface and completely different machinery. map and set are balanced binary search trees - red-black trees in every mainstream implementation - giving sorted iteration and logarithmic operations with permanent iterator stability. unordered_map and unordered_set are separate-chaining hash tables giving average constant lookup and no ordering at all. Choosing between them is mostly about whether you need order and whether your keys hash well, and the details that bite in interviews are operator[] silently inserting, the transparent comparator for heterogeneous lookup, and the fact that the unordered containers are required by the standard to use chaining rather than open addressing.",
@@ -970,7 +970,7 @@ std::erase_if(sessions, [](const auto& kv) { return kv.second.expired(); });`
   },
   {
     id: "topic-cpp-stl-iterators-and-ranges",
-    moduleId: "mod-cpp-stl",
+    moduleId: "mod-cpp-stl-containers-and-algorithms",
     title: "Iterator Categories, Adaptors, and C++20 Ranges",
     intuition:
       "Iterators are the glue that lets one implementation of sort work on a vector, a deque, and a raw array. The design abstracts a position in a sequence into a small set of operations, and the categories - input, forward, bidirectional, random access, contiguous - describe which operations a given iterator supports and therefore which algorithms can accept it. Understanding the categories explains why std::sort refuses a list, why std::advance is O(n) on some iterators and O(1) on others, and why C++20 rewrote the hierarchy: the old model conflated traversal capability with reference-return semantics, which made proxy iterators impossible to categorise correctly.",
@@ -1488,7 +1488,7 @@ auto joined = std::accumulate(words.begin(), words.end(), std::string{});
   },
   {
     id: "topic-cpp-stl-strings-and-views",
-    moduleId: "mod-cpp-stl",
+    moduleId: "mod-cpp-stl-containers-and-algorithms",
     title: "std::string, Small String Optimisation, and string_view",
     intuition:
       "Strings dominate the allocation profile of most C++ applications, so understanding what std::string does at each size threshold is directly a performance skill. Every mainstream implementation stores short strings inside the object itself - the small string optimisation - so a fifteen-character string costs no allocation at all, while a sixteen-character one costs a full heap round trip. std::string_view then removes the remaining allocations from the read-only paths by being nothing but a pointer and a length, which is enormously effective and enormously easy to misuse, because a view does not own and does not extend anything's lifetime.",
@@ -2009,7 +2009,7 @@ auto parts = split(utf8_line, ',');        // safe - ',' is ASCII
   },
   {
     id: "topic-cpp-stl-emplace-comparators-performance",
-    moduleId: "mod-cpp-stl",
+    moduleId: "mod-cpp-stl-containers-and-algorithms",
     title: "emplace vs insert, Custom Comparators, and Container Performance",
     intuition:
       "The last mile of STL competence is knowing what each interface actually does rather than what its name suggests. emplace is not universally faster than push_back, custom comparators change a container's type and can silently produce undefined behaviour, and the performance of a container is decided far more by allocation count and cache behaviour than by the complexity in the reference. This topic collects the operational knowledge that separates someone who can use the STL from someone who can be trusted to choose correctly under a latency budget.",
