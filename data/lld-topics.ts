@@ -1,4 +1,4 @@
-﻿import { Topic, Reference } from "./syllabus";
+import { Topic, Reference } from "./syllabus";
 
 // Text/monospace diagram helper, matching the ASCII-flow convention used in
 // hld-topics.ts and all-topics.ts. Renders class/sequence-style diagrams
@@ -88,7 +88,7 @@ Vehicle <|--is-a-- Car          Car --has-a--> Engine
         diagram: undefined
       }
     ],
-    tips: ["Deep inheritance (AâBâCâD) is a red flag", "Different types of X usually means interface + composition", "Swap implementations at runtime with composition"],
+    tips: ["Deep inheritance (A→B→C→D) is a red flag", "Different types of X usually means interface + composition", "Swap implementations at runtime with composition"],
     references: [{ source: "book", attribution: "Head First Design Patterns", insight: "Composition provides runtime flexibility." }],
     practiceProblems: []
   },
