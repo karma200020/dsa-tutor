@@ -52,7 +52,7 @@ export const expandedDsaTopics: Topic[] = [
         snippet: "struct RotArr {\n  std::vector<int> a; size_t off = 0;\n  int get(size_t i) const { return a[(i + off) % a.size()]; }\n  void rotateRight(size_t k) { off = (off + a.size() - k % a.size()) % a.size(); }\n  void push(int v) { normalize(); a.push_back(v); }\n  void normalize() { std::rotate(a.begin(), a.begin() + off, a.end()); off = 0; }\n};"
       }
     ],
-    methodology: "Index â Access â Modify â Bounds check",
+    methodology: "Index → Access → Modify → Bounds check",
     cppCode: `vector<int> arr = {1, 2, 3};
 arr.push_back(4);  // O(1) amortized
 arr[2] = 5;        // O(1) random access
@@ -77,8 +77,8 @@ for(int i = 0; i < arr.size(); i++) { }  // O(n) iteration`,
       "Spiral traversal: right, down, left, up",
       "Rotate matrix in-place by transpose + reverse"
     ],
-    tricks: ["Use boundaries L, R, T, B for spiral", "Transpose swaps rows and columns", "Rotate 90Â° = Transpose + Reverse rows"],
-    memoryAids: ["SPIRAL: Right â Down â Left â Up"],
+    tricks: ["Use boundaries L, R, T, B for spiral", "Transpose swaps rows and columns", "Rotate 90° = Transpose + Reverse rows"],
+    memoryAids: ["SPIRAL: Right → Down → Left → Up"],
     interviewPatterns: ["Spiral matrix traversal", "Rotate matrix", "Set matrix zeros"],
     references: [],
     practiceProblems: [
@@ -113,7 +113,7 @@ for(int i = 0; i < arr.size(); i++) { }  // O(n) iteration`,
         snippet: "int i=0, j=n-1;\nwhile (i<m && j>=0) {\n  if (a[i][j]==target) return true;\n  if (a[i][j] > target) --j;   // drop this column\n  else ++i;                    // drop this row\n}\nreturn false;"
       }
     ],
-    methodology: "Understand coordinate (i,j) â Implement traversal pattern â Handle boundaries",
+    methodology: "Understand coordinate (i,j) → Implement traversal pattern → Handle boundaries",
     cppCode: `// Spiral traversal
 int top = 0, bottom = m-1, left = 0, right = n-1;
 while(top <= bottom && left <= right) {
@@ -124,7 +124,7 @@ while(top <= bottom && left <= right) {
     // Continue for left and bottom...
 }`,
     workedExample: `Spiral [[1,2,3],[4,5,6],[7,8,9]]
-Path: 1â2â3â6â9â8â7â4â5
+Path: 1→2→3→6→9→8→7→4→5
 Boundaries shrink: right, down, left, up repeatedly`,
     complexity: { time: "O(m*n)", space: "O(1) excluding output" }
   },
@@ -140,7 +140,7 @@ Boundaries shrink: right, down, left, up repeatedly`,
       "Use char arrays for in-place modifications"
     ],
     tricks: ["Reverse using two pointers", "Iterate backwards to modify", "Compare after sorting for anagrams"],
-    memoryAids: ["IMMUTABLE strings â use StringBuilder for concat"],
+    memoryAids: ["IMMUTABLE strings → use StringBuilder for concat"],
     interviewPatterns: ["Reverse string", "Palindrome check", "String compression"],
     references: [],
     practiceProblems: [
@@ -175,13 +175,13 @@ Boundaries shrink: right, down, left, up repeatedly`,
         snippet: "int bestL=0, bestLen=1;\nauto expand=[&](int l,int r){\n  while (l>=0 && r<(int)s.size() && s[l]==s[r]) { --l; ++r; }\n  if (r-l-1 > bestLen) { bestLen=r-l-1; bestL=l+1; }\n};\nfor (int i=0;i<(int)s.size();++i) { expand(i,i); expand(i,i+1); }\nreturn s.substr(bestL, bestLen);"
       }
     ],
-    methodology: "Identify operation â Choose in-place or new string â Handle edge cases",
+    methodology: "Identify operation → Choose in-place or new string → Handle edge cases",
     cppCode: `string s = "hello";
 reverse(s.begin(), s.end());  // In-place
 string rev(s.rbegin(), s.rend());  // Copy reversed
 s.substr(1, 3);  // Extract substring`,
     workedExample: `Reverse "hello"
-Two pointers: hâo, eâl
+Two pointers: h↔o, e↔l
 Result: "olleh"`,
     complexity: { time: "O(n)", space: "O(1) in-place or O(n) new string" }
   },
