@@ -1,80 +1,64 @@
-// HLD-specific enrichment: the mock-interview solution specs, the generic
-// architecture write-up/diagram, and the HLD FAQ builder. Only imported by
-// data/topics/hld.ts, so it is never bundled with another track.
-import { Example, FaqItem, LessonSection } from "../syllabus";
+// HLD-specific enrichment: mock-interview solution specs and source-derived
+// enrichment for non-mock topics. Only imported by data/topics/hld.ts.
+import { Example, FaqItem, LessonSection, Topic } from "../syllabus";
 import { diagramBlock, primerSourceLinks } from "./shared";
 import { TrackEnricher } from "./enrich";
 
-// Native SVG diagram for the generic HLD fallback (applies to every non-mock
-// HLD topic). Renders labeled boxes with arrows for the standard
-// client -> gateway/LB -> services -> cache/queue -> DB flow, with the topic
-// name in the title so each diagram is visibly tied to its topic. Static,
-// authored markup only (no user input interpolated unescaped) so it is safe
-// to render via dangerouslySetInnerHTML.
 function escapeSvgText(text: string): string {
   return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
 
-function buildHldArchitectureDiagram(title: string): string {
-  const label = escapeSvgText(title.length > 40 ? `${title.slice(0, 37)}...` : title);
+function diagramLabel(text: string, limit = 30): string {
+  const normalized = text.replace(/\s+/g, " ").trim();
+  return escapeSvgText(normalized.length > limit ? `${normalized.slice(0, limit - 3)}...` : normalized);
+}
+
+function buildHldEvidenceDiagram(topic: Topic, title: string): string {
+  const lessonTitle = topic.lesson?.[0]?.title || "Authored design decision";
+  const outcome = topic.examples?.[0]?.output || topic.intuition;
   const box = (x: number, y: number, w: number, h: number, text: string, fill: string) =>
     `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="8" fill="${fill}" stroke="#38bdf8" stroke-width="1.5" />` +
     `<text x="${x + w / 2}" y="${y + h / 2 + 4}" text-anchor="middle" font-family="Segoe UI, sans-serif" font-size="12" fill="#e2e8f0">${text}</text>`;
   const arrow = (x1: number, y1: number, x2: number, y2: number) =>
     `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="#67e8f9" stroke-width="2" marker-end="url(#hldArrow)" />`;
   return (
-    `<svg viewBox="0 0 760 260" width="100%" height="auto" role="img" aria-label="Architecture diagram for ${label}: client through gateway, services, cache and queue, to database">` +
-    `<title>${label}: request and data flow architecture</title>` +
+    `<svg viewBox="0 0 760 190" width="100%" height="auto" role="img" aria-label="Authored design evidence map for ${escapeSvgText(title)}">` +
+    `<title>${escapeSvgText(title)}: authored requirement, design evidence, and outcome</title>` +
     `<defs><marker id="hldArrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth"><path d="M0,0 L0,6 L9,3 z" fill="#67e8f9" /></marker></defs>` +
-    `<rect x="0" y="0" width="760" height="260" fill="transparent" />` +
-    box(20, 110, 100, 44, "Client", "#0f172a") +
-    box(160, 110, 120, 44, "CDN / DNS", "#111827") +
-    box(320, 110, 130, 44, "Load Balancer", "#111827") +
-    box(490, 30, 130, 44, `${label.length > 18 ? "Service" : label} Service`, "#0e2a3f") +
-    box(490, 110, 130, 44, "Cache", "#0e2a3f") +
-    box(490, 190, 130, 44, "Queue / Workers", "#0e2a3f") +
-    box(660, 110, 90, 44, "Database", "#1e1b4b") +
-    arrow(120, 132, 158, 132) +
-    arrow(280, 132, 318, 132) +
-    arrow(450, 122, 488, 60) +
-    arrow(450, 132, 488, 132) +
-    arrow(450, 142, 488, 205) +
-    arrow(620, 60, 658, 130) +
-    arrow(620, 132, 658, 132) +
-    arrow(620, 205, 658, 145) +
-    `<text x="20" y="250" font-family="Segoe UI, sans-serif" font-size="11" fill="#94a3b8">Drawing order: 1) client 2) CDN/DNS 3) load balancer 4) service 5) cache 6) queue/workers 7) database</text>` +
+    `<rect x="0" y="0" width="760" height="190" fill="transparent" />` +
+    box(25, 70, 190, 52, diagramLabel(title), "#0f172a") +
+    box(285, 70, 190, 52, diagramLabel(lessonTitle), "#0e2a3f") +
+    box(545, 70, 190, 52, diagramLabel(outcome), "#1e1b4b") +
+    arrow(215, 96, 283, 96) +
+    arrow(475, 96, 543, 96) +
+    `<text x="25" y="155" font-family="Segoe UI, sans-serif" font-size="11" fill="#94a3b8">Authored focus -> authored design evidence -> authored expected result</text>` +
     `</svg>`
   );
 }
 
-function buildHldSolution(title: string, intuition: string): { lesson: LessonSection; example: Example } {
+function hasAuthoredDiagram(topic: Topic): boolean {
+  return (topic.lesson || []).some((section) => section.diagram?.trim()) ||
+    (topic.examples || []).some((example) => example.diagram?.trim());
+}
+
+function buildHldTopicSupplement(topic: Topic, title: string): { lesson: LessonSection[] } | null {
+  if (hasAuthoredDiagram(topic)) return null;
+  const lesson = topic.lesson?.[0];
+  const example = topic.examples?.[0];
+  const evidence = lesson ? `${lesson.title}: ${lesson.content}` : topic.intuition;
+  const flow = example
+    ? `Authored scenario: ${example.input}. Expected result: ${example.output}. Walkthrough: ${example.explanation}`
+    : `Authored design focus: ${topic.intuition}`;
   return {
-    lesson: {
-      title: `${title}: complete system design`,
+    lesson: [{
+      title: `${title}: authored design evidence`,
       content:
-        `Requirements: define the user-facing operation, latency target, durability, availability, and consistency boundary for ${title}.\n\n` +
-        `Capacity: estimate peak requests/sec from active users, average payload size, read/write ratio, and retention; provision headroom for burst traffic.\n\n` +
-        `APIs: expose versioned endpoints for the primary read and write operations, require an idempotency key for retried writes, and return request IDs.\n\n` +
-        `Data model: store the durable entity keyed by a stable ID, index the query fields, and retain an event or audit record when replay is needed.\n\n` +
-        `Architecture and flow: route clients through DNS/CDN and a load balancer to stateless services; read cache first, then the database; send non-critical work to a durable queue and workers.\n\n` +
-        `Scaling: partition by the access key, add read replicas, bound cache entries with TTL/LRU, and apply queue backpressure when consumers lag.\n\n` +
-        `Consistency and reliability: choose strong writes for correctness-critical state, eventual reads where acceptable, use timeouts, retries with backoff, circuit breakers, health checks, failover, and a dead-letter queue.\n\n` +
-        `Security and observability: authenticate and authorize every API, encrypt data in transit and at rest, rate-limit abuse, and monitor latency, saturation, error rate, queue lag, cache hit rate, replication lag, and audit events.\n\n` +
-        `Trade-offs: ${intuition} The design favors horizontal scale and graceful degradation over the lowest operational complexity.`,
-      diagram: buildHldArchitectureDiagram(title)
-    },
-    example: {
-      title: `${title}: capacity and failure walkthrough`,
-      input: `1M daily users, 10% active at peak, 20 requests per active user per minute, 2KB payloads, 99.99% availability target`,
-      output: `~33,334 peak requests/sec with a cache-first read path, partitioned durable storage, and replayable asynchronous work`,
-      explanation:
-        `Step 1: Estimate peak traffic as 100,000 active users * 20 / 60 = ~33,334 requests/sec; provision multiple stateless service instances with headroom.\n` +
-        `Step 2: Keep the primary entity in partitioned storage, route by entity/user ID, and add indexes for the read API.\n` +
-        `Step 3: Serve hot reads from a regional cache; on a miss, read the database and populate the cache with a bounded TTL.\n` +
-        `Step 4: Write the durable record before publishing an event to a replicated queue; workers handle notifications, indexing, and analytics with deduplication.\n` +
-        `Step 5: On cache, replica, or worker failure, use bounded retries, circuit breakers, a dead-letter queue, and a degraded read path; monitor p95/p99 latency, error rate, queue lag, cache hit rate, and replication lag.\n` +
-        `Step 6: Explain the trade-off: asynchronous secondary work improves availability and throughput, while the primary write remains strongly consistent where the business invariant requires it.`
-    }
+        `Requirement and scope: ${topic.intuition}\n\n` +
+        `Primary design evidence: ${evidence}\n\n` +
+        `Concrete data flow: ${flow}\n\n` +
+        `Stated cost or capacity boundary: ${topic.complexity?.time || "not separately quantified"} time/throughput and ${topic.complexity?.space || "not separately quantified"} retained state.`,
+      diagram: buildHldEvidenceDiagram(topic, title)
+    }]
   };
 }
 
@@ -257,10 +241,32 @@ function buildHldMockSolution(topicId: string, title: string): { lesson: LessonS
   };
 }
 
+function compact(text: string, limit = 1400): string {
+  const normalized = text.replace(/\s+/g, " ").trim();
+  return normalized.length <= limit ? normalized : `${normalized.slice(0, limit - 1).trimEnd()}…`;
+}
+
+function hldLessonEvidence(topic: Topic, keywords: string[], fallbackIndex: number): string {
+  const lessons = topic.lesson || [];
+  const match = lessons.find((section) => {
+    const text = `${section.title} ${section.content}`.toLowerCase();
+    return keywords.some((keyword) => text.includes(keyword));
+  });
+  const section = match || lessons[Math.min(fallbackIndex, Math.max(lessons.length - 1, 0))];
+  if (!section) return topic.intuition;
+  const code = section.codeExample ? ` Concrete contract/example: ${section.codeExample}` : "";
+  return compact(`${section.title}: ${section.content}${code}`);
+}
+
+function hldExampleEvidence(topic: Topic): string {
+  const example = topic.examples?.[0];
+  if (!example) return topic.intuition;
+  return compact(`Scenario: ${example.input}. Expected result: ${example.output}. Flow: ${example.explanation}`);
+}
+
 function buildHldFaq(
+  topic: Topic,
   title: string,
-  intuition: string,
-  complexity: { time: string; space: string },
   mock: HldMockSpec | null
 ): FaqItem[] {
   const track = "HLD interview practice notes";
@@ -324,59 +330,51 @@ function buildHldFaq(
       }
     ];
   }
+  const requirements = hldLessonEvidence(topic, ["requirement", "goal", "use case"], 0);
+  const dataFlow = hldExampleEvidence(topic);
+  const storage = hldLessonEvidence(topic, ["data", "storage", "database", "cache", "index"], 1);
+  const scaling = hldLessonEvidence(topic, ["scale", "capacity", "throughput", "partition", "shard", "load"], 1);
+  const consistency = hldLessonEvidence(topic, ["consisten", "reliab", "failure", "failover", "replica"], 1);
+  const tradeoff = hldLessonEvidence(topic, ["trade-off", "tradeoff", "latency", "availability", "cost"], 0);
   return [
     {
-      question: `What clarifying questions should you ask before designing ${title}?`,
-      answer: `Confirm scale (daily/peak active users), the read/write ratio, latency and availability targets, and which invariant must never be violated. For ${title}, this framing changes whether ${intuition.toLowerCase()}`,
+      question: `What requirement and scope are actually authored for ${title}?`,
+      answer: `${topic.intuition} Supporting evidence: ${requirements}`,
       source: track,
       category: "Requirements",
       sourceLinks: [primerSourceLinks.hld]
     },
     {
-      question: `How would you estimate capacity for ${title} from a rough DAU number?`,
-      answer: `Start from daily/peak active users, multiply by an assumed action rate per user, and convert to requests/sec; then multiply average payload size by write volume to size storage. State the assumption out loud so the interviewer can push back on it, then relate it to the ${complexity.space} space profile of this design.`,
+      question: `What concrete request or data flow demonstrates ${title}?`,
+      answer: `${topic.intuition} ${dataFlow}`,
       source: track,
-      category: "Capacity",
+      category: "Data Flow",
       sourceLinks: [primerSourceLinks.hld]
     },
     {
-      question: `Where is the most likely bottleneck in a ${title} system at scale?`,
-      answer: `The layer that cannot be trivially horizontally scaled (a single-writer database, a hot shard, or an unbounded fan-out) is the first bottleneck. Name it explicitly and propose the mitigation (partitioning, caching, or async processing) before the interviewer asks.`,
+      question: `Which storage or data-model decision is relevant to ${title}?`,
+      answer: `${topic.intuition} Authored storage/data evidence: ${storage}`,
       source: track,
-      category: "Bottlenecks",
+      category: "Data & Storage",
       sourceLinks: [primerSourceLinks.hld]
     },
     {
-      question: `What should the API and data model look like for ${title}?`,
-      answer: `Expose versioned endpoints for the primary read/write operations, require an idempotency key on writes, and model the durable entity with a stable key plus the fields the read path needs indexed. Keep the schema minimal; add fields only when a stated requirement needs them.`,
+      question: `Which authored constraint drives scale or capacity decisions for ${title}?`,
+      answer: `${scaling} The source records the cost boundary as ${topic.complexity?.time || "not separately quantified"} time/throughput and ${topic.complexity?.space || "not separately quantified"} retained state.`,
       source: track,
-      category: "APIs",
+      category: "Capacity & Scaling",
       sourceLinks: [primerSourceLinks.hld]
     },
     {
-      question: `When should ${title} use a cache, a queue, or partitioning - and how do you decide?`,
-      answer: `Cache when reads vastly outnumber writes and slight staleness is acceptable; queue when work can be done asynchronously without blocking the caller; partition when a single node's storage or throughput would otherwise exceed capacity. Justify each choice against the specific read/write ratio for ${title}.`,
+      question: `What consistency or reliability evidence is present for ${title}?`,
+      answer: `${topic.intuition} Authored consistency/reliability evidence: ${consistency}`,
       source: track,
-      category: "Scaling",
+      category: "Consistency & Reliability",
       sourceLinks: [primerSourceLinks.hld]
     },
     {
-      question: `Does ${title} need strong consistency, and where can eventual consistency be safe?`,
-      answer: `Anything tied to money, uniqueness, or a user-visible invariant (e.g., a code or slot being assigned twice) needs strong consistency on the write path. Derived or denormalized views (feeds, counters, analytics) can be eventually consistent since a brief staleness window rarely breaks the product.`,
-      source: track,
-      category: "Consistency",
-      sourceLinks: [primerSourceLinks.hld]
-    },
-    {
-      question: `How should ${title} degrade gracefully during a partial outage?`,
-      answer: `Apply timeouts, bounded retries with backoff, and circuit breakers so a slow dependency does not cascade; keep a degraded read path (e.g., serve stale cache) rather than failing the whole request; and route failed async work to a dead-letter queue for replay instead of dropping it.`,
-      source: track,
-      category: "Reliability",
-      sourceLinks: [primerSourceLinks.hld]
-    },
-    {
-      question: `What is the central trade-off an interviewer expects you to articulate for ${title}?`,
-      answer: `${intuition} State explicitly what you are giving up (e.g., some write latency, some storage cost, or some consistency) in exchange for the property the design optimizes for (${complexity.time}), rather than presenting the design as if it had no downside.`,
+      question: `What trade-off does the authored material expose for ${title}?`,
+      answer: `${topic.intuition} Authored trade-off evidence: ${tradeoff}`,
       source: track,
       category: "Trade-offs",
       sourceLinks: [primerSourceLinks.hld, primerSourceLinks.algomasterUrlShortener]
@@ -388,9 +386,8 @@ export const hldEnricher: TrackEnricher = {
   buildSolution: (topic, title) => {
     const mock = buildHldMockSolution(topic.id, title);
     if (mock) return mock;
-    const generic = buildHldSolution(title, topic.intuition);
-    return { lesson: [generic.lesson], example: generic.example };
+    return buildHldTopicSupplement(topic, title);
   },
-  buildFaq: (topic, title, complexity) =>
-    buildHldFaq(title, topic.intuition, complexity, hldMockSolutions[topic.id] || null)
+  buildFaq: (topic, title) =>
+    buildHldFaq(topic, title, hldMockSolutions[topic.id] || null)
 };

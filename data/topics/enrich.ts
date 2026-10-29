@@ -8,7 +8,7 @@ import { isPracticeVariation } from "../practice-variation";
 const validModuleIds = new Set(syllabus.map((m) => m.id));
 
 export type TrackEnricher = {
-  buildSolution?: (topic: Topic, title: string) => { lesson: LessonSection[]; example: Example } | null;
+  buildSolution?: (topic: Topic, title: string) => { lesson: LessonSection[]; example?: Example } | null;
   buildFaq?: (topic: Topic, title: string, complexity: { time: string; space: string }) => FaqItem[];
 };
 
@@ -121,7 +121,7 @@ function enrichTopic(topic: Topic, enrichers: TrackEnrichers): Topic {
   // on here, so a track's dataset only pulls in its own builders.
   const solution = enricher && enricher.buildSolution ? enricher.buildSolution(topic, title) : null;
   const completeLesson = solution ? [...lesson, ...solution.lesson] : lesson;
-  const completeExamples = solution ? [...examples, solution.example] : examples;
+  const completeExamples = solution?.example ? [...examples, solution.example] : examples;
   const tips = topic.tips && topic.tips.length > 0
     ? topic.tips
     : [

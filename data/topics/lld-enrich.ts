@@ -1,7 +1,7 @@
 // LLD-specific enrichment: the mock-interview solution specs and the LLD FAQ
 // builder. Only imported by data/topics/lld.ts, so it is never bundled with
 // another track.
-import { Example, FaqItem, LessonSection } from "../syllabus";
+import { Example, FaqItem, LessonSection, Topic } from "../syllabus";
 import { diagramBlock, primerSourceLinks } from "./shared";
 import { TrackEnricher } from "./enrich";
 
@@ -164,9 +164,32 @@ function buildLldMockSolution(topicId: string, title: string): { lesson: LessonS
   };
 }
 
+function compact(text: string, limit = 1200): string {
+  const normalized = text.replace(/\s+/g, " ").trim();
+  return normalized.length <= limit ? normalized : `${normalized.slice(0, limit - 1).trimEnd()}…`;
+}
+
+function lessonEvidence(topic: Topic, keywords: string[], fallbackIndex: number): string {
+  const lessons = topic.lesson || [];
+  const match = lessons.find((section) => {
+    const text = `${section.title} ${section.content}`.toLowerCase();
+    return keywords.some((keyword) => text.includes(keyword));
+  });
+  const section = match || lessons[Math.min(fallbackIndex, Math.max(lessons.length - 1, 0))];
+  if (!section) return topic.intuition;
+  const code = section.codeExample ? ` Contract/example: ${section.codeExample}` : "";
+  return compact(`${section.title}: ${section.content}${code}`);
+}
+
+function exampleEvidence(topic: Topic): string {
+  const example = topic.examples?.[0];
+  if (!example) return topic.intuition;
+  return compact(`Input/scenario: ${example.input}. Expected result: ${example.output}. Walkthrough: ${example.explanation}`);
+}
+
 function buildLldFaq(
+  topic: Topic,
   title: string,
-  intuition: string,
   mock: LldSolutionSpec | null
 ): FaqItem[] {
   const track = "LLD interview practice notes";
@@ -230,52 +253,58 @@ function buildLldFaq(
       }
     ];
   }
+  const relationshipEvidence = lessonEvidence(topic, ["relationship", "composition", "inheritance", "association", "depend"], 0);
+  const contractEvidence = lessonEvidence(topic, ["api", "interface", "contract", "method"], 1);
+  const patternEvidence = lessonEvidence(topic, ["pattern", "strategy", "factory", "observer", "state"], 0);
+  const transitionEvidence = lessonEvidence(topic, ["state", "transition", "flow", "lifecycle"], 1);
+  const extensionEvidence = lessonEvidence(topic, ["extens", "variant", "change", "open-closed"], 1);
+  const concreteExample = exampleEvidence(topic);
   return [
     {
-      question: `When should you reach for the approach behind ${title}, and when is it overkill?`,
-      answer: `${intuition} Apply it when the requirement explicitly needs the flexibility or invariant it provides; if the system is small and unlikely to change along that axis, a simpler direct implementation (YAGNI) is the better interview answer.`,
+      question: `What authored requirement defines ${title}?`,
+      answer: topic.intuition,
+      source: track,
+      category: "Requirements",
+      sourceLinks: [primerSourceLinks.lld]
+    },
+    {
+      question: `Which entities or relationships carry the behavior in ${title}?`,
+      answer: `${topic.intuition} Authored relationship evidence: ${relationshipEvidence}`,
+      source: track,
+      category: "Entities & Relationships",
+      sourceLinks: [primerSourceLinks.lld]
+    },
+    {
+      question: `What contract or public operation is central to ${title}?`,
+      answer: `${topic.intuition} Authored contract evidence: ${contractEvidence}`,
+      source: track,
+      category: "Contracts",
+      sourceLinks: [primerSourceLinks.lld]
+    },
+    {
+      question: `Which pattern or modeling choice is actually used by ${title}?`,
+      answer: `${topic.intuition} Authored pattern evidence: ${patternEvidence}`,
       source: track,
       category: "Patterns",
       sourceLinks: [primerSourceLinks.lld]
     },
     {
-      question: `What alternative designs exist for ${title}, and why prefer this one?`,
-      answer: `Name at least one simpler alternative (e.g., a conditional/if-else chain instead of a Strategy, or a single class instead of a hierarchy) and explain the specific extensibility or testability requirement that tips the balance toward the ${title} approach instead.`,
+      question: `How does the primary state or interaction progress in ${title}?`,
+      answer: `${topic.intuition} Authored state/interaction evidence: ${transitionEvidence}`,
       source: track,
-      category: "Trade-offs",
+      category: "State & Interaction",
       sourceLinks: [primerSourceLinks.lld]
     },
     {
-      question: `Which SOLID principle is most relevant to ${title}, and how does the design honor it?`,
-      answer: `Identify the responsibility boundary the design protects (e.g., Open-Closed if new variants should not require editing existing classes, or Dependency Inversion if a concrete implementation is injected behind an interface) and point to the specific class relationship that enforces it.`,
-      source: track,
-      category: "SOLID & OOP",
-      sourceLinks: [primerSourceLinks.lld]
-    },
-    {
-      question: `How would you draw the UML class or sequence diagram for ${title} on a whiteboard?`,
-      answer: `Start with the core entities and their composition/association relationships, then add the interface(s) that decouple the parts likely to vary. Follow with a short sequence diagram for the primary flow so the interviewer can see the runtime interaction, not just the static structure.`,
-      source: track,
-      category: "UML & Relationships",
-      sourceLinks: [primerSourceLinks.lld]
-    },
-    {
-      question: `What concurrency issues should you flag for ${title} even if the interviewer doesn't ask?`,
-      answer: `Identify any shared mutable state (a counter, a queue, a shared resource pool) that two threads could touch at once, and state how it is protected (a lock, an atomic operation, or an immutable value object) - this shows you think past the single-threaded happy path.`,
-      source: track,
-      category: "Concurrency",
-      sourceLinks: [primerSourceLinks.lld]
-    },
-    {
-      question: `How would you extend ${title} to support a new variant without editing existing classes?`,
-      answer: `Point to the exact interface or abstract class new variants would implement, and confirm no existing class needs modification - only a new implementation registered behind the existing seam (factory, strategy, or similar).`,
+      question: `What authored seam allows ${title} to change without losing its contract?`,
+      answer: `${topic.intuition} Authored change-point evidence: ${extensionEvidence}`,
       source: track,
       category: "Extensibility",
       sourceLinks: [primerSourceLinks.lld]
     },
     {
-      question: `What tests would prove ${title} is implemented correctly?`,
-      answer: `Write a unit test for the core invariant in isolation, a test for the boundary/edge case (empty, full, or concurrent conflict), and one integration-style test that exercises the primary flow end-to-end through the public API.`,
+      question: `What concrete scenario should a ${title} implementation reproduce?`,
+      answer: `${topic.intuition} ${concreteExample}`,
       source: track,
       category: "Testing",
       sourceLinks: [primerSourceLinks.lld]
@@ -285,5 +314,5 @@ function buildLldFaq(
 
 export const lldEnricher: TrackEnricher = {
   buildSolution: (topic, title) => buildLldMockSolution(topic.id, title),
-  buildFaq: (topic, title) => buildLldFaq(title, topic.intuition, lldMockSolutions[topic.id] || null)
+  buildFaq: (topic, title) => buildLldFaq(topic, title, lldMockSolutions[topic.id] || null)
 };
