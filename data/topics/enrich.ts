@@ -3,6 +3,7 @@
 // the caller as a `TrackEnricher` so that each per-track module in this folder
 // can be loaded on its own, without dragging in the other tracks' builders.
 import { Example, LessonSection, Reference, Topic, syllabus, FaqItem } from "../syllabus";
+import { isPracticeVariation } from "../practice-variation";
 
 const validModuleIds = new Set(syllabus.map((m) => m.id));
 
@@ -81,7 +82,19 @@ function enrichTopic(topic: Topic, enrichers: TrackEnrichers): Topic {
   };
   const lesson = topic.lesson && topic.lesson.length > 0
     ? topic.lesson
-    : [
+    : track === "DSA" ? [
+        {
+          title: "Core algorithm",
+          content: topic.intuition,
+          codeExample: `solve(input):\n  apply "${topic.intuition.replace(/"/g, "'")}"\n  preserve the stated invariant\n  return the required result`
+        },
+        {
+          title: "Complexity & follow-up",
+          content: `${title} uses ${complexity.time} time and ${complexity.space} auxiliary space. Re-evaluate the representation if the interviewer changes either constraint.`,
+          codeExample: `time = ${complexity.time}\nspace = ${complexity.space}\ncheck the dominant operation`
+        }
+      ]
+      : [
         {
           title: `${title}: core model`,
           content: `${topic.intuition} Relate each state change to the ${track} interview requirement before choosing an implementation.`,
@@ -154,11 +167,14 @@ function enrichTopic(topic: Topic, enrichers: TrackEnrichers): Topic {
     ? topic.practiceProblems
     : [];
   const trackFaq = enricher && enricher.buildFaq ? enricher.buildFaq(topic, title, complexity) : null;
+  const dsaFaq = track === "DSA" ? buildDsaFaq(topic, title, complexity, completeExamples) : null;
   const faq = topic.faq && topic.faq.length > 0
     ? topic.faq
     : trackFaq
       ? trackFaq
-      : [
+      : dsaFaq
+        ? dsaFaq
+        : [
         {
           question: `When should I reach for ${title} in an interview?`,
           answer: `Pick ${title} when the interviewer's constraints match the trade-off it is built for: ${complexity.time} time and ${complexity.space} space. State the constraint out loud, then justify the choice instead of jumping straight to code.`,
@@ -229,6 +245,7 @@ function enrichTopic(topic: Topic, enrichers: TrackEnrichers): Topic {
       content: `Test invalid states, concurrency issues, stale data, failure recovery, and scale-out behavior before calling ${fallbackTitle} complete. If your design fails at scale or under partial outage, it is not ready for a FAANG-level interview answer.`,
       codeExample: `// invalid state\n// retry path\n// concurrency\n// stale data or load spike\n// degraded mode`
     }
+
   ];
   return {
     ...topic,
@@ -294,6 +311,46 @@ function enrichTopic(topic: Topic, enrichers: TrackEnrichers): Topic {
         : [`lc-${fallbackTitle.toLowerCase().replace(/\s+/g, "-")}`]
   };
   */
+}
+
+function buildDsaFaq(
+  topic: Topic,
+  title: string,
+  complexity: { time: string; space: string },
+  examples: Example[]
+): FaqItem[] {
+  const variations = (topic.practiceProblems || []).filter(isPracticeVariation).slice(0, 3);
+  const faq: FaqItem[] = variations.map((variation) => ({
+    question: `How does ${variation.variation} change the approach for ${title}?`,
+    answer: variation.tip,
+    source: `${title} authored practice variation`
+  }));
+
+  const derived: FaqItem[] = [
+    {
+      question: `What is the core technique behind ${title}?`,
+      answer: topic.intuition,
+      source: `${title} authored intuition`
+    },
+    {
+      question: `How should I trace the concrete example for ${title}?`,
+      answer: examples[0]
+        ? `For input ${examples[0].input}, the expected output is ${examples[0].output}. ${examples[0].explanation}`
+        : `Apply the authored technique step by step and verify the invariant after each update: ${topic.intuition}`,
+      source: `${title} authored example`
+    },
+    {
+      question: `What constraints determine the complexity of ${title}?`,
+      answer: `${title} runs in ${complexity.time} time and uses ${complexity.space} auxiliary space. Tie each bound to the operations required by this technique: ${topic.intuition}`,
+      source: `${title} authored complexity`
+    }
+  ];
+
+  for (const item of derived) {
+    if (faq.length === 3) break;
+    faq.push(item);
+  }
+  return faq;
 }
 
 export function collect(enrichers: TrackEnrichers, ...sources: Topic[][]): Topic[] {

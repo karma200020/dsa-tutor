@@ -1,8 +1,85 @@
-import { Topic } from "./syllabus";
+import { syllabus, Topic, Track } from "./syllabus";
 import type { PracticeEntry } from "./practice-variation";
 
-function buildTopicSpecificLesson(title: string) {
+type LessonContext = {
+  title: string;
+  intuition: string;
+  exampleInput: string;
+  exampleOutput: string;
+  exampleExplanation: string;
+  complexity: { time: string; space: string };
+  track: Track;
+};
+
+const trackByModule = new Map(syllabus.map((module) => [module.id, module.track]));
+
+function dsaPseudocode(context: LessonContext): string {
+  if (context.title === "Palindrome Linked List") {
+    return `slow = head; fast = head
+while fast != null and fast.next != null:
+  slow = slow.next
+  fast = fast.next.next
+second = reverse(slow)
+left = head; right = second
+while right != null:
+  if left.value != right.value: return false
+  left = left.next; right = right.next
+reverse(second)  // restore when the caller retains the list
+return true`;
+  }
+
+  return `solve(input):
+  technique = "${context.intuition.replace(/"/g, "'")}"
+  apply technique while its invariant holds
+  return the result required by the example`;
+}
+
+function dsaFollowUp(context: LessonContext): string {
+  if (context.title === "Palindrome Linked List") {
+    return "If mutation is disallowed, copy values into an array or stack; if O(1) space is required, restore the reversed half before returning.";
+  }
+  if (context.complexity.space === "O(1)") {
+    return `If extra memory is allowed, ask whether storing intermediate state makes "${context.intuition}" simpler; otherwise preserve the constant-space invariant.`;
+  }
+  if (context.complexity.space.includes("n")) {
+    return "If the follow-up limits auxiliary memory, identify which stored state is essential and whether ordering, in-place updates, or state compression can remove the linear buffer.";
+  }
+  if (context.complexity.time.includes("log")) {
+    return "If the input is already ordered or bounded, ask whether that constraint removes the sorting/search cost; otherwise justify why the logarithmic factor is necessary.";
+  }
+  return "If constraints grow, compare this bound with the brute-force alternative and name the input property that makes the stated approach possible.";
+}
+
+function buildDsaLesson(context: LessonContext) {
+  const coreContent = context.title === "Palindrome Linked List"
+    ? "Use fast/slow pointers for midpoint detection, reverse the second half in place, compare the two halves in synchronized lockstep, and optionally restore the reversed half before returning."
+    : context.intuition;
+  return [
+    {
+      title: "Core algorithm",
+      content: `${coreContent} State this as the invariant before coding, then preserve it after every pointer move, state transition, or update.`,
+      codeExample: dsaPseudocode(context)
+    },
+    {
+      title: "Worked walkthrough",
+      content: `Input: ${context.exampleInput}\nOutput: ${context.exampleOutput}\n${context.exampleExplanation}`,
+      codeExample: `input = ${context.exampleInput}\nexpected = ${context.exampleOutput}\ntrace the invariant until result == expected`
+    },
+    {
+      title: "Complexity & follow-up",
+      content: `${context.title} runs in ${context.complexity.time} time and uses ${context.complexity.space} auxiliary space because its dominant work follows this technique: ${context.intuition} ${dsaFollowUp(context)}`,
+      codeExample: `time = ${context.complexity.time}\nspace = ${context.complexity.space}\nverify the bound against the dominant operation`
+    }
+  ];
+}
+
+function buildTopicSpecificLesson(context: LessonContext) {
+  const { title, track } = context;
   const lower = title.toLowerCase();
+
+  if (track === "DSA") {
+    return buildDsaLesson(context);
+  }
 
   if (lower.includes("singleton")) {
     return [
@@ -89,7 +166,7 @@ function buildTopicSpecificLesson(title: string) {
       {
         title: "Interview execution",
         content: "Start with traffic estimates and bottleneck identification. Then discuss caching, sharding, replication, and the trade-off between consistency, latency, and operational complexity before finalizing the architecture.",
-        codeExample: "// estimate QPS\n// identify hotspot\n// choose failure model\n// explain trade-offs"
+        codeExample: "// estimate QPS\n// identify hotspot\n// choose outage behavior\n// explain trade-offs"
       }
     ];
   }
@@ -111,16 +188,70 @@ function buildTopicSpecificLesson(title: string) {
 
   return [
     {
-      title: "Core idea",
-      content: `For ${title}, the crucial decision is to model the real responsibility, constraints, and state transitions clearly before choosing the implementation. The interviewer wants to see that you understand the system shape and the trade-offs.`,
-      codeExample: `// Define the problem\n// Identify responsibilities\n// Choose the right abstraction\n// Validate edge cases`
+      title: track === "HLD" ? "Architecture decision" : "Object model",
+      content: track === "HLD"
+        ? `${context.intuition} Anchor the architecture in the concrete workload "${context.exampleInput}" and explain how the proposed data flow produces "${context.exampleOutput}".`
+        : `${context.intuition} Use the concrete scenario "${context.exampleInput}" to assign behavior and state to cohesive collaborators, then verify the design produces "${context.exampleOutput}".`,
+      codeExample: track === "HLD"
+        ? `request -> routing -> service -> storage\nworkload = ${context.exampleInput}\nresult = ${context.exampleOutput}`
+        : `scenario = ${context.exampleInput}\ncollaborators enforce the stated behavior\nresult = ${context.exampleOutput}`
     },
     {
-      title: "Interview execution",
-      content: `Walk through ${title} as if you are teaching the design. Explain assumptions, the key classes or components, the failure model, and how the design handles scale, concurrency, and future changes.`,
-      codeExample: `// clarify requirements\n// state assumptions\n// explain trade-offs\n// justify final design`
+      title: "Concrete walkthrough",
+      content: `${context.exampleExplanation} Connect each decision back to the authored constraints instead of adding infrastructure or patterns that the prompt does not require.`,
+      codeExample: `given ${context.exampleInput}\napply ${title}\nobserve ${context.exampleOutput}`
     }
   ];
+}
+
+function buildGuidance(context: LessonContext) {
+  if (context.track === "DSA") {
+    return {
+      tips: [
+        `Lead with the technique: ${context.intuition}`,
+        `Dry-run ${context.exampleInput} until it produces ${context.exampleOutput}.`,
+        `Account for the dominant operation to defend ${context.complexity.time} time and ${context.complexity.space} space.`
+      ],
+      tricks: [
+        `Turn the intuition into an invariant and check it after every update in ${context.title}.`,
+        `Use the worked case to test boundaries before generalizing the implementation.`,
+        dsaFollowUp(context)
+      ],
+      memoryAids: [
+        `${context.title}: ${context.intuition}`,
+        `Example anchor: ${context.exampleInput} -> ${context.exampleOutput}.`,
+        `Cost anchor: ${context.complexity.time} time, ${context.complexity.space} space.`
+      ],
+      interviewPatterns: [
+        `Recognize ${context.title} when the prompt matches this technique: ${context.intuition}`,
+        `Trace the invariant on ${context.exampleInput} before writing the final code.`,
+        `Expect a follow-up that changes the ${context.complexity.time} time or ${context.complexity.space} space constraint.`
+      ]
+    };
+  }
+
+  const noun = context.track === "HLD" ? "architecture" : "object model";
+  return {
+    tips: [
+      `Start from the authored requirement: ${context.intuition}`,
+      `Use ${context.exampleInput} as the concrete scenario for the ${noun}.`,
+      `Explain why the design produces ${context.exampleOutput} without adding unrequested machinery.`
+    ],
+    tricks: [
+      `Trace ${context.exampleInput} through the ${noun} before discussing extensions.`,
+      `Keep each decision tied to the behavior described for ${context.title}.`,
+      `Use the stated ${context.complexity.time}/${context.complexity.space} costs only where they describe a real operation.`
+    ],
+    memoryAids: [
+      `${context.title}: requirement -> concrete scenario -> decision -> result.`,
+      `Scenario anchor: ${context.exampleInput} -> ${context.exampleOutput}.`
+    ],
+    interviewPatterns: [
+      `Clarify the concrete behavior of ${context.title} before proposing the ${noun}.`,
+      `Walk through ${context.exampleInput} and justify each decision from the authored requirement.`,
+      `Discuss extensions only after the base scenario produces ${context.exampleOutput}.`
+    ]
+  };
 }
 
 function makeTopic(
@@ -135,9 +266,18 @@ function makeTopic(
   practiceProblems: PracticeEntry[] = []
 ): Topic {
   const cleanTitle = title || "Topic";
-  const words = cleanTitle.replace(/[^a-zA-Z0-9\s]/g, " ").trim().split(/\s+/).filter(Boolean);
-  const keyWord = words[0] || "pattern";
-  const topicSpecificLesson = buildTopicSpecificLesson(cleanTitle);
+  const track = trackByModule.get(moduleId) || "DSA";
+  const context: LessonContext = {
+    title: cleanTitle,
+    intuition,
+    exampleInput,
+    exampleOutput,
+    exampleExplanation,
+    complexity,
+    track
+  };
+  const topicSpecificLesson = buildTopicSpecificLesson(context);
+  const guidance = buildGuidance(context);
 
   return {
     id,
@@ -154,26 +294,10 @@ function makeTopic(
       }
     ],
     complexity,
-    tips: [
-      `State the core responsibility or invariant for ${cleanTitle} before choosing the design.`,
-      "Handle failure modes and edge cases explicitly before finalizing the solution.",
-      "Explain the trade-offs clearly: simplicity, extensibility, and operational cost."
-    ],
-    tricks: [
-      `For ${cleanTitle}, ask: what is the core state, who owns it, and where does the system fail?`,
-      "Separate the interface from the implementation and explain why the choice is scalable or testable.",
-      "Validate the design with one concrete scenario before you claim it is complete."
-    ],
-    memoryAids: [
-      `${cleanTitle} usually reduces to responsibilities, state, and failure handling.`,
-      `Think ${keyWord} -> responsibility -> constraints -> trade-offs -> design.`,
-      "The best interview answer is the one that is clear, intentional, and easy to extend."
-    ],
-    interviewPatterns: [
-      `Explain the required behavior for ${cleanTitle} before suggesting a class or service structure.`,
-      "Walk the interviewer through the key components, dependencies, and failure boundary.",
-      "Discuss the model's trade-offs, edge cases, and how it would evolve with change."
-    ],
+    tips: guidance.tips,
+    tricks: guidance.tricks,
+    memoryAids: guidance.memoryAids,
+    interviewPatterns: guidance.interviewPatterns,
     references: [
       { source: "leetcode", attribution: "LeetCode", insight: `Core FAANG-style practice for ${cleanTitle}.` },
       { source: "note", attribution: "NeetCode / TakeUForward style notes", insight: `Interview drill for understanding the ${cleanTitle.toLowerCase()} pattern.` }
@@ -682,7 +806,7 @@ export const coverageTopics: Topic[] = [
     { variation: "Constraint twist: solve product-except-self without division", tip: "Division is banned precisely because it hides the zero case. Build prefix products left to right, then fold the suffix product in on a reverse pass using the output array as scratch. O(n) time and O(1) extra space.", snippet: "res[0] = 1;\nfor (int i = 1; i < n; ++i) res[i] = res[i-1] * a[i-1];\nlong long suf = 1;\nfor (int i = n - 1; i >= 0; --i) { res[i] *= suf; suf *= a[i]; }" },
     { variation: "Closing question: the array does not fit in memory", tip: "Every in-memory hash map assumption dies here. Shard by hash of the key so equal keys land on the same worker, aggregate per shard, then merge the per-shard top-k with a heap. State the network cost as the new bottleneck rather than the CPU cost.", snippet: "// shard = hash(key) % W  -> equal keys co-locate\n// each worker: local count, then local top-k via size-k min-heap\n// coordinator: merge W heaps of size k -> O(W * k log k)\nfor (auto& [v, c] : localCount) { pq.push({c, v}); if ((int)pq.size() > k) pq.pop(); }" }
   ]),
-  makeTopic("topic-dsa-mock-tree-graph-dp", "mod-dsa-mocks", "Mock Round: Trees + Graphs + DP", "Combine recursion, graph traversal, and state transitions in one realistic 45-minute coding round.", "tree + graph + DP hybrid question", "optimized solution with proof", "This round tests whether you can choose the right abstraction quickly and explain the state transitions cleanly.", { time: "O(V+E)", space: "O(V)" }, [
+  makeTopic("topic-dsa-mock-tree-graph-dp", "mod-dsa-mocks", "Mock Round: Trees + Graphs + DP", "Combine recursion, graph traversal, and state transitions in one realistic 45-minute coding round.", "tree + graph + DP hybrid question", "optimized solution with proof", "This round tests whether you can choose the right algorithmic technique quickly and explain the state transitions cleanly.", { time: "O(V+E)", space: "O(V)" }, [
     { variation: "Warm-up: level-order traversal of a binary tree", tip: "Capture the queue size at the start of each level, otherwise nodes pushed during the loop leak into the current level. That one line is what separates a level-grouped answer from a flat one. O(n) time and O(width) space.", snippet: "std::queue<Node*> q; q.push(root);\nwhile (!q.empty()) {\n  int sz = q.size();                    // freeze the level width\n  std::vector<int> level;\n  for (int i = 0; i < sz; ++i) {\n    Node* c = q.front(); q.pop();\n    level.push_back(c->val);\n    if (c->left) q.push(c->left);\n    if (c->right) q.push(c->right);\n  }\n  out.push_back(level);\n}" },
     { variation: "Follow-up: lowest common ancestor without parent pointers", tip: "Searching both paths and comparing them is O(n) space. A single post-order recursion returns the node where the two sides first both report a hit. O(n) time and O(h) stack space.", snippet: "Node* lca(Node* r, Node* p, Node* q) {\n  if (!r || r == p || r == q) return r;\n  Node* L = lca(r->left, p, q);\n  Node* R = lca(r->right, p, q);\n  if (L && R) return r;                 // split point\n  return L ? L : R;\n}" },
     { variation: "Follow-up: number of islands, then the same grid as a graph problem", tip: "Flood fill is DFS or BFS on an implicit graph where cells are nodes. Sink each visited cell so you never revisit it, which removes the need for a separate visited matrix. O(rows * cols) time.", snippet: "void sink(int r, int c) {\n  if (r < 0 || c < 0 || r >= R || c >= C || g[r][c] != '1') return;\n  g[r][c] = '0';                        // sink in place, no visited array\n  sink(r+1,c); sink(r-1,c); sink(r,c+1); sink(r,c-1);\n}" },

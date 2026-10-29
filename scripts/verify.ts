@@ -16,6 +16,7 @@ import path from "node:path";
 const passThroughComplete = process.argv.slice(2).includes("--complete");
 
 const audits: { name: string; script: string; args: string[] }[] = [
+  { name: "generic-content", script: "audit-generic-content.ts", args: [] },
   { name: "faqs", script: "audit-faqs.ts", args: [] },
   { name: "hld-diagrams", script: "audit-hld-diagrams.ts", args: [] },
   { name: "lld-diagrams", script: "audit-lld-diagrams.ts", args: [] },
