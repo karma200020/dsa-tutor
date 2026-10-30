@@ -12,9 +12,7 @@ export type TrackEnricher = {
   buildFaq?: (topic: Topic, title: string, complexity: { time: string; space: string }) => FaqItem[];
 };
 
-// Enrichment is chosen per topic by the topic's own track, not by which dataset
-// it was collected into: the DSA dataset also absorbs mod-lld*/mod-hld* topics
-// from expanded-coverage.ts, and those must keep their LLD/HLD treatment.
+// Enrichment is chosen by the topic's syllabus track.
 export type TrackEnrichers = Partial<
   Record<"DSA" | "LLD" | "HLD" | "AI" | "OS" | "CPP", TrackEnricher>
 >;

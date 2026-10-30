@@ -10,7 +10,7 @@ export const allLldTopics = ensureModuleCoverage(
   collect(
     { LLD: lldEnricher },
     lldTopics,
-    coverageTopics.filter((t) => t.moduleId.startsWith("mod-lld"))
+    coverageTopics.filter((t) => syllabus.some((m) => m.id === t.moduleId && m.track === "LLD"))
   ),
   syllabus.filter((m) => m.track === "LLD").map((m) => m.id)
 );

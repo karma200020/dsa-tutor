@@ -14,6 +14,7 @@ export interface Module {
   estimatedHours: number;
   dependencies: string[]; // Module IDs that must be completed first
   topicCount: number;
+  optional?: boolean; // Specialist extension, never a core interview prerequisite
   // Optional module-scoped cheat sheet shown above the topic list. When present
   // it is used verbatim; otherwise the UI falls back to keyword matching on the
   // module title (see buildModuleCheatsheet in components/module-list.tsx).
@@ -48,6 +49,7 @@ export interface Topic {
   moduleId: string;
   title: string;
   intuition: string;
+  optional?: boolean;
   
   // Lesson structure for teaching
   lesson?: LessonSection[]; // Full teaching content broken into sections
@@ -100,9 +102,9 @@ export const syllabus: Module[] = [
       "Master frequency maps, prefix sums, two-sum family, and grouping/anagram patterns.",
     track: "DSA",
     level: "Beginner",
-    estimatedHours: 8,
+    estimatedHours: 10,
     dependencies: ["mod-foundations"],
-    topicCount: 12
+    topicCount: 24
   },
 
   {
@@ -114,7 +116,7 @@ export const syllabus: Module[] = [
     level: "Beginner",
     estimatedHours: 6,
     dependencies: ["mod-arrays-strings"],
-    topicCount: 11
+    topicCount: 17
   },
 
   {
@@ -126,7 +128,7 @@ export const syllabus: Module[] = [
     level: "Intermediate",
     estimatedHours: 5,
     dependencies: ["mod-two-pointers-sliding"],
-    topicCount: 9
+    topicCount: 12
   },
 
   {
@@ -136,9 +138,9 @@ export const syllabus: Module[] = [
       "Master boundary conditions, search-on-answer, and merge/overlap reasoning.",
     track: "DSA",
     level: "Intermediate",
-    estimatedHours: 7,
+    estimatedHours: 12,
     dependencies: ["mod-arrays-strings"],
-    topicCount: 4
+    topicCount: 9
   },
 
   {
@@ -148,9 +150,9 @@ export const syllabus: Module[] = [
       "Handle cycle detection, in-place reversals, and merge operations with pointer safety.",
     track: "DSA",
     level: "Intermediate",
-    estimatedHours: 5,
+    estimatedHours: 8,
     dependencies: ["mod-two-pointers-sliding"],
-    topicCount: 5
+    topicCount: 10
   },
 
   {
@@ -160,9 +162,9 @@ export const syllabus: Module[] = [
       "Explore DFS/BFS traversals, recursion templates, and subtree reasoning patterns.",
     track: "DSA",
     level: "Intermediate",
-    estimatedHours: 8,
+    estimatedHours: 12,
     dependencies: ["mod-binary-search-intervals"],
-    topicCount: 2
+    topicCount: 10
   },
 
   {
@@ -171,7 +173,7 @@ export const syllabus: Module[] = [
     description: "Apply top-k problems, streaming median patterns, and scheduling with heaps.",
     track: "DSA",
     level: "Intermediate",
-    estimatedHours: 4,
+    estimatedHours: 6,
     dependencies: ["mod-trees-bst"],
     topicCount: 4
   },
@@ -183,9 +185,9 @@ export const syllabus: Module[] = [
       "Master connectivity, shortest paths, cycles, and component detection with correct visited state.",
     track: "DSA",
     level: "Advanced",
-    estimatedHours: 10,
-    dependencies: ["mod-trees-bst"],
-    topicCount: 2
+    estimatedHours: 14,
+    dependencies: ["mod-trees-bst", "mod-heaps"],
+    topicCount: 9
   },
 
   {
@@ -195,9 +197,9 @@ export const syllabus: Module[] = [
       "Learn state definition, base cases, transitions, and 1D/2D/subsequence patterns with optimization.",
     track: "DSA",
     level: "Advanced",
-    estimatedHours: 12,
+    estimatedHours: 18,
     dependencies: ["mod-graphs"],
-    topicCount: 10
+    topicCount: 9
   },
 
   {
@@ -207,9 +209,102 @@ export const syllabus: Module[] = [
       "Prove greedy correctness, avoid backtracking explosion via pruning, and recognize when to use each.",
     track: "DSA",
     level: "Advanced",
-    estimatedHours: 6,
+    estimatedHours: 10,
     dependencies: ["mod-dynamic-programming"],
-    topicCount: 7
+    topicCount: 6
+  },
+
+  {
+    id: "mod-range-queries",
+    title: "Range Queries & Advanced Data Structures",
+    description: "Dynamic sums, composable range updates, static RMQ and ordered coordinate compression.",
+    track: "DSA", level: "Advanced", estimatedHours: 9,
+    dependencies: ["mod-binary-search-intervals", "mod-bits-math"], topicCount: 3,
+    cheatsheet: [
+      "Immutable sum: prefix subtraction. Point delta: Fenwick. Associative replacement: segment tree.",
+      "All public range APIs use [l,r); Fenwick's internal indices start at one.",
+      "Lazy assignment erases older tags; later addition composes after assignment.",
+      "Sparse tables require idempotence for overlapping O(1) queries; compression preserves order, not distance."
+    ]
+  },
+  {
+    id: "mod-tries-strings",
+    title: "Tries & String Algorithms",
+    description: "Prefix dictionaries, deterministic linear pattern matching, and verified polynomial hashes.",
+    track: "DSA", level: "Advanced", estimatedHours: 7,
+    dependencies: ["mod-arrays-strings", "mod-bits-math"], topicCount: 2,
+    cheatsheet: [
+      "Trie terminal flags distinguish words from prefixes; use pointer/index identity for nodes.",
+      "KMP keeps the longest viable border; Z maintains a rightmost prefix-match window.",
+      "Hashes propose equality, never prove it without verification; charge verification costs."
+    ]
+  },
+  {
+    id: "mod-advanced-graphs",
+    title: "Advanced Graphs",
+    description: "Spanning forests, weight-aware shortest paths, SCCs, lowlinks and Eulerian edge trails.",
+    track: "DSA", level: "Advanced", estimatedHours: 12,
+    dependencies: ["mod-graphs", "mod-heaps"], topicCount: 4,
+    cheatsheet: [
+      "MST minimizes total selected edge cost, not distances from a source.",
+      "0/1 weights: deque; nonnegative: Dijkstra; negative: Bellman-Ford; small all-pairs: Floyd.",
+      "Undirected bridge: low[child] > tin[parent]; articulation uses >= and a special DFS-root rule.",
+      "Euler trails use every edge once; verify degree balance and E+1 output vertices."
+    ]
+  },
+  {
+    id: "mod-advanced-trees",
+    title: "Advanced Trees",
+    description: "Repeated ancestors, path distances, subtree take/skip DP, Morris traversal and AVL insertion.",
+    track: "DSA", level: "Advanced", estimatedHours: 10,
+    dependencies: ["mod-trees-bst", "mod-dynamic-programming", "mod-bits-math"], topicCount: 2,
+    cheatsheet: [
+      "Binary lifting stores 2^k ancestors; equalize depths before lifting both vertices.",
+      "Tree DP returns the state a parent needs, not just the subtree's single best answer.",
+      "Morris threads must be removed; do not early-return or allow concurrent tree readers.",
+      "AVL rotations preserve inorder order; recompute lower-node height before upper-node height."
+    ]
+  },
+  {
+    id: "mod-advanced-dp",
+    title: "Advanced DP",
+    description: "Independent interval splits, DAG evaluation order, subset-state DP and exponential half-enumeration.",
+    track: "DSA", level: "Advanced", estimatedHours: 9,
+    dependencies: ["mod-dynamic-programming", "mod-bits-math"], topicCount: 2,
+    cheatsheet: [
+      "Interval DP: choose a split making two independent subproblems; evaluate shorter intervals first.",
+      "DAG DP follows topological order, including for negative edge weights.",
+      "Mask alone may not encode the endpoint; include every fact that changes the future.",
+      "Meet-in-the-middle trades O(2^n) for roughly O(2^(n/2)) memory/time, not polynomial complexity."
+    ]
+  },
+  {
+    id: "mod-bits-math",
+    title: "Bit Manipulation & Number Theory",
+    description: "XOR cancellation, unsigned finite-set masks, Euclid, prime sieving and safe modular powers.",
+    track: "DSA", level: "Intermediate", estimatedHours: 5,
+    dependencies: ["mod-arrays-strings"], topicCount: 1,
+    cheatsheet: [
+      "XOR cancels pairs; mask & (mask-1) clears the lowest set bit.",
+      "Use unsigned shifts below the type width; ctz(0) is undefined.",
+      "Euclid preserves common divisors under remainder; modular division requires an inverse.",
+      "Start prime marking at p*p and budget numeric overflow explicitly."
+    ]
+  },
+  {
+    id: "mod-dsa-specialist",
+    title: "Optional Specialist Extensions",
+    description: "Bounded, authored extensions: suffix array/LCP, digit DP, HLD, Dinic flow, extended GCD/CRT/totient. Not ordinary interview prerequisites.",
+    track: "DSA", level: "Advanced", estimatedHours: 16, optional: true,
+    dependencies: ["mod-range-queries", "mod-tries-strings", "mod-advanced-graphs", "mod-advanced-trees", "mod-advanced-dp"],
+    topicCount: 5,
+    cheatsheet: [
+      "Suffix doubling with comparison sort costs O(n log squared n); Kasai LCP is linear.",
+      "Digit DP needs tight and started semantics; leading padding is not a real digit.",
+      "HLD turns a path into O(log n) chains; direction matters for noncommutative aggregates.",
+      "Residual reverse edges enable rerouting; a saturated residual cut certifies maximum flow.",
+      "This math extension is bounded to <=10^9 moduli and coprime two-modulus CRT, not exhaustive number theory."
+    ]
   },
 
   // Low-Level Design
@@ -222,7 +317,7 @@ export const syllabus: Module[] = [
     level: "Beginner",
     estimatedHours: 4,
     dependencies: [],
-    topicCount: 6
+    topicCount: 7
   },
 
   {
@@ -234,7 +329,7 @@ export const syllabus: Module[] = [
     level: "Intermediate",
     estimatedHours: 6,
     dependencies: ["mod-lld-oop-foundations"],
-    topicCount: 6
+    topicCount: 7
   },
 
   {
@@ -246,7 +341,7 @@ export const syllabus: Module[] = [
     level: "Intermediate",
     estimatedHours: 12,
     dependencies: ["mod-lld-core-patterns"],
-    topicCount: 10
+    topicCount: 11
   },
 
   // High-Level Design
@@ -259,7 +354,7 @@ export const syllabus: Module[] = [
     level: "Beginner",
     estimatedHours: 8,
     dependencies: [],
-    topicCount: 12
+    topicCount: 11
   },
 
   {
@@ -271,7 +366,7 @@ export const syllabus: Module[] = [
     level: "Intermediate",
     estimatedHours: 6,
     dependencies: ["mod-hld-foundations"],
-    topicCount: 4
+    topicCount: 2
   },
 
   {
@@ -283,7 +378,7 @@ export const syllabus: Module[] = [
     level: "Intermediate",
     estimatedHours: 15,
     dependencies: ["mod-hld-estimation-tradeoffs"],
-    topicCount: 13
+    topicCount: 11
   },
 
   // Mocks & Integration
@@ -648,5 +743,3 @@ export const durationByTrack: Record<Track, number> = syllabus.reduce(
   },
   { DSA: 0, LLD: 0, HLD: 0, AI: 0, OS: 0, CPP: 0 } as Record<Track, number>
 );
-
-

@@ -3,7 +3,7 @@
 **Comprehensive FAANG Interview Preparation Platform**
 
 A modern, visual-first learning platform for software engineers with 3-5 years of experience preparing for **FAANG company interviews**. Covers:
-- ✅ **60+ DSA Topics** with interactive visualizations
+- ✅ **135 DSA Topics** including five optional specialist lessons
 - ✅ **50+ LeetCode Problems** mapped by company
 - ✅ **15 LLD (Low-Level Design) Case Studies**
 - ✅ **12 HLD (High-Level Design) System Design Problems**
@@ -18,8 +18,9 @@ A modern, visual-first learning platform for software engineers with 3-5 years o
 
 ## 🎯 Features
 
-### DSA Learning (60+ Topics)
-- **Complete Coverage:** Arrays, Strings, Hashing, Two Pointers, Sliding Window, Stack, Queue, Trees, Graphs, DP, Greedy, Backtracking
+### DSA Learning (135 Topics)
+- **Explicit Curriculum:** Arrays, strings, range queries, tries, graphs/advanced graphs, trees/AVL, DP/advanced DP, backtracking and bits/math; [concept manifest, scope and verification](DSA_CURRICULUM.md)
+- **Optional Extensions:** Suffix array/LCP, digit DP, HLD, max flow and bounded advanced number theory; excluded from ordinary interview readiness
 - **Visual Learning:** 30+ interactive diagrams with step-through animations
 - **Company Mapping:** Problems tagged with company frequencies (Google: 45 problems, Amazon: 42, Meta: 38, etc.)
 - **Worked Examples:** Every topic includes intuition, code, trace, and complexity analysis
