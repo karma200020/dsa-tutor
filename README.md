@@ -18,6 +18,11 @@ A modern, visual-first learning platform for software engineers with 3-5 years o
 
 ## 🎯 Features
 
+### Company-tagged question reports
+- Browse `/company-questions/` for source-backed Google coding interview and OA accounts, with URL-backed company, stage, topic, search and recency filters.
+- Actual interview dates are separate from publication dates; recent, older and unknown evidence remain distinct. Community reports are not an official or exhaustive Google list.
+- See [source coverage, limitations and update instructions](COMPANY_QUESTIONS.md). The historical cheat sheet remains separate.
+
 ### DSA Learning (135 Topics)
 - **Explicit Curriculum:** Arrays, strings, range queries, tries, graphs/advanced graphs, trees/AVL, DP/advanced DP, backtracking and bits/math; [concept manifest, scope and verification](DSA_CURRICULUM.md)
 - **Optional Extensions:** Suffix array/LCP, digit DP, HLD, max flow and bounded advanced number theory; excluded from ordinary interview readiness
