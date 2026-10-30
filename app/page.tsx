@@ -30,7 +30,7 @@ const totalTopics = Object.values(topicCountsByTrack).reduce((sum, count) => sum
 export default function HomePage() {
   return (
     <Suspense fallback={<div className={styles.loadingState} role="status">Loading…</div>}>
-      <HomeView topicCountsByTrack={topicCountsByTrack} totalTopics={totalTopics} />
+      <HomeView topicCountsByTrack={topicCountsByTrack} totalTopics={totalTopics} optionalTopicCount={allDsaTopics.filter((t) => t.optional).length} />
     </Suspense>
   );
 }

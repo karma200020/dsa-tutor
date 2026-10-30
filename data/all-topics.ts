@@ -1,9 +1,9 @@
 // Aggregate view over every track's topic dataset, used by build-time scripts
 // and by anything that legitimately needs all tracks at once.
 //
-// The per-track datasets now live in data/topics/{dsa,lld,hld,ai}.ts so the app
+// The per-track datasets now live in data/topics/{dsa,lld,hld,ai,os,cpp}.ts so the app
 // can load a single track's content on demand. Importing this module pulls in
-// all four tracks, so client components should import the per-track module they
+// all six tracks, so client components should import the per-track module they
 // need instead (see app/home-view.tsx).
 import { Topic, syllabus } from "./syllabus";
 import { googleDsaProblems, googleCheatSheetReference } from "./google-cheat-sheet-integration";

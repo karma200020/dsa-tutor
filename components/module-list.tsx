@@ -11,7 +11,7 @@ type ModuleListProps = {
 };
 
 export function ModuleList({ track, masteryMap, onMasteryUpdate, onTopicClick, allTopics }: ModuleListProps) {
-  const modulesForTrack = syllabus.filter((m) => m.track === track);
+  const modulesForTrack = orderedModules(syllabus.filter((m) => m.track === track));
 
   const topicsForModules = allTopics.filter((t) => modulesForTrack.some((m) => m.id === t.moduleId));
 
@@ -31,7 +31,11 @@ export function ModuleList({ track, masteryMap, onMasteryUpdate, onTopicClick, a
             <div className={styles.moduleHeader}>
               <div>
                 <h3>{mod.title}</h3>
+                {mod.optional && <p>Optional learning: not an ordinary interview prerequisite.</p>}
                 <p className={styles.description}>{mod.description}</p>
+                {mod.dependencies.length > 0 && (
+                  <p>Prerequisites: {mod.dependencies.map((id) => syllabus.find((m) => m.id === id)?.title ?? id).join(", ")}</p>
+                )}
               </div>
               <div className={styles.moduleMeta}>
                 <span>{mod.level}</span>
@@ -79,6 +83,26 @@ export function ModuleList({ track, masteryMap, onMasteryUpdate, onTopicClick, a
       })}
     </div>
   );
+}
+
+export function orderedModules(modules: Module[]): Module[] {
+  const result: Module[] = [];
+  const visiting = new Set<string>();
+  const visited = new Set<string>();
+  function visit(mod: Module) {
+    if (visited.has(mod.id)) return;
+    if (visiting.has(mod.id)) throw new Error(`Cyclic module dependency: ${mod.id}`);
+    visiting.add(mod.id);
+    for (const id of mod.dependencies) {
+      const dependency = modules.find((m) => m.id === id);
+      if (dependency) visit(dependency);
+    }
+    visiting.delete(mod.id);
+    visited.add(mod.id);
+    result.push(mod);
+  }
+  modules.forEach(visit);
+  return result;
 }
 
 function buildModuleCheatsheet(mod: Module, topics: Topic[]): string[] {

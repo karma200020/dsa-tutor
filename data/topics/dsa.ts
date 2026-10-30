@@ -8,21 +8,20 @@ import { expandedDsaTopics } from "../dsa-topics-expanded";
 import { expandedDsaTopics as arrayFoundationTopics } from "../expanded-dsa-topics";
 import { coverageTopics } from "../expanded-coverage";
 import { collect, ensureModuleCoverage } from "./enrich";
-import { lldEnricher } from "./lld-enrich";
-import { hldEnricher } from "./hld-enrich";
+import { consolidateTopics } from "../consolidate-topics";
+import { curriculumTopics } from "../dsa-curriculum";
 
-// expanded-coverage.ts contributes topics for every `mod-*` module, including
-// LLD/HLD ones, so those enrichers have to be available here to keep this
-// dataset identical to the previous single-file aggregation.
-export const allDsaTopics = ensureModuleCoverage(
-  collect(
-    { LLD: lldEnricher, HLD: hldEnricher },
+const dsaModuleIds = new Set(syllabus.filter((m) => m.track === "DSA").map((m) => m.id));
+
+export const allDsaTopics = consolidateTopics(ensureModuleCoverage(
+  [...collect(
+    {},
     dsaTopics,
     comprehensiveDsaTopics,
     dsaTopicsExtended,
     expandedDsaTopics,
     arrayFoundationTopics,
-    coverageTopics.filter((t) => t.moduleId.startsWith("mod-") && syllabus.some((m) => m.id === t.moduleId))
-  ),
+    coverageTopics.filter((t) => dsaModuleIds.has(t.moduleId))
+  ), ...curriculumTopics],
   syllabus.filter((m) => m.track === "DSA").map((m) => m.id)
-);
+));

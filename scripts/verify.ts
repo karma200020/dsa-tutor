@@ -7,9 +7,8 @@
 // separate, explicit gate.
 //
 // Run with: npm run verify
-//   npm run verify -- --complete   passes --complete through to audit:ai, which
-//                                  additionally requires every AI module to be
-//                                  populated (the completion gate).
+//   npm run verify -- --complete   gates both core/specialist DSA completeness
+//                                  and AI/OS/CPP module population.
 import { spawnSync } from "node:child_process";
 import path from "node:path";
 
@@ -17,6 +16,8 @@ const passThroughComplete = process.argv.slice(2).includes("--complete");
 
 const audits: { name: string; script: string; args: string[] }[] = [
   { name: "generic-content", script: "audit-generic-content.ts", args: [] },
+  { name: "dsa", script: "audit-dsa.ts", args: passThroughComplete ? ["--complete"] : [] },
+  { name: "dsa-cpp", script: "test-dsa-cpp.ts", args: [] },
   { name: "faqs", script: "audit-faqs.ts", args: [] },
   { name: "hld-diagrams", script: "audit-hld-diagrams.ts", args: [] },
   { name: "lld-diagrams", script: "audit-lld-diagrams.ts", args: [] },

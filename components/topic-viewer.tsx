@@ -35,6 +35,7 @@ export function TopicViewer({ topic, masteryMap, onMasteryChange, onBackClick }:
       <header className={styles.header}>
         <div>
           <h1>{topic.title}</h1>
+          {topic.optional && <p>Optional specialist learning; not required for ordinary interview readiness.</p>}
           <p className={styles.meta}>Module: {topic.moduleId}</p>
         </div>
         <div className={styles.statusControl}>

@@ -3,12 +3,19 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
+import dynamic from "next/dynamic";
 import { syllabus, durationByTrack } from "@/data/syllabus";
 import type { Topic } from "@/data/syllabus";
+import { canonicalTopicId, migrateMastery } from "@/data/topic-migrations";
 import styles from "./page.module.css";
-import { ModuleList } from "@/components/module-list";
 import { MasteryTracker } from "@/components/mastery-tracker";
-import { TopicViewer } from "@/components/topic-viewer";
+
+const ModuleList = dynamic(() => import("@/components/module-list").then((m) => m.ModuleList), {
+  loading: () => <div role="status">Loading modules...</div>
+});
+const TopicViewer = dynamic(() => import("@/components/topic-viewer").then((m) => m.TopicViewer), {
+  loading: () => <div role="status">Loading lesson...</div>
+});
 
 const VALID_TRACKS = ["DSA", "LLD", "HLD", "AI", "OS", "CPP"] as const;
 type TrackParam = (typeof VALID_TRACKS)[number];
@@ -59,22 +66,60 @@ function loadTopics(key: string): Promise<Topic[]> {
 type HomeViewProps = {
   topicCountsByTrack: Record<TrackParam, number>;
   totalTopics: number;
+  optionalTopicCount: number;
 };
 
 // The whole app's navigation (home -> track -> topic) is URL-driven via
 // `?track=` and `?topic=` query params instead of local-only React state, so
 // that opening a track/module/topic creates a browser history entry, and
 // Back/Forward move between those views (and deep links / refresh resolve
-// correctly). Mastery progress stays in local component state since it is
-// session/interaction state, not a navigable "view".
-export function HomeView({ topicCountsByTrack, totalTopics }: HomeViewProps) {
+// correctly). Mastery lives in localStorage plus component state, not in the URL.
+export function HomeView({ topicCountsByTrack, totalTopics, optionalTopicCount }: HomeViewProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [masteryMap, setMasteryMap] = useState<Record<string, "not-started" | "learning" | "practiced" | "interview-ready">>({});
+  const [masteryReady, setMasteryReady] = useState(false);
+  const [storageError, setStorageError] = useState<string | null>(null);
 
   const trackParam = searchParams.get("track");
-  const topicParam = searchParams.get("topic");
+  const rawTopicParam = searchParams.get("topic");
+  const topicParam = rawTopicParam ? canonicalTopicId(rawTopicParam) : null;
   const selectedTrack = isValidTrack(trackParam) ? trackParam : null;
+
+  useEffect(() => {
+    let cancelled = false;
+    async function restore() {
+      try {
+        const saved = localStorage.getItem("dsa-tutor-mastery");
+        if (saved) {
+          const migrated = migrateMastery(JSON.parse(saved));
+          if (Object.keys(migrated).length) {
+            const response = await fetch(`${process.env.NEXT_PUBLIC_BASE_PATH ?? ""}/progress-catalog.json`);
+            if (!response.ok) throw new Error(`Topic catalog returned HTTP ${response.status}.`);
+            const ids: unknown = await response.json();
+            if (!Array.isArray(ids) || ids.some((id) => typeof id !== "string")) throw new Error("Invalid topic identity catalog.");
+            const active = new Set<string>(ids);
+            if (!cancelled) setMasteryMap(Object.fromEntries(Object.entries(migrated).filter(([id]) => active.has(id))));
+          }
+        }
+      } catch (error) {
+        if (!cancelled) setStorageError(`Could not restore saved progress: ${error instanceof Error ? error.message : String(error)}`);
+      } finally {
+        if (!cancelled) setMasteryReady(true);
+      }
+    }
+    void restore();
+    return () => { cancelled = true; };
+  }, []);
+
+  useEffect(() => {
+    if (!masteryReady || storageError) return;
+    try {
+      localStorage.setItem("dsa-tutor-mastery", JSON.stringify(masteryMap));
+    } catch (error) {
+      setStorageError(`Could not save progress: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }, [masteryMap, masteryReady, storageError]);
 
   // Bumped when a dataset finishes loading, so the cache read below re-runs.
   const [loadedVersion, setLoadedVersion] = useState(0);
@@ -117,6 +162,13 @@ export function HomeView({ topicCountsByTrack, totalTopics }: HomeViewProps) {
     () => (topicParam && topics ? topics.find((t) => t.id === topicParam) || null : null),
     [topicParam, topics]
   );
+  useEffect(() => {
+    if (!selectedTopic) return;
+    const owner = syllabus.find((m) => m.id === selectedTopic.moduleId)?.track;
+    if (owner && (owner !== trackParam || selectedTopic.id !== rawTopicParam)) {
+      router.replace(`/?track=${owner}&topic=${encodeURIComponent(selectedTopic.id)}`);
+    }
+  }, [selectedTopic, trackParam, rawTopicParam, router]);
   // A topic id was supplied but doesn't match any known topic (bad/stale deep link).
   const topicNotFound =
     Boolean(topicParam) && dataKey === ALL_TRACKS && topics !== null && !selectedTopic;
@@ -161,7 +213,7 @@ export function HomeView({ topicCountsByTrack, totalTopics }: HomeViewProps) {
   // track named in the URL and the wider lookup hasn't resolved yet. Both are
   // "still loading" rather than "nothing here".
   const resolvingTopic = Boolean(topicParam) && !selectedTopic && !topicNotFound;
-  if ((dataKey && !topics) || resolvingTopic) {
+  if ((dataKey && (!masteryReady || !topics)) || resolvingTopic) {
     return (
       <div className={styles.loadingState} role="status">
         Loading…
@@ -185,12 +237,15 @@ export function HomeView({ topicCountsByTrack, totalTopics }: HomeViewProps) {
   // If viewing a topic, show the viewer
   if (selectedTopic) {
     return (
+      <>
+      {storageError && <p role="alert">{storageError}</p>}
       <TopicViewer
         topic={selectedTopic}
         masteryMap={masteryMap}
         onMasteryChange={(status) => updateMastery(selectedTopic.id, status)}
         onBackClick={goBackToTrack}
       />
+      </>
     );
   }
 
@@ -198,6 +253,7 @@ export function HomeView({ topicCountsByTrack, totalTopics }: HomeViewProps) {
   if (selectedTrack && topics) {
     return (
       <div className={styles.trackView}>
+        {storageError && <p role="alert">{storageError}</p>}
         <button 
           type="button"
           className={styles.backButton}
@@ -219,6 +275,7 @@ export function HomeView({ topicCountsByTrack, totalTopics }: HomeViewProps) {
   // Home page
   return (
     <main className={styles.page}>
+      {storageError && <p role="alert">{storageError}</p>}
       <section className={styles.hero}>
         <span className={styles.heroEyebrow}>Interview prep, structured</span>
         <h1>🚀 FAANG Interview Mastery</h1>
@@ -235,7 +292,7 @@ export function HomeView({ topicCountsByTrack, totalTopics }: HomeViewProps) {
 
       <section id="progress" className={styles.readinessSection}>
         <div className={styles.readinessInner}>
-          <MasteryTracker masteryMap={masteryMap} totalTopics={totalTopics} />
+          <MasteryTracker masteryMap={masteryMap} totalTopics={totalTopics} optionalTopicCount={optionalTopicCount} />
         </div>
       </section>
 

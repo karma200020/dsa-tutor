@@ -6,16 +6,21 @@ type MasteryTrackerProps = {
   // whose keys are always real topic ids. Taking a number instead of the topic
   // array keeps the home page from having to load any topic content.
   totalTopics: number;
+  optionalTopicCount: number;
 };
 
-export function MasteryTracker({ masteryMap, totalTopics }: MasteryTrackerProps) {
-  const statuses = Object.keys(masteryMap).map((id) => masteryMap[id]);
+export function MasteryTracker({ masteryMap, totalTopics, optionalTopicCount }: MasteryTrackerProps) {
+  const statuses = Object.keys(masteryMap).filter((id) => !id.startsWith("topic-specialist-")).map((id) => masteryMap[id]);
+  const coreTotal = totalTopics - optionalTopicCount;
   const learning = statuses.filter((s) => s === "learning").length;
   const practiced = statuses.filter((s) => s === "practiced").length;
   const interviewReady = statuses.filter((s) => s === "interview-ready").length;
-  const notStarted = totalTopics - learning - practiced - interviewReady;
+  const notStarted = coreTotal - learning - practiced - interviewReady;
 
-  const readinessPct = totalTopics === 0 ? 0 : Math.round((interviewReady / totalTopics) * 100);
+  const readinessPct = coreTotal === 0 ? 0 : Math.round((interviewReady / coreTotal) * 100);
+  const optionalMastered = Object.entries(masteryMap).filter(([id, status]) =>
+    id.startsWith("topic-specialist-") && (status === "practiced" || status === "interview-ready")
+  ).length;
   const learned = learning + practiced;
 
   return (
@@ -54,8 +59,9 @@ export function MasteryTracker({ masteryMap, totalTopics }: MasteryTrackerProps)
 
           <div className={styles.stats}>
             <p>
-              <strong>{totalTopics}</strong> total topics to master
+              <strong>{coreTotal}</strong> core topics; <strong>{totalTopics}</strong> total topics
             </p>
+            <p>{optionalMastered}/{optionalTopicCount} optional specialist topics mastered (excluded from interview readiness)</p>
             <p>
               <strong>{interviewReady}</strong> topics at interview-ready level
             </p>
