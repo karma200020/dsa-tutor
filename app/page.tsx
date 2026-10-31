@@ -7,6 +7,7 @@ import { allHldTopics } from "@/data/topics/hld";
 import { allAiTopics } from "@/data/topics/ai";
 import { allOsTopics } from "@/data/topics/os";
 import { allCppTopics } from "@/data/topics/cpp";
+import { allCnTopics } from "@/data/topics/cn";
 
 // Server component. The topic datasets are read here, at build time, only to
 // derive counts, so none of that content is bundled into the client JS for `/`.
@@ -22,7 +23,8 @@ const topicCountsByTrack = {
   HLD: allHldTopics.length,
   AI: allAiTopics.length,
   OS: allOsTopics.length,
-  CPP: allCppTopics.length
+  CPP: allCppTopics.length,
+  CN: allCnTopics.length
 };
 
 const totalTopics = Object.values(topicCountsByTrack).reduce((sum, count) => sum + count, 0);
@@ -30,7 +32,7 @@ const totalTopics = Object.values(topicCountsByTrack).reduce((sum, count) => sum
 export default function HomePage() {
   return (
     <Suspense fallback={<div className={styles.loadingState} role="status">Loading…</div>}>
-      <HomeView topicCountsByTrack={topicCountsByTrack} totalTopics={totalTopics} optionalTopicCount={allDsaTopics.filter((t) => t.optional).length} />
+      <HomeView topicCountsByTrack={topicCountsByTrack} totalTopics={totalTopics} optionalTopicCount={[allDsaTopics, allLldTopics, allHldTopics, allAiTopics, allOsTopics, allCppTopics, allCnTopics].reduce((count, topics) => count + topics.filter((t) => t.optional).length, 0)} />
     </Suspense>
   );
 }

@@ -1,4 +1,4 @@
-export type Track = "DSA" | "LLD" | "HLD" | "AI" | "OS" | "CPP";
+export type Track = "DSA" | "LLD" | "HLD" | "AI" | "OS" | "CPP" | "CN";
 
 export type Lesson = {
   id: string;

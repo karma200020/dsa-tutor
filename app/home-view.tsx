@@ -17,7 +17,7 @@ const TopicViewer = dynamic(() => import("@/components/topic-viewer").then((m) =
   loading: () => <div role="status">Loading lesson...</div>
 });
 
-const VALID_TRACKS = ["DSA", "LLD", "HLD", "AI", "OS", "CPP"] as const;
+const VALID_TRACKS = ["DSA", "LLD", "HLD", "AI", "OS", "CPP", "CN"] as const;
 type TrackParam = (typeof VALID_TRACKS)[number];
 
 function isValidTrack(value: string | null): value is TrackParam {
@@ -42,7 +42,8 @@ const trackLoaders: Record<TrackParam, () => Promise<Topic[]>> = {
   HLD: () => import("@/data/topics/hld").then((m) => m.allHldTopics),
   AI: () => import("@/data/topics/ai").then((m) => m.allAiTopics),
   OS: () => import("@/data/topics/os").then((m) => m.allOsTopics),
-  CPP: () => import("@/data/topics/cpp").then((m) => m.allCppTopics)
+  CPP: () => import("@/data/topics/cpp").then((m) => m.allCppTopics),
+  CN: () => import("@/data/topics/cn").then((m) => m.allCnTopics)
 };
 
 // Fallback key for a `?topic=` deep link whose topic isn't in the track named in
@@ -374,6 +375,18 @@ export function HomeView({ topicCountsByTrack, totalTopics, optionalTopicCount }
             onClick={() => goToTrack("CPP")}
             color="#a78bfa"
             index={5}
+          />
+          <TrackCardClickable
+            emoji="🌐"
+            title="Computer Networks"
+            subtitle="Foundations to Production"
+            description="Trace packets, understand protocols, diagnose failures, and explore optional specialist networks"
+            topics={topicCountsByTrack.CN}
+            hours={durationByTrack.CN}
+            modules={syllabus.filter(m => m.track === "CN").length}
+            onClick={() => goToTrack("CN")}
+            color="#38bdf8"
+            index={6}
           />
         </div>
       </section>

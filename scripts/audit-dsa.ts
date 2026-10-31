@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { allDsaTopics, allLldTopics, allHldTopics, allAiTopics, allOsTopics, allCppTopics } from "../data/all-topics";
+import { allDsaTopics, allLldTopics, allHldTopics, allAiTopics, allOsTopics, allCppTopics, allCnTopics } from "../data/all-topics";
 import { syllabus } from "../data/syllabus";
 import { dsaConceptManifest } from "../data/dsa-coverage-manifest";
 import { authoredAlgorithms } from "../data/dsa-curriculum";
@@ -9,7 +9,7 @@ import { dsaTopicsExtended } from "../data/dsa-topics-extended";
 import { isPracticeVariation } from "../data/practice-variation";
 import { auditDsa, TrackDatasets } from "./lib/dsa-audit";
 
-const tracks: TrackDatasets = { DSA: allDsaTopics, LLD: allLldTopics, HLD: allHldTopics, AI: allAiTopics, OS: allOsTopics, CPP: allCppTopics };
+const tracks: TrackDatasets = { DSA: allDsaTopics, LLD: allLldTopics, HLD: allHldTopics, AI: allAiTopics, OS: allOsTopics, CPP: allCppTopics, CN: allCnTopics };
 const complete = process.argv.includes("--complete");
 const has = (rule: string, findings: ReturnType<typeof auditDsa>) => findings.some((f) => f.rule === rule);
 const target = allDsaTopics.find((t) => t.id === "topic-range-fenwick")!;

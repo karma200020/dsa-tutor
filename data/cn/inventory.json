@@ -1,0 +1,3114 @@
+{
+  "modules": [
+    {
+      "id": "mod-cn-foundations",
+      "count": 7,
+      "optional": false
+    },
+    {
+      "id": "mod-cn-physical",
+      "count": 6,
+      "optional": false
+    },
+    {
+      "id": "mod-cn-link",
+      "count": 7,
+      "optional": false
+    },
+    {
+      "id": "mod-cn-ethernet",
+      "count": 6,
+      "optional": false
+    },
+    {
+      "id": "mod-cn-wifi",
+      "count": 5,
+      "optional": false
+    },
+    {
+      "id": "mod-cn-ipv4",
+      "count": 7,
+      "optional": false
+    },
+    {
+      "id": "mod-cn-host",
+      "count": 5,
+      "optional": false
+    },
+    {
+      "id": "mod-cn-ipv6",
+      "count": 7,
+      "optional": false
+    },
+    {
+      "id": "mod-cn-routing",
+      "count": 8,
+      "optional": false
+    },
+    {
+      "id": "mod-cn-reliable",
+      "count": 4,
+      "optional": false
+    },
+    {
+      "id": "mod-cn-transport",
+      "count": 10,
+      "optional": false
+    },
+    {
+      "id": "mod-cn-performance",
+      "count": 10,
+      "optional": false
+    },
+    {
+      "id": "mod-cn-dns",
+      "count": 7,
+      "optional": false
+    },
+    {
+      "id": "mod-cn-http",
+      "count": 8,
+      "optional": false
+    },
+    {
+      "id": "mod-cn-security",
+      "count": 9,
+      "optional": false
+    },
+    {
+      "id": "mod-cn-applications",
+      "count": 10,
+      "optional": false
+    },
+    {
+      "id": "mod-cn-sockets",
+      "count": 6,
+      "optional": false
+    },
+    {
+      "id": "mod-cn-cloud",
+      "count": 9,
+      "optional": false
+    },
+    {
+      "id": "mod-cn-troubleshooting",
+      "count": 6,
+      "optional": false
+    },
+    {
+      "id": "mod-cn-cases",
+      "count": 8,
+      "optional": false
+    },
+    {
+      "id": "mod-cn-enterprise",
+      "count": 8,
+      "optional": true
+    },
+    {
+      "id": "mod-cn-mobile",
+      "count": 7,
+      "optional": true
+    },
+    {
+      "id": "mod-cn-datacenter",
+      "count": 6,
+      "optional": true
+    },
+    {
+      "id": "mod-cn-history",
+      "count": 4,
+      "optional": true
+    }
+  ],
+  "lessons": [
+    {
+      "id": "network-devices",
+      "title": "Why networks need different devices",
+      "module": "foundations",
+      "concepts": [
+        "network-purpose",
+        "host",
+        "link",
+        "switch",
+        "router",
+        "access-point",
+        "modem",
+        "professional-network-practice",
+        "network-privacy-ethics",
+        "network-energy"
+      ]
+    },
+    {
+      "id": "network-scopes",
+      "title": "Network size and topology",
+      "module": "foundations",
+      "concepts": [
+        "lan",
+        "pan",
+        "man",
+        "wan",
+        "network-topology",
+        "star-topology",
+        "bus-topology",
+        "ring-topology",
+        "mesh-topology"
+      ]
+    },
+    {
+      "id": "internet-web",
+      "title": "The Internet is not the Web",
+      "module": "foundations",
+      "concepts": [
+        "internet",
+        "web",
+        "isp",
+        "as-routing-boundary"
+      ]
+    },
+    {
+      "id": "switching-methods",
+      "title": "Circuit switching and packet switching",
+      "module": "foundations",
+      "concepts": [
+        "circuit-switching",
+        "packet-switching",
+        "statistical-multiplexing",
+        "store-and-forward",
+        "scheduled-access",
+        "random-access"
+      ]
+    },
+    {
+      "id": "layer-services",
+      "title": "Layers, services, and protocols",
+      "module": "foundations",
+      "concepts": [
+        "osi-model",
+        "tcp-ip-model",
+        "network-service",
+        "network-protocol",
+        "layer-interface"
+      ]
+    },
+    {
+      "id": "address-identities",
+      "title": "Names, IP addresses, MAC addresses, and ports",
+      "module": "foundations",
+      "concepts": [
+        "network-name",
+        "ip-address",
+        "mac-address",
+        "port-address-role",
+        "endpoint-identity"
+      ]
+    },
+    {
+      "id": "packet-journey",
+      "title": "Follow one packet across a router",
+      "module": "foundations",
+      "concepts": [
+        "encapsulation",
+        "decapsulation",
+        "end-to-end-principle",
+        "packet-journey"
+      ]
+    },
+    {
+      "id": "rates-delays",
+      "title": "Bits, symbols, rates, and two kinds of delay",
+      "module": "physical",
+      "concepts": [
+        "bit",
+        "byte",
+        "symbol",
+        "bit-rate",
+        "symbol-rate",
+        "bandwidth",
+        "transmission-delay",
+        "propagation-delay"
+      ]
+    },
+    {
+      "id": "transmission-media",
+      "title": "Copper, fiber, and radio links",
+      "module": "physical",
+      "concepts": [
+        "copper-link",
+        "fiber-link",
+        "radio-link",
+        "attenuation",
+        "interference"
+      ]
+    },
+    {
+      "id": "noise-capacity",
+      "title": "Noise, SNR, Nyquist, and Shannon",
+      "module": "physical",
+      "concepts": [
+        "noise",
+        "signal-to-noise-ratio",
+        "nyquist-limit",
+        "shannon-capacity"
+      ]
+    },
+    {
+      "id": "line-coding",
+      "title": "NRZ and Manchester recoverable signals",
+      "module": "physical",
+      "concepts": [
+        "line-coding",
+        "nrz",
+        "manchester",
+        "clock-recovery"
+      ]
+    },
+    {
+      "id": "carrier-modulation",
+      "title": "ASK, FSK, PSK, and QAM",
+      "module": "physical",
+      "concepts": [
+        "modulation",
+        "ask",
+        "fsk",
+        "psk",
+        "qam"
+      ]
+    },
+    {
+      "id": "multiplex-duplex",
+      "title": "Sharing spectrum, time, and direction",
+      "module": "physical",
+      "concepts": [
+        "fdm",
+        "tdm",
+        "wdm",
+        "ofdm",
+        "simplex",
+        "half-duplex",
+        "full-duplex"
+      ]
+    },
+    {
+      "id": "frame-boundaries",
+      "title": "Frames, stuffing, PPP, and HDLC",
+      "module": "link",
+      "concepts": [
+        "framing",
+        "byte-stuffing",
+        "bit-stuffing",
+        "ppp",
+        "hdlc"
+      ]
+    },
+    {
+      "id": "parity-checksum",
+      "title": "What parity and checksums can detect",
+      "module": "link",
+      "concepts": [
+        "error-detection",
+        "parity",
+        "checksum"
+      ]
+    },
+    {
+      "id": "crc-remainders",
+      "title": "CRC as binary polynomial division",
+      "module": "link",
+      "concepts": [
+        "crc",
+        "burst-error"
+      ]
+    },
+    {
+      "id": "hamming-fec",
+      "title": "Correcting errors with Hamming codes",
+      "module": "link",
+      "concepts": [
+        "error-correction",
+        "hamming-code",
+        "fec",
+        "hamming-distance"
+      ]
+    },
+    {
+      "id": "stop-wait",
+      "title": "ACKs, timeouts, and duplicate frames",
+      "module": "link",
+      "concepts": [
+        "acknowledgment",
+        "retransmission",
+        "timeout",
+        "duplicate-frame",
+        "stop-and-wait",
+        "alternating-bit"
+      ]
+    },
+    {
+      "id": "sliding-go-back",
+      "title": "Sliding windows and Go-Back-N",
+      "module": "link",
+      "concepts": [
+        "sliding-window",
+        "go-back-n",
+        "cumulative-ack",
+        "in-flight-window"
+      ]
+    },
+    {
+      "id": "selective-repeat",
+      "title": "Selective Repeat and safe sequence spaces",
+      "module": "link",
+      "concepts": [
+        "selective-repeat",
+        "out-of-order-buffering",
+        "sequence-space-limit"
+      ]
+    },
+    {
+      "id": "ethernet-frames",
+      "title": "Ethernet frames and delivery groups",
+      "module": "ethernet",
+      "concepts": [
+        "ethernet-frame",
+        "ethernet-mac",
+        "unicast",
+        "multicast",
+        "broadcast",
+        "frame-check-sequence"
+      ]
+    },
+    {
+      "id": "switch-learning",
+      "title": "How a switch learns and floods",
+      "module": "ethernet",
+      "concepts": [
+        "mac-learning",
+        "mac-table",
+        "unknown-unicast-flooding",
+        "mac-aging",
+        "frame-filtering"
+      ]
+    },
+    {
+      "id": "ethernet-domains",
+      "title": "Collision domains and broadcast domains",
+      "module": "ethernet",
+      "concepts": [
+        "collision-domain",
+        "broadcast-domain",
+        "csma-cd",
+        "full-duplex-ethernet"
+      ]
+    },
+    {
+      "id": "vlan-trunks",
+      "title": "VLAN tags, trunks, and routing between VLANs",
+      "module": "ethernet",
+      "concepts": [
+        "vlan",
+        "ieee-802-1q",
+        "trunk",
+        "access-port",
+        "inter-vlan-routing"
+      ]
+    },
+    {
+      "id": "spanning-tree",
+      "title": "Loops, STP, and RSTP",
+      "module": "ethernet",
+      "concepts": [
+        "bridge-loop",
+        "broadcast-storm",
+        "stp",
+        "rstp",
+        "root-bridge",
+        "bpdu"
+      ]
+    },
+    {
+      "id": "link-aggregation",
+      "title": "Aggregation and real redundancy",
+      "module": "ethernet",
+      "concepts": [
+        "link-aggregation",
+        "lacp",
+        "link-aggregation-flow-hashing",
+        "network-redundancy"
+      ]
+    },
+    {
+      "id": "wifi-channels",
+      "title": "Wi-Fi bands, channels, and interference",
+      "module": "wifi",
+      "concepts": [
+        "wifi-channel",
+        "wifi-2-4-ghz",
+        "wifi-5-ghz",
+        "wifi-6-ghz",
+        "co-channel-interference",
+        "adjacent-channel-interference"
+      ]
+    },
+    {
+      "id": "wifi-association-security",
+      "title": "Discovery, association, WPA2, and WPA3",
+      "module": "wifi",
+      "concepts": [
+        "wifi-discovery",
+        "wifi-authentication",
+        "wifi-association",
+        "ssid",
+        "wpa2",
+        "wpa3",
+        "sae",
+        "protected-management-frames"
+      ]
+    },
+    {
+      "id": "wifi-access",
+      "title": "CSMA/CA, hidden stations, and RTS/CTS",
+      "module": "wifi",
+      "concepts": [
+        "csma-ca",
+        "wifi-ack",
+        "contention-backoff",
+        "hidden-terminal",
+        "exposed-terminal",
+        "rts-cts",
+        "virtual-carrier-sense"
+      ]
+    },
+    {
+      "id": "wifi-phy-throughput",
+      "title": "Width, OFDM, MIMO, and useful throughput",
+      "module": "wifi",
+      "concepts": [
+        "wifi-channel-width",
+        "wifi-ofdm",
+        "mimo",
+        "spatial-stream",
+        "rssi",
+        "wifi-goodput"
+      ]
+    },
+    {
+      "id": "wifi-roaming",
+      "title": "Roaming and the Ethernet comparison",
+      "module": "wifi",
+      "concepts": [
+        "wifi-roaming",
+        "bssid",
+        "wifi-ethernet-comparison",
+        "roaming-continuity"
+      ]
+    },
+    {
+      "id": "ipv4-binary-mask",
+      "title": "IPv4 bits and subnet masks",
+      "module": "ipv4",
+      "concepts": [
+        "ipv4-binary",
+        "subnet-mask",
+        "network-prefix",
+        "host-bits",
+        "bitwise-and"
+      ]
+    },
+    {
+      "id": "cidr-host-ranges",
+      "title": "CIDR ranges, broadcasts, /31, and /32",
+      "module": "ipv4",
+      "concepts": [
+        "cidr",
+        "subnet-range",
+        "ipv4-network-address",
+        "directed-broadcast",
+        "usable-host-range",
+        "ipv4-slash-31",
+        "ipv4-slash-32"
+      ]
+    },
+    {
+      "id": "vlsm-planning",
+      "title": "VLSM without overlaps",
+      "module": "ipv4",
+      "concepts": [
+        "vlsm",
+        "subnet-allocation",
+        "prefix-alignment",
+        "address-plan"
+      ]
+    },
+    {
+      "id": "prefix-aggregation",
+      "title": "Aggregation and the end of classful assumptions",
+      "module": "ipv4",
+      "concepts": [
+        "route-aggregation",
+        "historical-address-classes",
+        "classless-routing",
+        "summary-route"
+      ]
+    },
+    {
+      "id": "ipv4-address-policy",
+      "title": "Public, private, and special-purpose IPv4",
+      "module": "ipv4",
+      "concepts": [
+        "public-ipv4",
+        "private-ipv4",
+        "ipv4-loopback",
+        "ipv4-link-local",
+        "documentation-prefix",
+        "ipv4-special-purpose"
+      ]
+    },
+    {
+      "id": "ipv4-header",
+      "title": "Reading the IPv4 header and TTL",
+      "module": "ipv4",
+      "concepts": [
+        "ipv4-header",
+        "ipv4-ttl",
+        "ipv4-header-checksum",
+        "ipv4-protocol-field",
+        "ipv4-ihl",
+        "ipv4-total-length"
+      ]
+    },
+    {
+      "id": "ipv4-fragment-mtu",
+      "title": "MTU, IPv4 fragments, and TCP MSS",
+      "module": "ipv4",
+      "concepts": [
+        "mtu",
+        "ipv4-fragmentation",
+        "fragment-offset",
+        "dont-fragment",
+        "more-fragments",
+        "reassembly",
+        "tcp-mss"
+      ]
+    },
+    {
+      "id": "host-next-hop",
+      "title": "Local delivery or the default gateway?",
+      "module": "host",
+      "concepts": [
+        "on-link-destination",
+        "remote-destination",
+        "default-gateway",
+        "host-route-selection"
+      ]
+    },
+    {
+      "id": "arp-cache",
+      "title": "ARP requests, replies, and cached neighbors",
+      "module": "host",
+      "concepts": [
+        "arp",
+        "arp-request",
+        "arp-reply",
+        "arp-cache",
+        "address-conflict"
+      ]
+    },
+    {
+      "id": "dhcp-leases",
+      "title": "DHCP DORA, renewal, and relay",
+      "module": "host",
+      "concepts": [
+        "dhcp",
+        "dhcp-dora",
+        "dhcp-lease",
+        "dhcp-renewal",
+        "dhcp-rebinding",
+        "dhcp-relay",
+        "dhcp-conflict-check"
+      ]
+    },
+    {
+      "id": "icmp-diagnostics",
+      "title": "ICMP, ping, and traceroute evidence",
+      "module": "host",
+      "concepts": [
+        "icmp",
+        "ping",
+        "icmp-echo",
+        "icmp-time-exceeded",
+        "traceroute",
+        "traceroute-variants",
+        "diagnostic-limits"
+      ]
+    },
+    {
+      "id": "path-mtu-hop-fields",
+      "title": "Path MTU and what changes at each hop",
+      "module": "host",
+      "concepts": [
+        "path-mtu",
+        "pmtud",
+        "plpmtud",
+        "mtu-black-hole",
+        "hop-header-changes"
+      ]
+    },
+    {
+      "id": "ipv6-notation",
+      "title": "Read and compress IPv6 addresses",
+      "module": "ipv6",
+      "concepts": [
+        "ipv6-notation",
+        "ipv6-zero-compression",
+        "ipv6-prefix-length"
+      ]
+    },
+    {
+      "id": "ipv6-address-types",
+      "title": "IPv6 unicast, multicast, and anycast",
+      "module": "ipv6",
+      "concepts": [
+        "ipv6-unicast",
+        "ipv6-multicast",
+        "ipv6-anycast",
+        "ipv6-no-broadcast",
+        "ipv6-link-local",
+        "ipv6-unique-local",
+        "ipv6-global-unicast",
+        "ipv6-loopback",
+        "ipv6-unspecified"
+      ]
+    },
+    {
+      "id": "ipv6-header-extensions",
+      "title": "IPv6 headers, extension processing, and fragments",
+      "module": "ipv6",
+      "concepts": [
+        "ipv6-header",
+        "ipv6-next-header",
+        "ipv6-hop-limit",
+        "ipv6-extension-header",
+        "hop-by-hop-options",
+        "ipv6-source-fragmentation"
+      ]
+    },
+    {
+      "id": "ipv6-neighbor-discovery",
+      "title": "Neighbor Discovery and essential ICMPv6",
+      "module": "ipv6",
+      "concepts": [
+        "ndp",
+        "icmpv6",
+        "neighbor-solicitation",
+        "neighbor-advertisement",
+        "solicited-node-multicast",
+        "neighbor-unreachability-detection",
+        "ipv6-neighbor-cache"
+      ]
+    },
+    {
+      "id": "ipv6-autoconfiguration",
+      "title": "RA, SLAAC, DHCPv6, and DAD",
+      "module": "ipv6",
+      "concepts": [
+        "router-solicitation",
+        "router-advertisement",
+        "slaac",
+        "dhcpv6",
+        "duplicate-address-detection",
+        "ipv6-prefix-information",
+        "ipv6-default-router"
+      ]
+    },
+    {
+      "id": "ipv6-source-selection",
+      "title": "Address lifetimes and source selection",
+      "module": "ipv6",
+      "concepts": [
+        "ipv6-source-selection",
+        "preferred-lifetime",
+        "valid-lifetime",
+        "deprecated-address",
+        "temporary-ipv6-address",
+        "ipv6-address-privacy"
+      ]
+    },
+    {
+      "id": "ipv6-coexistence",
+      "title": "Dual stack, Happy Eyeballs, and NAT64/DNS64",
+      "module": "ipv6",
+      "concepts": [
+        "dual-stack",
+        "happy-eyeballs",
+        "nat64",
+        "dns64",
+        "ipv6-transition-tradeoffs"
+      ]
+    },
+    {
+      "id": "forwarding-lookup",
+      "title": "Control decisions and longest-prefix forwarding",
+      "module": "routing",
+      "concepts": [
+        "routing-control-plane",
+        "packet-data-plane",
+        "routing-information-base",
+        "forwarding-information-base",
+        "longest-prefix-match",
+        "next-hop-resolution"
+      ]
+    },
+    {
+      "id": "static-default-metrics",
+      "title": "Static routes, defaults and metric boundaries",
+      "module": "routing",
+      "concepts": [
+        "static-route",
+        "default-route",
+        "routing-metric",
+        "route-preference",
+        "floating-static-route"
+      ]
+    },
+    {
+      "id": "distance-vector-rip",
+      "title": "Distance vector, Bellman-Ford and RIP loops",
+      "module": "routing",
+      "concepts": [
+        "distance-vector-routing",
+        "bellman-ford",
+        "rip",
+        "routing-loop",
+        "count-to-infinity",
+        "split-horizon",
+        "poison-reverse"
+      ]
+    },
+    {
+      "id": "link-state-dijkstra",
+      "title": "Link-state flooding and Dijkstra's calculation",
+      "module": "routing",
+      "concepts": [
+        "link-state-routing",
+        "link-state-database",
+        "link-state-flooding",
+        "dijkstra",
+        "shortest-path-tree"
+      ]
+    },
+    {
+      "id": "ospf-isis-hierarchy",
+      "title": "OSPF and IS-IS inside an autonomous system",
+      "module": "routing",
+      "concepts": [
+        "ospf",
+        "ospf-area",
+        "ospf-backbone",
+        "ospf-adjacency",
+        "ospf-designated-router",
+        "is-is",
+        "is-is-levels"
+      ]
+    },
+    {
+      "id": "bgp-business-relationships",
+      "title": "BGP, autonomous systems, peering and transit",
+      "module": "routing",
+      "concepts": [
+        "autonomous-system",
+        "bgp",
+        "ebgp",
+        "ibgp",
+        "internet-peering",
+        "internet-transit",
+        "bgp-export-policy"
+      ]
+    },
+    {
+      "id": "bgp-path-policy",
+      "title": "BGP attributes and policy before path length",
+      "module": "routing",
+      "concepts": [
+        "bgp-local-preference",
+        "bgp-as-path",
+        "bgp-next-hop",
+        "bgp-med",
+        "bgp-community",
+        "bgp-route-selection",
+        "bgp-as-loop-detection"
+      ]
+    },
+    {
+      "id": "routing-convergence-ecmp",
+      "title": "Convergence, redundancy and ECMP",
+      "module": "routing",
+      "concepts": [
+        "routing-convergence",
+        "routing-redundancy",
+        "equal-cost-multipath",
+        "flow-hashing",
+        "routing-microloop",
+        "fast-reroute"
+      ]
+    },
+    {
+      "id": "reliable-arq-sequence",
+      "title": "Reliability across loss, corruption and duplicates",
+      "module": "reliable",
+      "concepts": [
+        "automatic-repeat-request",
+        "reliable-sequence-number",
+        "duplicate-suppression",
+        "corruption-detection"
+      ]
+    },
+    {
+      "id": "reliable-windows-acks",
+      "title": "Pipelines, cumulative ACKs and selective reassembly",
+      "module": "reliable",
+      "concepts": [
+        "reliable-pipelining",
+        "cumulative-acknowledgment",
+        "selective-acknowledgment",
+        "out-of-order-reassembly",
+        "receive-buffer-limit",
+        "sequence-space-wrap"
+      ]
+    },
+    {
+      "id": "rtt-retransmission-timers",
+      "title": "RTT estimates, uncertainty and retransmission timers",
+      "module": "reliable",
+      "concepts": [
+        "round-trip-time-estimation",
+        "retransmission-timeout",
+        "rtt-variation",
+        "karn-algorithm",
+        "exponential-retransmission-backoff"
+      ]
+    },
+    {
+      "id": "delivery-business-semantics",
+      "title": "Transport acceptance is not business completion",
+      "module": "reliable",
+      "concepts": [
+        "transport-delivery-semantics",
+        "application-completion-ack",
+        "exactly-once-misconception",
+        "idempotency-key",
+        "durable-deduplication",
+        "retry-ambiguity"
+      ]
+    },
+    {
+      "id": "ports-multiplexing",
+      "title": "Ports, endpoints and transport demultiplexing",
+      "module": "transport",
+      "concepts": [
+        "transport-port",
+        "transport-multiplexing",
+        "transport-demultiplexing",
+        "tcp-four-tuple",
+        "listening-endpoint",
+        "ephemeral-port"
+      ]
+    },
+    {
+      "id": "udp-datagrams-checksum",
+      "title": "UDP datagrams and checksum boundaries",
+      "module": "transport",
+      "concepts": [
+        "udp",
+        "udp-datagram",
+        "udp-header",
+        "udp-checksum",
+        "internet-checksum",
+        "transport-pseudo-header",
+        "udp-message-boundary"
+      ]
+    },
+    {
+      "id": "tcp-byte-stream-header",
+      "title": "TCP's byte stream, header and flags",
+      "module": "transport",
+      "concepts": [
+        "tcp",
+        "tcp-byte-stream",
+        "tcp-segment",
+        "tcp-header",
+        "tcp-sequence-number",
+        "tcp-ack-number",
+        "tcp-flags",
+        "tcp-psh",
+        "tcp-urg",
+        "tcp-checksum",
+        "tcp-timestamps"
+      ]
+    },
+    {
+      "id": "tcp-handshake",
+      "title": "TCP deep pilot: trace the three-way handshake",
+      "module": "transport",
+      "concepts": [
+        "tcp-three-way-handshake",
+        "tcp-syn",
+        "tcp-initial-sequence-number",
+        "tcp-listen",
+        "tcp-syn-sent",
+        "tcp-syn-received",
+        "tcp-established",
+        "tcp-option-negotiation",
+        "tcp-maximum-segment-size",
+        "tcp-syn-cookie",
+        "tcp-syn-flood",
+        "tcp-fast-open",
+        "tcp-simultaneous-open"
+      ]
+    },
+    {
+      "id": "tcp-loss-recovery",
+      "title": "TCP ACKs, retransmission and SACK evidence",
+      "module": "transport",
+      "concepts": [
+        "tcp-cumulative-ack",
+        "tcp-duplicate-ack",
+        "tcp-sack",
+        "tcp-retransmission",
+        "tcp-loss-scoreboard",
+        "tcp-spurious-retransmission"
+      ]
+    },
+    {
+      "id": "tcp-close-time-wait",
+      "title": "FIN, RST, half-close and TIME_WAIT",
+      "module": "transport",
+      "concepts": [
+        "tcp-fin",
+        "tcp-rst",
+        "tcp-half-close",
+        "tcp-fin-wait",
+        "tcp-close-wait",
+        "tcp-last-ack",
+        "tcp-closing",
+        "tcp-time-wait",
+        "tcp-maximum-segment-lifetime",
+        "tcp-connection-incarnation",
+        "socket-linger"
+      ]
+    },
+    {
+      "id": "tcp-packetization-reuse",
+      "title": "Nagle, delayed ACK and connection reuse",
+      "module": "transport",
+      "concepts": [
+        "nagle-algorithm",
+        "tcp-delayed-ack",
+        "tcp-nodelay",
+        "tcp-small-write-latency",
+        "transport-connection-reuse"
+      ]
+    },
+    {
+      "id": "tcp-liveness-heartbeat",
+      "title": "Keepalive, heartbeat and meaningful liveness",
+      "module": "transport",
+      "concepts": [
+        "tcp-keepalive",
+        "application-heartbeat",
+        "idle-connection-timeout",
+        "application-deadline",
+        "liveness-detection",
+        "half-open-connection"
+      ]
+    },
+    {
+      "id": "quic-streams-security",
+      "title": "QUIC streams, TLS and loss recovery",
+      "module": "transport",
+      "concepts": [
+        "quic",
+        "quic-stream",
+        "quic-stream-offset",
+        "quic-packet-number",
+        "quic-tls",
+        "quic-handshake",
+        "quic-loss-recovery",
+        "transport-head-of-line-blocking",
+        "quic-stream-flow-control",
+        "quic-zero-rtt"
+      ]
+    },
+    {
+      "id": "quic-connection-migration",
+      "title": "QUIC connection IDs and validated migration",
+      "module": "transport",
+      "concepts": [
+        "quic-connection-id",
+        "quic-connection-migration",
+        "quic-path-validation",
+        "quic-nat-rebinding",
+        "quic-anti-amplification",
+        "quic-path-state"
+      ]
+    },
+    {
+      "id": "flow-versus-congestion-window",
+      "title": "Receiver flow control versus network congestion control",
+      "module": "performance",
+      "concepts": [
+        "transport-flow-control",
+        "tcp-receive-window",
+        "tcp-congestion-window",
+        "tcp-bytes-in-flight",
+        "tcp-window-scaling",
+        "tcp-zero-window",
+        "tcp-persist-probe"
+      ]
+    },
+    {
+      "id": "reno-congestion-recovery",
+      "title": "Slow start, avoidance and Reno recovery",
+      "module": "performance",
+      "concepts": [
+        "tcp-slow-start",
+        "tcp-ssthresh",
+        "tcp-congestion-avoidance",
+        "tcp-fast-retransmit",
+        "tcp-fast-recovery",
+        "tcp-reno",
+        "additive-increase-multiplicative-decrease"
+      ]
+    },
+    {
+      "id": "cubic-window-growth",
+      "title": "CUBIC's time-shaped congestion window",
+      "module": "performance",
+      "concepts": [
+        "tcp-cubic",
+        "cubic-window-function",
+        "cubic-previous-maximum",
+        "cubic-beta",
+        "cubic-tcp-friendly-region"
+      ]
+    },
+    {
+      "id": "bbr-model-control",
+      "title": "BBR and model-based congestion control",
+      "module": "performance",
+      "concepts": [
+        "bbr",
+        "bottleneck-bandwidth-estimate",
+        "minimum-rtt-estimate",
+        "delivery-rate-sampling",
+        "ack-compression",
+        "application-limited-sending",
+        "transport-pacing",
+        "model-based-congestion-control",
+        "loss-based-congestion-control"
+      ]
+    },
+    {
+      "id": "ecn-congestion-fairness",
+      "title": "ECN signals and the limits of fairness",
+      "module": "performance",
+      "concepts": [
+        "explicit-congestion-notification",
+        "ecn-capable-transport",
+        "congestion-experienced",
+        "tcp-ecn-echo",
+        "tcp-congestion-window-reduced",
+        "congestion-fairness",
+        "rtt-unfairness",
+        "per-flow-fairness"
+      ]
+    },
+    {
+      "id": "queues-aqm-bufferbloat",
+      "title": "Queues, scheduling, bufferbloat, RED and CoDel",
+      "module": "performance",
+      "concepts": [
+        "packet-queue",
+        "fifo-scheduling",
+        "fair-queueing",
+        "strict-priority-scheduling",
+        "bufferbloat",
+        "active-queue-management",
+        "random-early-detection",
+        "codel",
+        "packet-sojourn-time",
+        "tail-drop"
+      ]
+    },
+    {
+      "id": "qos-dscp-policy",
+      "title": "QoS classes, DSCP and bounded priority",
+      "module": "performance",
+      "concepts": [
+        "quality-of-service",
+        "differentiated-services",
+        "dscp",
+        "per-hop-behavior",
+        "traffic-classification",
+        "weighted-scheduling",
+        "qos-trust-boundary",
+        "qos-admission-control"
+      ]
+    },
+    {
+      "id": "shaping-policing-buckets",
+      "title": "Shaping, policing, token buckets and leaky buckets",
+      "module": "performance",
+      "concepts": [
+        "traffic-shaping",
+        "traffic-policing",
+        "token-bucket",
+        "token-bucket-burst",
+        "leaky-bucket",
+        "traffic-contract",
+        "peak-rate-limit",
+        "two-rate-meter"
+      ]
+    },
+    {
+      "id": "bdp-throughput-goodput",
+      "title": "Bandwidth-delay product, throughput and goodput",
+      "module": "performance",
+      "concepts": [
+        "bandwidth-delay-product",
+        "transport-throughput",
+        "application-goodput",
+        "window-limited-throughput",
+        "bottleneck-rate",
+        "protocol-overhead"
+      ]
+    },
+    {
+      "id": "jitter-tail-latency-incast",
+      "title": "Jitter, tail latency and incast",
+      "module": "performance",
+      "concepts": [
+        "packet-delay-variation",
+        "jitter-buffer",
+        "tail-latency",
+        "latency-percentile",
+        "fanout-tail-amplification",
+        "incast",
+        "incast-queue-burst"
+      ]
+    },
+    {
+      "id": "dns-resolution",
+      "title": "Follow a Name Through the DNS Hierarchy",
+      "module": "dns",
+      "concepts": [
+        "dns-hierarchy",
+        "dns-stub-resolver",
+        "dns-recursive-resolver",
+        "dns-authoritative-server",
+        "dns-iterative-query",
+        "dns-recursive-query"
+      ]
+    },
+    {
+      "id": "dns-zones",
+      "title": "Zones, Delegation and the Records That Describe Them",
+      "module": "dns",
+      "concepts": [
+        "dns-zone",
+        "dns-delegation",
+        "dns-ns-record",
+        "dns-soa-record",
+        "dns-glue-record"
+      ]
+    },
+    {
+      "id": "dns-records",
+      "title": "Choose the Right DNS Record, Not Just an Address",
+      "module": "dns",
+      "concepts": [
+        "dns-a-record",
+        "dns-aaaa-record",
+        "dns-cname-record",
+        "dns-mx-record",
+        "dns-txt-record",
+        "dns-srv-record",
+        "dns-https-record",
+        "dns-svcb-record"
+      ]
+    },
+    {
+      "id": "dns-caching",
+      "title": "TTL, Negative Caching and DNS Error Evidence",
+      "module": "dns",
+      "concepts": [
+        "dns-ttl",
+        "dns-cache",
+        "dns-negative-cache",
+        "dns-nxdomain",
+        "dns-servfail",
+        "dns-nodata"
+      ]
+    },
+    {
+      "id": "dns-transport",
+      "title": "DNS Over UDP and TCP: Handle Truncation Correctly",
+      "module": "dns",
+      "concepts": [
+        "dns-udp",
+        "dns-tcp",
+        "dns-truncation-retry",
+        "dns-edns"
+      ]
+    },
+    {
+      "id": "dns-routing-policy",
+      "title": "Reverse DNS, Split Horizon and DNS Load Distribution",
+      "module": "dns",
+      "concepts": [
+        "dns-ptr-record",
+        "dns-reverse-lookup",
+        "dns-split-horizon",
+        "dns-load-balancing"
+      ]
+    },
+    {
+      "id": "dns-trust-privacy",
+      "title": "DNSSEC, DoH and DoT Protect Different Boundaries",
+      "module": "dns",
+      "concepts": [
+        "dnssec",
+        "dns-over-https",
+        "dns-over-tls",
+        "dns-cache-poisoning"
+      ]
+    },
+    {
+      "id": "http-semantics",
+      "title": "URLs, Origins and HTTP Request Semantics",
+      "module": "http",
+      "concepts": [
+        "http-url",
+        "http-origin",
+        "http-request",
+        "http-response",
+        "http-methods",
+        "http-status-codes",
+        "http-headers",
+        "http-safe-methods",
+        "http-idempotency"
+      ]
+    },
+    {
+      "id": "http-one-framing",
+      "title": "HTTP/1.1 Persistence, Framing and Safe Transitions",
+      "module": "http",
+      "concepts": [
+        "http-one-persistent-connections",
+        "http-one-message-framing",
+        "http-content-length",
+        "http-chunked-encoding",
+        "http-protocol-transition"
+      ]
+    },
+    {
+      "id": "http-caching",
+      "title": "Freshness, ETags and Conditional HTTP Requests",
+      "module": "http",
+      "concepts": [
+        "http-cache",
+        "http-cache-control",
+        "http-etag",
+        "http-validators",
+        "http-conditional-requests"
+      ]
+    },
+    {
+      "id": "http-cookies-sessions",
+      "title": "Cookies and Sessions: Remembering Without Trusting",
+      "module": "http",
+      "concepts": [
+        "http-cookies",
+        "http-session",
+        "cookie-samesite",
+        "cookie-secure",
+        "cookie-httponly"
+      ]
+    },
+    {
+      "id": "http-intermediaries",
+      "title": "Proxies, Redirects and Where HTTPS Ends",
+      "module": "http",
+      "concepts": [
+        "http-forward-proxy",
+        "http-reverse-proxy",
+        "http-redirect",
+        "http-connect-tunnel",
+        "http-tls-termination"
+      ]
+    },
+    {
+      "id": "http-two",
+      "title": "HTTP/2 Frames, Streams, HPACK and TCP Blocking",
+      "module": "http",
+      "concepts": [
+        "http-two-frames",
+        "http-two-streams",
+        "http-hpack",
+        "http-two-tcp-head-of-line-blocking"
+      ]
+    },
+    {
+      "id": "http-three",
+      "title": "HTTP/3, QUIC Negotiation and Connection Reuse",
+      "module": "http",
+      "concepts": [
+        "http-three-quic",
+        "http-three-qpack",
+        "http-protocol-negotiation",
+        "http-connection-reuse"
+      ]
+    },
+    {
+      "id": "browser-policy-journey",
+      "title": "A Browser Journey: Origins, CORS and Cold/Warm Evidence",
+      "module": "http",
+      "concepts": [
+        "browser-same-origin-policy",
+        "browser-cors",
+        "browser-preflight",
+        "browser-devtools",
+        "browser-cold-warm-load"
+      ]
+    },
+    {
+      "id": "security-threats-identity",
+      "title": "Threats, Authentication and Authorization",
+      "module": "security",
+      "concepts": [
+        "network-threat-model",
+        "network-authentication",
+        "network-authorization",
+        "network-spoofing",
+        "network-denial-of-service"
+      ]
+    },
+    {
+      "id": "security-cryptographic-tools",
+      "title": "Encryption, Hashes, MACs and Signatures",
+      "module": "security",
+      "concepts": [
+        "network-encryption",
+        "network-hash",
+        "network-message-authentication-code",
+        "network-digital-signature",
+        "network-symmetric-cryptography",
+        "network-asymmetric-cryptography"
+      ]
+    },
+    {
+      "id": "tls-certificates",
+      "title": "Certificate Chains, Hostnames and Expiry",
+      "module": "security",
+      "concepts": [
+        "tls-certificate-trust-chain",
+        "tls-hostname-verification",
+        "tls-certificate-expiry",
+        "tls-trust-anchor"
+      ]
+    },
+    {
+      "id": "tls-browser-handshake",
+      "title": "A Combined HTTP–TLS 1.3 Connection Pilot",
+      "module": "security",
+      "concepts": [
+        "tls-one-three-handshake",
+        "tls-forward-secrecy",
+        "tls-sni",
+        "tls-alpn",
+        "tls-encrypted-records"
+      ]
+    },
+    {
+      "id": "tls-resumption-replay",
+      "title": "Resumption, 0-RTT Replay and Mutual TLS",
+      "module": "security",
+      "concepts": [
+        "tls-session-resumption",
+        "tls-zero-rtt",
+        "tls-zero-rtt-replay",
+        "tls-mutual-authentication"
+      ]
+    },
+    {
+      "id": "vpn-tunnels",
+      "title": "VPN Boundaries: IPsec and WireGuard",
+      "module": "security",
+      "concepts": [
+        "network-vpn",
+        "network-ipsec",
+        "network-wireguard",
+        "vpn-tunnel-boundary",
+        "vpn-split-tunnel"
+      ]
+    },
+    {
+      "id": "security-firewall-segmentation",
+      "title": "Firewalls, IDS/IPS, DMZs and Zero-Trust Boundaries",
+      "module": "security",
+      "concepts": [
+        "network-packet-firewall",
+        "network-stateful-firewall",
+        "network-ids",
+        "network-ips",
+        "network-segmentation",
+        "network-dmz",
+        "network-zero-trust"
+      ]
+    },
+    {
+      "id": "security-privacy-visibility",
+      "title": "Privacy, Traffic Analysis and Anonymous Communication",
+      "module": "security",
+      "concepts": [
+        "network-privacy",
+        "network-traffic-analysis",
+        "network-anonymous-communication",
+        "network-encryption-visibility-limits"
+      ]
+    },
+    {
+      "id": "security-defensive-monitoring",
+      "title": "Defensive Monitoring, Honeypots and Attribution Limits",
+      "module": "security",
+      "concepts": [
+        "network-defensive-monitoring",
+        "network-honeypot",
+        "network-traceback",
+        "network-poisoning-defense",
+        "network-dos-defense"
+      ]
+    },
+    {
+      "id": "mail-delivery-access",
+      "title": "Mail Delivery with SMTP, Mailbox Access with IMAP or POP",
+      "module": "applications",
+      "concepts": [
+        "application-smtp",
+        "application-imap",
+        "application-pop",
+        "mail-store-and-forward"
+      ]
+    },
+    {
+      "id": "file-transfer-remote-shell",
+      "title": "FTP, FTPS, SFTP, SSH and Legacy Telnet",
+      "module": "applications",
+      "concepts": [
+        "application-ftp",
+        "application-ftps",
+        "application-sftp",
+        "application-ssh",
+        "application-legacy-telnet",
+        "ftp-passive-mode"
+      ]
+    },
+    {
+      "id": "management-directory",
+      "title": "SNMP Management and LDAP Directory Queries",
+      "module": "applications",
+      "concepts": [
+        "application-snmp",
+        "application-snmp-mib",
+        "application-ldap",
+        "directory-bind"
+      ]
+    },
+    {
+      "id": "ntp-clocks",
+      "title": "NTP: Estimate Clock Offset Without Assuming Symmetry",
+      "module": "applications",
+      "concepts": [
+        "application-ntp",
+        "network-clock-offset",
+        "network-clock-drift",
+        "network-clock-synchronization"
+      ]
+    },
+    {
+      "id": "broker-messaging",
+      "title": "MQTT and AMQP: Delivery Guarantees Are Scoped",
+      "module": "applications",
+      "concepts": [
+        "application-mqtt",
+        "application-amqp",
+        "application-publish-subscribe",
+        "mqtt-qos",
+        "message-broker-acknowledgment"
+      ]
+    },
+    {
+      "id": "rpc-grpc",
+      "title": "RPC and gRPC: A Remote Call Is Not a Local Call",
+      "module": "applications",
+      "concepts": [
+        "application-rpc",
+        "application-grpc",
+        "rpc-deadline",
+        "rpc-retry-ambiguity",
+        "grpc-streaming"
+      ]
+    },
+    {
+      "id": "browser-live-updates",
+      "title": "Polling, SSE and WebSocket Tradeoffs",
+      "module": "applications",
+      "concepts": [
+        "application-polling",
+        "application-long-polling",
+        "application-server-sent-events",
+        "application-websocket"
+      ]
+    },
+    {
+      "id": "realtime-webrtc",
+      "title": "RTP, RTCP and WebRTC Connectivity",
+      "module": "applications",
+      "concepts": [
+        "application-rtp",
+        "application-rtcp",
+        "application-webrtc",
+        "webrtc-ice",
+        "webrtc-stun",
+        "webrtc-turn",
+        "media-jitter-buffer"
+      ]
+    },
+    {
+      "id": "adaptive-video",
+      "title": "HLS, DASH and the Media Requirement Budget",
+      "module": "applications",
+      "concepts": [
+        "application-hls",
+        "application-dash",
+        "adaptive-bitrate-streaming",
+        "application-latency-requirements",
+        "application-reliability-requirements",
+        "application-bandwidth-requirements"
+      ]
+    },
+    {
+      "id": "peer-file-distribution",
+      "title": "P2P and BitTorrent: Verify Pieces, Then Reassemble",
+      "module": "applications",
+      "concepts": [
+        "application-peer-to-peer",
+        "application-bittorrent",
+        "bittorrent-piece-verification",
+        "bittorrent-swarm"
+      ]
+    },
+    {
+      "id": "socket-lifecycle",
+      "title": "A Socket Is an Endpoint, Not a Remote Process",
+      "module": "sockets",
+      "concepts": [
+        "socket-api",
+        "client-server",
+        "bind-listen-accept-connect"
+      ]
+    },
+    {
+      "id": "partial-io",
+      "title": "Partial Reads, Writes, EOF and Errors",
+      "module": "sockets",
+      "concepts": [
+        "partial-io",
+        "send-recv-loops",
+        "socket-eof",
+        "socket-errors"
+      ]
+    },
+    {
+      "id": "message-framing",
+      "title": "Frame Messages and Serialize Numbers",
+      "module": "sockets",
+      "concepts": [
+        "tcp-application-framing",
+        "datagram-boundaries",
+        "network-byte-order",
+        "serialization"
+      ]
+    },
+    {
+      "id": "io-readiness",
+      "title": "Blocking, Readiness and Completion",
+      "module": "sockets",
+      "concepts": [
+        "blocking-nonblocking",
+        "select-poll-epoll",
+        "windows-iocp"
+      ]
+    },
+    {
+      "id": "socket-backpressure",
+      "title": "Concurrency, Buffers and Backpressure",
+      "module": "sockets",
+      "concepts": [
+        "socket-concurrency",
+        "application-backpressure",
+        "kernel-socket-buffers"
+      ]
+    },
+    {
+      "id": "deadlines-close",
+      "title": "Timeouts, Half-Close and Graceful Shutdown",
+      "module": "sockets",
+      "concepts": [
+        "socket-timeouts",
+        "graceful-close",
+        "half-close-application"
+      ]
+    },
+    {
+      "id": "nat-pat",
+      "title": "NAT, PAT and Carrier-Grade NAT",
+      "module": "cloud",
+      "concepts": [
+        "nat",
+        "pat",
+        "cgnat"
+      ]
+    },
+    {
+      "id": "load-balancing",
+      "title": "L4 and L7 Load Balancers",
+      "module": "cloud",
+      "concepts": [
+        "l4-load-balancer",
+        "l7-load-balancer",
+        "reverse-proxy"
+      ]
+    },
+    {
+      "id": "health-pools",
+      "title": "Health Checks, Pools and Draining",
+      "module": "cloud",
+      "concepts": [
+        "health-checks",
+        "connection-pools",
+        "backend-draining"
+      ]
+    },
+    {
+      "id": "retry-budgets",
+      "title": "Deadlines, Retries, Jitter and Idempotency",
+      "module": "cloud",
+      "concepts": [
+        "production-deadlines",
+        "retry-backoff-jitter",
+        "retry-idempotency"
+      ]
+    },
+    {
+      "id": "cdn-anycast",
+      "title": "CDNs, Anycast and Cache Placement",
+      "module": "cloud",
+      "concepts": [
+        "cdn",
+        "anycast-service",
+        "edge-fog-computing"
+      ]
+    },
+    {
+      "id": "vpc-routing",
+      "title": "VPCs, Subnets, Routes and Gateways",
+      "module": "cloud",
+      "concepts": [
+        "vpc",
+        "cloud-subnets",
+        "cloud-route-tables",
+        "cloud-gateways",
+        "cloud-security-groups"
+      ]
+    },
+    {
+      "id": "container-networking",
+      "title": "Network Namespaces, veth and Overlays",
+      "module": "cloud",
+      "concepts": [
+        "network-namespaces",
+        "veth",
+        "linux-bridge",
+        "cni",
+        "overlay-vxlan"
+      ]
+    },
+    {
+      "id": "service-discovery",
+      "title": "Service Discovery and Kubernetes Delivery",
+      "module": "cloud",
+      "concepts": [
+        "service-discovery",
+        "kubernetes-pod-network",
+        "kubernetes-services",
+        "kubernetes-ingress"
+      ]
+    },
+    {
+      "id": "service-mesh",
+      "title": "Service Meshes and Production Trust Boundaries",
+      "module": "cloud",
+      "concepts": [
+        "service-mesh",
+        "mesh-mtls",
+        "production-network-policy"
+      ]
+    },
+    {
+      "id": "diagnostic-tools",
+      "title": "Inspect Addresses, Routes, Neighbors and Sockets",
+      "module": "troubleshooting",
+      "concepts": [
+        "linux-network-tools",
+        "windows-network-tools",
+        "evidence-inference"
+      ]
+    },
+    {
+      "id": "capture-analysis",
+      "title": "Capture Filters, Display Filters and TCP Timelines",
+      "module": "troubleshooting",
+      "concepts": [
+        "capture-display-filters",
+        "packet-header-analysis",
+        "tcp-timeline-analysis",
+        "capture-offload-artifacts"
+      ]
+    },
+    {
+      "id": "route-neighbor-failures",
+      "title": "Bad Masks, Missing Routes and Neighbor Failures",
+      "module": "troubleshooting",
+      "concepts": [
+        "bad-subnet-mask",
+        "missing-route",
+        "neighbor-failure-diagnosis"
+      ]
+    },
+    {
+      "id": "failure-signatures",
+      "title": "DNS Failure, Refusal, Timeout and Certificate Error",
+      "module": "troubleshooting",
+      "concepts": [
+        "dns-failure-diagnosis",
+        "connection-refused",
+        "connection-timeout",
+        "certificate-failure-diagnosis"
+      ]
+    },
+    {
+      "id": "mtu-loss-diagnosis",
+      "title": "MTU Black Holes, Loss and Latency",
+      "module": "troubleshooting",
+      "concepts": [
+        "mtu-black-hole-diagnosis",
+        "loss-diagnosis",
+        "latency-diagnosis"
+      ]
+    },
+    {
+      "id": "browser-policy-diagnosis",
+      "title": "HTTP Failure Versus Browser Policy",
+      "module": "troubleshooting",
+      "concepts": [
+        "http-browser-policy-diagnosis",
+        "devtools-evidence"
+      ]
+    },
+    {
+      "id": "website-journey",
+      "title": "Defend a Cold and Warm Website Journey",
+      "module": "cases",
+      "concepts": [
+        "case-cold-website",
+        "case-warm-website",
+        "packet-journey-defense"
+      ]
+    },
+    {
+      "id": "join-wifi-case",
+      "title": "Join Wi-Fi and Become Ready to Communicate",
+      "module": "cases",
+      "concepts": [
+        "case-join-wifi"
+      ]
+    },
+    {
+      "id": "nat-lb-case",
+      "title": "Trace a Service Request Through NAT and a Load Balancer",
+      "module": "cases",
+      "concepts": [
+        "case-nat-load-balancer"
+      ]
+    },
+    {
+      "id": "ipv6-journey-case",
+      "title": "Trace an IPv6 Request Without Inventing ARP",
+      "module": "cases",
+      "concepts": [
+        "case-ipv6-delivery"
+      ]
+    },
+    {
+      "id": "slow-api-case",
+      "title": "Diagnose a Slow API by Its Critical Path",
+      "module": "cases",
+      "concepts": [
+        "case-slow-api"
+      ]
+    },
+    {
+      "id": "lost-response-case",
+      "title": "A Lost Response After a Successful Operation",
+      "module": "cases",
+      "concepts": [
+        "case-lost-response"
+      ]
+    },
+    {
+      "id": "traffic-requirements-case",
+      "title": "Video Calls, File Transfers and Games",
+      "module": "cases",
+      "concepts": [
+        "case-media-file-gaming"
+      ]
+    },
+    {
+      "id": "office-design-case",
+      "title": "Design a Small Office and Defend the Packet Path",
+      "module": "cases",
+      "concepts": [
+        "case-small-office",
+        "network-design-tradeoffs",
+        "network-ethics-sustainability"
+      ]
+    },
+    {
+      "id": "multicast-trees",
+      "title": "Multicast membership and distribution trees",
+      "module": "enterprise",
+      "concepts": [
+        "ip-multicast",
+        "igmp",
+        "mld",
+        "pim-sparse-mode",
+        "reverse-path-forwarding"
+      ]
+    },
+    {
+      "id": "mpls-vrf-vpns",
+      "title": "MPLS labels, VRFs and provider VPNs",
+      "module": "enterprise",
+      "concepts": [
+        "mpls",
+        "label-switched-path",
+        "vrf",
+        "route-distinguisher",
+        "route-target",
+        "mpls-ip-vpn"
+      ]
+    },
+    {
+      "id": "ospf-areas",
+      "title": "OSPF areas, flooding and convergence",
+      "module": "enterprise",
+      "concepts": [
+        "ospf-areas",
+        "ospf-lsa",
+        "ospf-spf",
+        "ospf-summarization"
+      ]
+    },
+    {
+      "id": "bgp-policy-reflection",
+      "title": "BGP policy and route reflection",
+      "module": "enterprise",
+      "concepts": [
+        "bgp-policy",
+        "bgp-communities",
+        "route-reflection"
+      ]
+    },
+    {
+      "id": "bgp-origin-safety",
+      "title": "Route leaks, hijacks, RPKI and BGPsec",
+      "module": "enterprise",
+      "concepts": [
+        "bgp-route-leak",
+        "bgp-prefix-hijack",
+        "rpki",
+        "route-origin-authorization",
+        "origin-validation",
+        "bgpsec",
+        "bgp-path-validation",
+        "bgpsec-signatures"
+      ]
+    },
+    {
+      "id": "evpn-vxlan",
+      "title": "EVPN control plane and VXLAN overlays",
+      "module": "enterprise",
+      "concepts": [
+        "evpn",
+        "vxlan",
+        "vtep",
+        "vni",
+        "evpn-mac-learning",
+        "overlay-underlay"
+      ]
+    },
+    {
+      "id": "programmable-forwarding",
+      "title": "SDN, OpenFlow and P4 pipelines",
+      "module": "enterprise",
+      "concepts": [
+        "sdn",
+        "openflow",
+        "match-action-pipeline",
+        "p4",
+        "programmable-parser"
+      ]
+    },
+    {
+      "id": "nfv-traffic-engineering",
+      "title": "NFV service chains and traffic engineering",
+      "module": "enterprise",
+      "concepts": [
+        "nfv",
+        "service-function-chain",
+        "traffic-engineering",
+        "admission-control",
+        "stateful-service-placement"
+      ]
+    },
+    {
+      "id": "cellular-registration",
+      "title": "LTE and 5G radio, core and registration",
+      "module": "mobile",
+      "concepts": [
+        "lte-4g",
+        "5g",
+        "cellular-radio-access",
+        "cellular-core",
+        "cellular-registration",
+        "cellular-user-plane"
+      ]
+    },
+    {
+      "id": "handover-radio-energy",
+      "title": "Handover, radio scheduling and battery energy",
+      "module": "mobile",
+      "concepts": [
+        "cellular-handover",
+        "radio-measurement",
+        "discontinuous-reception",
+        "radio-tail-energy",
+        "scheduled-radio-access"
+      ]
+    },
+    {
+      "id": "bluetooth-ble",
+      "title": "Bluetooth Classic and BLE timing",
+      "module": "mobile",
+      "concepts": [
+        "bluetooth-classic",
+        "bluetooth-low-energy",
+        "ble-advertising",
+        "ble-connection-events",
+        "ble-gatt"
+      ]
+    },
+    {
+      "id": "lowpan-thread-zigbee",
+      "title": "6LoWPAN, Thread and Zigbee",
+      "module": "mobile",
+      "concepts": [
+        "sixlowpan",
+        "sixlowpan-compression",
+        "lowpan-fragmentation",
+        "thread",
+        "zigbee",
+        "ieee-802154"
+      ]
+    },
+    {
+      "id": "sensor-mesh-adhoc",
+      "title": "Sensor meshes and ad hoc routing",
+      "module": "mobile",
+      "concepts": [
+        "wireless-mesh",
+        "ad-hoc-routing",
+        "sensor-networks",
+        "mesh-route-metric",
+        "sensor-energy-budget"
+      ]
+    },
+    {
+      "id": "leo-delay-tolerant",
+      "title": "LEO satellite paths and delay-tolerant delivery",
+      "module": "mobile",
+      "concepts": [
+        "leo-satellite",
+        "satellite-propagation",
+        "satellite-handover",
+        "delay-tolerant-networking",
+        "bundle-protocol",
+        "store-carry-forward"
+      ]
+    },
+    {
+      "id": "mmwave-visible-light",
+      "title": "Millimeter-wave and visible-light links",
+      "module": "mobile",
+      "concepts": [
+        "millimeter-wave",
+        "beamforming",
+        "beam-blockage",
+        "visible-light-communication",
+        "optical-wireless-boundary"
+      ]
+    },
+    {
+      "id": "clos-leaf-spine",
+      "title": "Leaf-spine Clos fabrics and oversubscription",
+      "module": "datacenter",
+      "concepts": [
+        "clos",
+        "leaf-spine",
+        "oversubscription",
+        "bisection-bandwidth"
+      ]
+    },
+    {
+      "id": "incast-dctcp",
+      "title": "Incast queues and DCTCP feedback",
+      "module": "datacenter",
+      "concepts": [
+        "dctcp",
+        "ecn-marking",
+        "dctcp-alpha",
+        "datacenter-queue-burst"
+      ]
+    },
+    {
+      "id": "rdma-fabric-tradeoffs",
+      "title": "RDMA, InfiniBand, RoCE and PFC tradeoffs",
+      "module": "datacenter",
+      "concepts": [
+        "rdma",
+        "memory-registration",
+        "queue-pair",
+        "infiniband",
+        "roce",
+        "priority-flow-control",
+        "pfc-head-of-line-blocking"
+      ]
+    },
+    {
+      "id": "dpdk-kernel-bypass",
+      "title": "DPDK poll-mode packet processing",
+      "module": "datacenter",
+      "concepts": [
+        "kernel-bypass",
+        "dpdk",
+        "poll-mode-driver",
+        "packet-buffer-pool",
+        "batch-packet-processing",
+        "numa-locality"
+      ]
+    },
+    {
+      "id": "ebpf-xdp-offloads",
+      "title": "eBPF, XDP, zero-copy and NIC offloads",
+      "module": "datacenter",
+      "concepts": [
+        "ebpf",
+        "bpf-verifier",
+        "xdp",
+        "af-xdp",
+        "zero-copy",
+        "checksum-offload",
+        "segmentation-offload",
+        "receive-coalescing"
+      ]
+    },
+    {
+      "id": "storage-ai-fabrics",
+      "title": "Distributed storage and AI training traffic",
+      "module": "datacenter",
+      "concepts": [
+        "distributed-storage-network",
+        "storage-replication",
+        "storage-quorum",
+        "ai-training-network",
+        "all-reduce",
+        "collective-tail-latency"
+      ]
+    },
+    {
+      "id": "token-ring-fddi",
+      "title": "Token Ring and FDDI access control",
+      "module": "history",
+      "concepts": [
+        "token-ring",
+        "token-passing",
+        "fddi",
+        "dual-ring-recovery",
+        "historical-lan-replacement"
+      ]
+    },
+    {
+      "id": "legacy-packet-circuits",
+      "title": "X.25, Frame Relay and ATM virtual circuits",
+      "module": "history",
+      "concepts": [
+        "x25",
+        "frame-relay",
+        "atm",
+        "virtual-circuit",
+        "atm-cell",
+        "atm-adaptation"
+      ]
+    },
+    {
+      "id": "isdn-sonet-sdh",
+      "title": "ISDN and synchronous optical transport",
+      "module": "history",
+      "concepts": [
+        "isdn",
+        "isdn-b-channel",
+        "isdn-d-channel",
+        "sonet",
+        "sdh",
+        "synchronous-transport",
+        "optical-protection"
+      ]
+    },
+    {
+      "id": "research-quantum-boundaries",
+      "title": "Research proposals, quantum networks and QKD limits",
+      "module": "history",
+      "concepts": [
+        "internet-draft",
+        "standards-status",
+        "quantum-network",
+        "entanglement",
+        "quantum-repeater",
+        "qkd",
+        "qkd-authentication",
+        "no-faster-than-light-signaling"
+      ]
+    }
+  ],
+  "concepts": [
+    "5g",
+    "access-point",
+    "access-port",
+    "ack-compression",
+    "acknowledgment",
+    "active-queue-management",
+    "ad-hoc-routing",
+    "adaptive-bitrate-streaming",
+    "additive-increase-multiplicative-decrease",
+    "address-conflict",
+    "address-plan",
+    "adjacent-channel-interference",
+    "admission-control",
+    "af-xdp",
+    "ai-training-network",
+    "all-reduce",
+    "alternating-bit",
+    "anycast-service",
+    "application-amqp",
+    "application-backpressure",
+    "application-bandwidth-requirements",
+    "application-bittorrent",
+    "application-completion-ack",
+    "application-dash",
+    "application-deadline",
+    "application-ftp",
+    "application-ftps",
+    "application-goodput",
+    "application-grpc",
+    "application-heartbeat",
+    "application-hls",
+    "application-imap",
+    "application-latency-requirements",
+    "application-ldap",
+    "application-legacy-telnet",
+    "application-limited-sending",
+    "application-long-polling",
+    "application-mqtt",
+    "application-ntp",
+    "application-peer-to-peer",
+    "application-polling",
+    "application-pop",
+    "application-publish-subscribe",
+    "application-reliability-requirements",
+    "application-rpc",
+    "application-rtcp",
+    "application-rtp",
+    "application-server-sent-events",
+    "application-sftp",
+    "application-smtp",
+    "application-snmp",
+    "application-snmp-mib",
+    "application-ssh",
+    "application-webrtc",
+    "application-websocket",
+    "arp",
+    "arp-cache",
+    "arp-reply",
+    "arp-request",
+    "as-routing-boundary",
+    "ask",
+    "atm",
+    "atm-adaptation",
+    "atm-cell",
+    "attenuation",
+    "automatic-repeat-request",
+    "autonomous-system",
+    "backend-draining",
+    "bad-subnet-mask",
+    "bandwidth",
+    "bandwidth-delay-product",
+    "batch-packet-processing",
+    "bbr",
+    "beam-blockage",
+    "beamforming",
+    "bellman-ford",
+    "bgp",
+    "bgp-as-loop-detection",
+    "bgp-as-path",
+    "bgp-communities",
+    "bgp-community",
+    "bgp-export-policy",
+    "bgp-local-preference",
+    "bgp-med",
+    "bgp-next-hop",
+    "bgp-path-validation",
+    "bgp-policy",
+    "bgp-prefix-hijack",
+    "bgp-route-leak",
+    "bgp-route-selection",
+    "bgpsec",
+    "bgpsec-signatures",
+    "bind-listen-accept-connect",
+    "bisection-bandwidth",
+    "bit",
+    "bit-rate",
+    "bit-stuffing",
+    "bittorrent-piece-verification",
+    "bittorrent-swarm",
+    "bitwise-and",
+    "ble-advertising",
+    "ble-connection-events",
+    "ble-gatt",
+    "blocking-nonblocking",
+    "bluetooth-classic",
+    "bluetooth-low-energy",
+    "bottleneck-bandwidth-estimate",
+    "bottleneck-rate",
+    "bpdu",
+    "bpf-verifier",
+    "bridge-loop",
+    "broadcast",
+    "broadcast-domain",
+    "broadcast-storm",
+    "browser-cold-warm-load",
+    "browser-cors",
+    "browser-devtools",
+    "browser-preflight",
+    "browser-same-origin-policy",
+    "bssid",
+    "bufferbloat",
+    "bundle-protocol",
+    "burst-error",
+    "bus-topology",
+    "byte",
+    "byte-stuffing",
+    "capture-display-filters",
+    "capture-offload-artifacts",
+    "case-cold-website",
+    "case-ipv6-delivery",
+    "case-join-wifi",
+    "case-lost-response",
+    "case-media-file-gaming",
+    "case-nat-load-balancer",
+    "case-slow-api",
+    "case-small-office",
+    "case-warm-website",
+    "cdn",
+    "cellular-core",
+    "cellular-handover",
+    "cellular-radio-access",
+    "cellular-registration",
+    "cellular-user-plane",
+    "certificate-failure-diagnosis",
+    "cgnat",
+    "checksum",
+    "checksum-offload",
+    "cidr",
+    "circuit-switching",
+    "classless-routing",
+    "client-server",
+    "clock-recovery",
+    "clos",
+    "cloud-gateways",
+    "cloud-route-tables",
+    "cloud-security-groups",
+    "cloud-subnets",
+    "cni",
+    "co-channel-interference",
+    "codel",
+    "collective-tail-latency",
+    "collision-domain",
+    "congestion-experienced",
+    "congestion-fairness",
+    "connection-pools",
+    "connection-refused",
+    "connection-timeout",
+    "contention-backoff",
+    "cookie-httponly",
+    "cookie-samesite",
+    "cookie-secure",
+    "copper-link",
+    "corruption-detection",
+    "count-to-infinity",
+    "crc",
+    "csma-ca",
+    "csma-cd",
+    "cubic-beta",
+    "cubic-previous-maximum",
+    "cubic-tcp-friendly-region",
+    "cubic-window-function",
+    "cumulative-ack",
+    "cumulative-acknowledgment",
+    "datacenter-queue-burst",
+    "datagram-boundaries",
+    "dctcp",
+    "dctcp-alpha",
+    "decapsulation",
+    "default-gateway",
+    "default-route",
+    "delay-tolerant-networking",
+    "delivery-rate-sampling",
+    "deprecated-address",
+    "devtools-evidence",
+    "dhcp",
+    "dhcp-conflict-check",
+    "dhcp-dora",
+    "dhcp-lease",
+    "dhcp-rebinding",
+    "dhcp-relay",
+    "dhcp-renewal",
+    "dhcpv6",
+    "diagnostic-limits",
+    "differentiated-services",
+    "dijkstra",
+    "directed-broadcast",
+    "directory-bind",
+    "discontinuous-reception",
+    "distance-vector-routing",
+    "distributed-storage-network",
+    "dns-a-record",
+    "dns-aaaa-record",
+    "dns-authoritative-server",
+    "dns-cache",
+    "dns-cache-poisoning",
+    "dns-cname-record",
+    "dns-delegation",
+    "dns-edns",
+    "dns-failure-diagnosis",
+    "dns-glue-record",
+    "dns-hierarchy",
+    "dns-https-record",
+    "dns-iterative-query",
+    "dns-load-balancing",
+    "dns-mx-record",
+    "dns-negative-cache",
+    "dns-nodata",
+    "dns-ns-record",
+    "dns-nxdomain",
+    "dns-over-https",
+    "dns-over-tls",
+    "dns-ptr-record",
+    "dns-recursive-query",
+    "dns-recursive-resolver",
+    "dns-reverse-lookup",
+    "dns-servfail",
+    "dns-soa-record",
+    "dns-split-horizon",
+    "dns-srv-record",
+    "dns-stub-resolver",
+    "dns-svcb-record",
+    "dns-tcp",
+    "dns-truncation-retry",
+    "dns-ttl",
+    "dns-txt-record",
+    "dns-udp",
+    "dns-zone",
+    "dns64",
+    "dnssec",
+    "documentation-prefix",
+    "dont-fragment",
+    "dpdk",
+    "dscp",
+    "dual-ring-recovery",
+    "dual-stack",
+    "duplicate-address-detection",
+    "duplicate-frame",
+    "duplicate-suppression",
+    "durable-deduplication",
+    "ebgp",
+    "ebpf",
+    "ecn-capable-transport",
+    "ecn-marking",
+    "edge-fog-computing",
+    "encapsulation",
+    "end-to-end-principle",
+    "endpoint-identity",
+    "entanglement",
+    "ephemeral-port",
+    "equal-cost-multipath",
+    "error-correction",
+    "error-detection",
+    "ethernet-frame",
+    "ethernet-mac",
+    "evidence-inference",
+    "evpn",
+    "evpn-mac-learning",
+    "exactly-once-misconception",
+    "explicit-congestion-notification",
+    "exponential-retransmission-backoff",
+    "exposed-terminal",
+    "fair-queueing",
+    "fanout-tail-amplification",
+    "fast-reroute",
+    "fddi",
+    "fdm",
+    "fec",
+    "fiber-link",
+    "fifo-scheduling",
+    "floating-static-route",
+    "flow-hashing",
+    "forwarding-information-base",
+    "fragment-offset",
+    "frame-check-sequence",
+    "frame-filtering",
+    "frame-relay",
+    "framing",
+    "fsk",
+    "ftp-passive-mode",
+    "full-duplex",
+    "full-duplex-ethernet",
+    "go-back-n",
+    "graceful-close",
+    "grpc-streaming",
+    "half-close-application",
+    "half-duplex",
+    "half-open-connection",
+    "hamming-code",
+    "hamming-distance",
+    "happy-eyeballs",
+    "hdlc",
+    "health-checks",
+    "hidden-terminal",
+    "historical-address-classes",
+    "historical-lan-replacement",
+    "hop-by-hop-options",
+    "hop-header-changes",
+    "host",
+    "host-bits",
+    "host-route-selection",
+    "http-browser-policy-diagnosis",
+    "http-cache",
+    "http-cache-control",
+    "http-chunked-encoding",
+    "http-conditional-requests",
+    "http-connect-tunnel",
+    "http-connection-reuse",
+    "http-content-length",
+    "http-cookies",
+    "http-etag",
+    "http-forward-proxy",
+    "http-headers",
+    "http-hpack",
+    "http-idempotency",
+    "http-methods",
+    "http-one-message-framing",
+    "http-one-persistent-connections",
+    "http-origin",
+    "http-protocol-negotiation",
+    "http-protocol-transition",
+    "http-redirect",
+    "http-request",
+    "http-response",
+    "http-reverse-proxy",
+    "http-safe-methods",
+    "http-session",
+    "http-status-codes",
+    "http-three-qpack",
+    "http-three-quic",
+    "http-tls-termination",
+    "http-two-frames",
+    "http-two-streams",
+    "http-two-tcp-head-of-line-blocking",
+    "http-url",
+    "http-validators",
+    "ibgp",
+    "icmp",
+    "icmp-echo",
+    "icmp-time-exceeded",
+    "icmpv6",
+    "idempotency-key",
+    "idle-connection-timeout",
+    "ieee-802-1q",
+    "ieee-802154",
+    "igmp",
+    "in-flight-window",
+    "incast",
+    "incast-queue-burst",
+    "infiniband",
+    "inter-vlan-routing",
+    "interference",
+    "internet",
+    "internet-checksum",
+    "internet-draft",
+    "internet-peering",
+    "internet-transit",
+    "ip-address",
+    "ip-multicast",
+    "ipv4-binary",
+    "ipv4-fragmentation",
+    "ipv4-header",
+    "ipv4-header-checksum",
+    "ipv4-ihl",
+    "ipv4-link-local",
+    "ipv4-loopback",
+    "ipv4-network-address",
+    "ipv4-protocol-field",
+    "ipv4-slash-31",
+    "ipv4-slash-32",
+    "ipv4-special-purpose",
+    "ipv4-total-length",
+    "ipv4-ttl",
+    "ipv6-address-privacy",
+    "ipv6-anycast",
+    "ipv6-default-router",
+    "ipv6-extension-header",
+    "ipv6-global-unicast",
+    "ipv6-header",
+    "ipv6-hop-limit",
+    "ipv6-link-local",
+    "ipv6-loopback",
+    "ipv6-multicast",
+    "ipv6-neighbor-cache",
+    "ipv6-next-header",
+    "ipv6-no-broadcast",
+    "ipv6-notation",
+    "ipv6-prefix-information",
+    "ipv6-prefix-length",
+    "ipv6-source-fragmentation",
+    "ipv6-source-selection",
+    "ipv6-transition-tradeoffs",
+    "ipv6-unicast",
+    "ipv6-unique-local",
+    "ipv6-unspecified",
+    "ipv6-zero-compression",
+    "is-is",
+    "is-is-levels",
+    "isdn",
+    "isdn-b-channel",
+    "isdn-d-channel",
+    "isp",
+    "jitter-buffer",
+    "karn-algorithm",
+    "kernel-bypass",
+    "kernel-socket-buffers",
+    "kubernetes-ingress",
+    "kubernetes-pod-network",
+    "kubernetes-services",
+    "l4-load-balancer",
+    "l7-load-balancer",
+    "label-switched-path",
+    "lacp",
+    "lan",
+    "latency-diagnosis",
+    "latency-percentile",
+    "layer-interface",
+    "leaf-spine",
+    "leaky-bucket",
+    "leo-satellite",
+    "line-coding",
+    "link",
+    "link-aggregation",
+    "link-aggregation-flow-hashing",
+    "link-state-database",
+    "link-state-flooding",
+    "link-state-routing",
+    "linux-bridge",
+    "linux-network-tools",
+    "listening-endpoint",
+    "liveness-detection",
+    "longest-prefix-match",
+    "loss-based-congestion-control",
+    "loss-diagnosis",
+    "lowpan-fragmentation",
+    "lte-4g",
+    "mac-address",
+    "mac-aging",
+    "mac-learning",
+    "mac-table",
+    "mail-store-and-forward",
+    "man",
+    "manchester",
+    "match-action-pipeline",
+    "media-jitter-buffer",
+    "memory-registration",
+    "mesh-mtls",
+    "mesh-route-metric",
+    "mesh-topology",
+    "message-broker-acknowledgment",
+    "millimeter-wave",
+    "mimo",
+    "minimum-rtt-estimate",
+    "missing-route",
+    "mld",
+    "model-based-congestion-control",
+    "modem",
+    "modulation",
+    "more-fragments",
+    "mpls",
+    "mpls-ip-vpn",
+    "mqtt-qos",
+    "mtu",
+    "mtu-black-hole",
+    "mtu-black-hole-diagnosis",
+    "multicast",
+    "nagle-algorithm",
+    "nat",
+    "nat64",
+    "ndp",
+    "neighbor-advertisement",
+    "neighbor-failure-diagnosis",
+    "neighbor-solicitation",
+    "neighbor-unreachability-detection",
+    "network-anonymous-communication",
+    "network-asymmetric-cryptography",
+    "network-authentication",
+    "network-authorization",
+    "network-byte-order",
+    "network-clock-drift",
+    "network-clock-offset",
+    "network-clock-synchronization",
+    "network-defensive-monitoring",
+    "network-denial-of-service",
+    "network-design-tradeoffs",
+    "network-digital-signature",
+    "network-dmz",
+    "network-dos-defense",
+    "network-encryption",
+    "network-encryption-visibility-limits",
+    "network-energy",
+    "network-ethics-sustainability",
+    "network-hash",
+    "network-honeypot",
+    "network-ids",
+    "network-ips",
+    "network-ipsec",
+    "network-message-authentication-code",
+    "network-name",
+    "network-namespaces",
+    "network-packet-firewall",
+    "network-poisoning-defense",
+    "network-prefix",
+    "network-privacy",
+    "network-privacy-ethics",
+    "network-protocol",
+    "network-purpose",
+    "network-redundancy",
+    "network-segmentation",
+    "network-service",
+    "network-spoofing",
+    "network-stateful-firewall",
+    "network-symmetric-cryptography",
+    "network-threat-model",
+    "network-topology",
+    "network-traceback",
+    "network-traffic-analysis",
+    "network-vpn",
+    "network-wireguard",
+    "network-zero-trust",
+    "next-hop-resolution",
+    "nfv",
+    "no-faster-than-light-signaling",
+    "noise",
+    "nrz",
+    "numa-locality",
+    "nyquist-limit",
+    "ofdm",
+    "on-link-destination",
+    "openflow",
+    "optical-protection",
+    "optical-wireless-boundary",
+    "origin-validation",
+    "osi-model",
+    "ospf",
+    "ospf-adjacency",
+    "ospf-area",
+    "ospf-areas",
+    "ospf-backbone",
+    "ospf-designated-router",
+    "ospf-lsa",
+    "ospf-spf",
+    "ospf-summarization",
+    "out-of-order-buffering",
+    "out-of-order-reassembly",
+    "overlay-underlay",
+    "overlay-vxlan",
+    "oversubscription",
+    "p4",
+    "packet-buffer-pool",
+    "packet-data-plane",
+    "packet-delay-variation",
+    "packet-header-analysis",
+    "packet-journey",
+    "packet-journey-defense",
+    "packet-queue",
+    "packet-sojourn-time",
+    "packet-switching",
+    "pan",
+    "parity",
+    "partial-io",
+    "pat",
+    "path-mtu",
+    "peak-rate-limit",
+    "per-flow-fairness",
+    "per-hop-behavior",
+    "pfc-head-of-line-blocking",
+    "pim-sparse-mode",
+    "ping",
+    "plpmtud",
+    "pmtud",
+    "poison-reverse",
+    "poll-mode-driver",
+    "port-address-role",
+    "ppp",
+    "preferred-lifetime",
+    "prefix-alignment",
+    "priority-flow-control",
+    "private-ipv4",
+    "production-deadlines",
+    "production-network-policy",
+    "professional-network-practice",
+    "programmable-parser",
+    "propagation-delay",
+    "protected-management-frames",
+    "protocol-overhead",
+    "psk",
+    "public-ipv4",
+    "qam",
+    "qkd",
+    "qkd-authentication",
+    "qos-admission-control",
+    "qos-trust-boundary",
+    "quality-of-service",
+    "quantum-network",
+    "quantum-repeater",
+    "queue-pair",
+    "quic",
+    "quic-anti-amplification",
+    "quic-connection-id",
+    "quic-connection-migration",
+    "quic-handshake",
+    "quic-loss-recovery",
+    "quic-nat-rebinding",
+    "quic-packet-number",
+    "quic-path-state",
+    "quic-path-validation",
+    "quic-stream",
+    "quic-stream-flow-control",
+    "quic-stream-offset",
+    "quic-tls",
+    "quic-zero-rtt",
+    "radio-link",
+    "radio-measurement",
+    "radio-tail-energy",
+    "random-access",
+    "random-early-detection",
+    "rdma",
+    "reassembly",
+    "receive-buffer-limit",
+    "receive-coalescing",
+    "reliable-pipelining",
+    "reliable-sequence-number",
+    "remote-destination",
+    "retransmission",
+    "retransmission-timeout",
+    "retry-ambiguity",
+    "retry-backoff-jitter",
+    "retry-idempotency",
+    "reverse-path-forwarding",
+    "reverse-proxy",
+    "ring-topology",
+    "rip",
+    "roaming-continuity",
+    "roce",
+    "root-bridge",
+    "round-trip-time-estimation",
+    "route-aggregation",
+    "route-distinguisher",
+    "route-origin-authorization",
+    "route-preference",
+    "route-reflection",
+    "route-target",
+    "router",
+    "router-advertisement",
+    "router-solicitation",
+    "routing-control-plane",
+    "routing-convergence",
+    "routing-information-base",
+    "routing-loop",
+    "routing-metric",
+    "routing-microloop",
+    "routing-redundancy",
+    "rpc-deadline",
+    "rpc-retry-ambiguity",
+    "rpki",
+    "rssi",
+    "rstp",
+    "rts-cts",
+    "rtt-unfairness",
+    "rtt-variation",
+    "sae",
+    "satellite-handover",
+    "satellite-propagation",
+    "scheduled-access",
+    "scheduled-radio-access",
+    "sdh",
+    "sdn",
+    "segmentation-offload",
+    "select-poll-epoll",
+    "selective-acknowledgment",
+    "selective-repeat",
+    "send-recv-loops",
+    "sensor-energy-budget",
+    "sensor-networks",
+    "sequence-space-limit",
+    "sequence-space-wrap",
+    "serialization",
+    "service-discovery",
+    "service-function-chain",
+    "service-mesh",
+    "shannon-capacity",
+    "shortest-path-tree",
+    "signal-to-noise-ratio",
+    "simplex",
+    "sixlowpan",
+    "sixlowpan-compression",
+    "slaac",
+    "sliding-window",
+    "socket-api",
+    "socket-concurrency",
+    "socket-eof",
+    "socket-errors",
+    "socket-linger",
+    "socket-timeouts",
+    "solicited-node-multicast",
+    "sonet",
+    "spatial-stream",
+    "split-horizon",
+    "ssid",
+    "standards-status",
+    "star-topology",
+    "stateful-service-placement",
+    "static-route",
+    "statistical-multiplexing",
+    "stop-and-wait",
+    "storage-quorum",
+    "storage-replication",
+    "store-and-forward",
+    "store-carry-forward",
+    "stp",
+    "strict-priority-scheduling",
+    "subnet-allocation",
+    "subnet-mask",
+    "subnet-range",
+    "summary-route",
+    "switch",
+    "symbol",
+    "symbol-rate",
+    "synchronous-transport",
+    "tail-drop",
+    "tail-latency",
+    "tcp",
+    "tcp-ack-number",
+    "tcp-application-framing",
+    "tcp-byte-stream",
+    "tcp-bytes-in-flight",
+    "tcp-checksum",
+    "tcp-close-wait",
+    "tcp-closing",
+    "tcp-congestion-avoidance",
+    "tcp-congestion-window",
+    "tcp-congestion-window-reduced",
+    "tcp-connection-incarnation",
+    "tcp-cubic",
+    "tcp-cumulative-ack",
+    "tcp-delayed-ack",
+    "tcp-duplicate-ack",
+    "tcp-ecn-echo",
+    "tcp-established",
+    "tcp-fast-open",
+    "tcp-fast-recovery",
+    "tcp-fast-retransmit",
+    "tcp-fin",
+    "tcp-fin-wait",
+    "tcp-flags",
+    "tcp-four-tuple",
+    "tcp-half-close",
+    "tcp-header",
+    "tcp-initial-sequence-number",
+    "tcp-ip-model",
+    "tcp-keepalive",
+    "tcp-last-ack",
+    "tcp-listen",
+    "tcp-loss-scoreboard",
+    "tcp-maximum-segment-lifetime",
+    "tcp-maximum-segment-size",
+    "tcp-mss",
+    "tcp-nodelay",
+    "tcp-option-negotiation",
+    "tcp-persist-probe",
+    "tcp-psh",
+    "tcp-receive-window",
+    "tcp-reno",
+    "tcp-retransmission",
+    "tcp-rst",
+    "tcp-sack",
+    "tcp-segment",
+    "tcp-sequence-number",
+    "tcp-simultaneous-open",
+    "tcp-slow-start",
+    "tcp-small-write-latency",
+    "tcp-spurious-retransmission",
+    "tcp-ssthresh",
+    "tcp-syn",
+    "tcp-syn-cookie",
+    "tcp-syn-flood",
+    "tcp-syn-received",
+    "tcp-syn-sent",
+    "tcp-three-way-handshake",
+    "tcp-time-wait",
+    "tcp-timeline-analysis",
+    "tcp-timestamps",
+    "tcp-urg",
+    "tcp-window-scaling",
+    "tcp-zero-window",
+    "tdm",
+    "temporary-ipv6-address",
+    "thread",
+    "timeout",
+    "tls-alpn",
+    "tls-certificate-expiry",
+    "tls-certificate-trust-chain",
+    "tls-encrypted-records",
+    "tls-forward-secrecy",
+    "tls-hostname-verification",
+    "tls-mutual-authentication",
+    "tls-one-three-handshake",
+    "tls-session-resumption",
+    "tls-sni",
+    "tls-trust-anchor",
+    "tls-zero-rtt",
+    "tls-zero-rtt-replay",
+    "token-bucket",
+    "token-bucket-burst",
+    "token-passing",
+    "token-ring",
+    "traceroute",
+    "traceroute-variants",
+    "traffic-classification",
+    "traffic-contract",
+    "traffic-engineering",
+    "traffic-policing",
+    "traffic-shaping",
+    "transmission-delay",
+    "transport-connection-reuse",
+    "transport-delivery-semantics",
+    "transport-demultiplexing",
+    "transport-flow-control",
+    "transport-head-of-line-blocking",
+    "transport-multiplexing",
+    "transport-pacing",
+    "transport-port",
+    "transport-pseudo-header",
+    "transport-throughput",
+    "trunk",
+    "two-rate-meter",
+    "udp",
+    "udp-checksum",
+    "udp-datagram",
+    "udp-header",
+    "udp-message-boundary",
+    "unicast",
+    "unknown-unicast-flooding",
+    "usable-host-range",
+    "valid-lifetime",
+    "veth",
+    "virtual-carrier-sense",
+    "virtual-circuit",
+    "visible-light-communication",
+    "vlan",
+    "vlsm",
+    "vni",
+    "vpc",
+    "vpn-split-tunnel",
+    "vpn-tunnel-boundary",
+    "vrf",
+    "vtep",
+    "vxlan",
+    "wan",
+    "wdm",
+    "web",
+    "webrtc-ice",
+    "webrtc-stun",
+    "webrtc-turn",
+    "weighted-scheduling",
+    "wifi-2-4-ghz",
+    "wifi-5-ghz",
+    "wifi-6-ghz",
+    "wifi-ack",
+    "wifi-association",
+    "wifi-authentication",
+    "wifi-channel",
+    "wifi-channel-width",
+    "wifi-discovery",
+    "wifi-ethernet-comparison",
+    "wifi-goodput",
+    "wifi-ofdm",
+    "wifi-roaming",
+    "window-limited-throughput",
+    "windows-iocp",
+    "windows-network-tools",
+    "wireless-mesh",
+    "wpa2",
+    "wpa3",
+    "x25",
+    "xdp",
+    "zero-copy",
+    "zigbee"
+  ]
+}

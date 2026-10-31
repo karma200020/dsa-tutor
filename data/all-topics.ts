@@ -3,7 +3,7 @@
 //
 // The per-track datasets now live in data/topics/{dsa,lld,hld,ai,os,cpp}.ts so the app
 // can load a single track's content on demand. Importing this module pulls in
-// all six tracks, so client components should import the per-track module they
+// all seven tracks, so client components should import the per-track module they
 // need instead (see app/home-view.tsx).
 import { Topic, syllabus } from "./syllabus";
 import { googleDsaProblems, googleCheatSheetReference } from "./google-cheat-sheet-integration";
@@ -13,8 +13,9 @@ import { allHldTopics } from "./topics/hld";
 import { allAiTopics } from "./topics/ai";
 import { allOsTopics } from "./topics/os";
 import { allCppTopics } from "./topics/cpp";
+import { allCnTopics } from "./topics/cn";
 
-export { allDsaTopics, allLldTopics, allHldTopics, allAiTopics, allOsTopics, allCppTopics };
+export { allDsaTopics, allLldTopics, allHldTopics, allAiTopics, allOsTopics, allCppTopics, allCnTopics };
 
 export const allTopics: Topic[] = [
   ...allDsaTopics,
@@ -22,7 +23,8 @@ export const allTopics: Topic[] = [
   ...allHldTopics,
   ...allAiTopics,
   ...allOsTopics,
-  ...allCppTopics
+  ...allCppTopics,
+  ...allCnTopics
 ];
 
 export const topicsByModule: Record<string, Topic[]> = syllabus.reduce(

@@ -3,6 +3,7 @@
 **Comprehensive FAANG Interview Preparation Platform**
 
 A modern, visual-first learning platform for software engineers with 3-5 years of experience preparing for **FAANG company interviews**. Covers:
+- ✅ **170 Computer Networks lessons**: 145 core and 25 visible optional specialists
 - ✅ **135 DSA Topics** including five optional specialist lessons
 - ✅ **50+ LeetCode Problems** mapped by company
 - ✅ **15 LLD (Low-Level Design) Case Studies**
@@ -17,6 +18,13 @@ A modern, visual-first learning platform for software engineers with 3-5 years o
 ---
 
 ## 🎯 Features
+
+### Computer Networks (seventh track)
+- **Full curriculum:** 24 modules, 898 explicitly owned concepts, 27 original diagrams and 12 safe labs; [coverage, sources and maintenance](CN_CURRICULUM.md).
+- **One authored dataset:** Learn explains mechanisms and worked failures; Revise uses 352 atomic retrieval cards; Practice uses 349 tasks with initially closed hints, answers and solution reasoning.
+- **Practical depth:** IPv4/IPv6, routing, TCP/QUIC, DNS/HTTP/TLS, sockets, cloud networking, troubleshooting and end-to-end cases; enterprise, mobile/IoT, datacenter and historical/emerging coverage remains visibly optional.
+- **Honest execution:** static Pages serves offline traces and a bounded reliability model, not live captures or a socket Run button. The downloadable Python program was checked on Linux and Windows. Review intervals are recommendations, not a new SM-2 backend.
+- **Preserved existing content:** 345 prior curriculum topics and the separate 79-question Google bank remain intact. CN content loads only when its track is opened.
 
 ### Company-tagged question reports
 - Browse `/company-questions/` for source-backed Google coding interview and OA accounts, with URL-backed company, stage, topic, search and recency filters.
