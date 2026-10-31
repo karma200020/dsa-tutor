@@ -1,0 +1,54 @@
+.page {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 32px 24px 64px;
+  line-height: 1.65;
+  overflow-wrap: anywhere;
+}
+
+.page a { color: var(--color-cyan-soft); text-underline-offset: 3px; }
+.header { max-width: 850px; margin: 28px 0; }
+.header h1 { font-size: clamp(30px, 5vw, 46px); line-height: 1.2; margin: 8px 0 20px; }
+.eyebrow { color: var(--color-accent-soft); font-weight: 700; }
+.notice, .card, .coverage { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 12px; padding: 24px; }
+.notice p:last-child { margin-bottom: 0; }
+.links { display: flex; flex-wrap: wrap; gap: 12px 24px; }
+.links a { padding: 5px 0; }
+.filters { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin: 32px 0 20px; align-items: end; }
+.filters label { display: grid; gap: 6px; font-weight: 600; }
+.search { grid-column: 1 / -1; display: grid; gap: 6px; }
+.filters input, .filters select, .filters button {
+  width: 100%;
+  min-width: 0;
+  min-height: 46px;
+  font-size: 16px;
+  padding: 10px 12px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: 8px;
+  background: var(--color-bg);
+  color: var(--color-text);
+}
+.filters button { cursor: pointer; background: var(--color-accent-strong); font-weight: 700; }
+.filters > a { padding: 10px 0; }
+.cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px; align-items: start; }
+.card { min-width: 0; scroll-margin-top: 20px; }
+.card h2 { font-size: 21px; line-height: 1.4; margin-top: 0; }
+.card h3 { font-size: 16px; }
+.tags { display: flex; flex-wrap: wrap; gap: 8px; padding: 0; list-style: none; }
+.tags li { border-radius: 6px; padding: 3px 9px; background: var(--color-surface-muted); border: 1px solid var(--color-border-strong); }
+.muted { color: var(--color-text-muted); }
+.evidence { border-top: 1px solid var(--color-border-strong); padding-top: 12px; font-size: 14px; }
+.evidence dl { display: grid; grid-template-columns: auto 1fr; gap: 6px 12px; }
+.evidence dt { color: var(--color-text-muted); }
+.evidence dd { margin: 0; }
+.coverage { margin-top: 32px; }
+.coverage h2 { margin-top: 0; }
+.coverage summary { cursor: pointer; padding: 10px 0; color: var(--color-cyan-soft); }
+
+@media (max-width: 720px) {
+  .page { padding: 24px 16px 48px; }
+  .cards, .filters { grid-template-columns: minmax(0, 1fr); }
+  .notice, .card, .coverage { padding: 18px; }
+  .evidence dl { grid-template-columns: minmax(0, 1fr); gap: 0; }
+  .evidence dd { margin-bottom: 8px; }
+}

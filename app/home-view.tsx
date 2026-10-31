@@ -420,6 +420,21 @@ export function HomeView({ topicCountsByTrack, totalTopics, optionalTopicCount }
         </div>
       </section>
 
+      <section className={styles.googleCheatSheet} aria-labelledby="company-questions-heading">
+        <div className={styles.googleCheatSheetCopy}>
+          <span className={styles.badge}>Source-backed community reports</span>
+          <h2 id="company-questions-heading">Company-tagged interview questions</h2>
+          <p>
+            Explore Google coding interview and online-assessment accounts by topic, stage,
+            and interview date. Recent, older, and unknown-date evidence stay separate;
+            public reports are not an official or exhaustive question list.
+          </p>
+          <Link href="/company-questions/" prefetch={false} className={styles.googleCheatSheetCta}>
+            Browse Reported Questions →
+          </Link>
+        </div>
+      </section>
+
       <section className={styles.googleCheatSheet}>
         <div className={styles.googleCheatSheetCopy}>
           <span className={styles.badge}>Bonus resource</span>

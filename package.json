@@ -13,6 +13,7 @@
     "audit:generic": "tsx scripts/audit-generic-content.ts",
     "audit:ai": "tsx scripts/audit-ai.ts",
     "audit:dsa": "tsx scripts/audit-dsa.ts",
+    "audit:company-questions": "tsx scripts/audit-company-questions.ts",
     "test:dsa-cpp": "tsx scripts/test-dsa-cpp.ts",
     "verify": "tsx scripts/verify.ts"
   },
