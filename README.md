@@ -21,6 +21,7 @@ A modern, visual-first learning platform for software engineers with 3-5 years o
 ### Company-tagged question reports
 - Browse `/company-questions/` for source-backed Google coding interview and OA accounts, with URL-backed company, stage, topic, search and recency filters.
 - Actual interview dates are separate from publication dates; recent, older and unknown evidence remain distinct. Community reports are not an official or exhaustive Google list.
+- All 79 reported questions are visible by default, with independent, initially closed Hints, Solution and References sections. Partial contracts state assumptions; 77 C++ implementations are executable-tested, and two ambiguous tasks explicitly require clarification.
 - See [source coverage, limitations and update instructions](COMPANY_QUESTIONS.md). The historical cheat sheet remains separate.
 
 ### DSA Learning (135 Topics)

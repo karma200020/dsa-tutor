@@ -15,6 +15,7 @@
     "audit:dsa": "tsx scripts/audit-dsa.ts",
     "audit:company-questions": "tsx scripts/audit-company-questions.ts",
     "test:dsa-cpp": "tsx scripts/test-dsa-cpp.ts",
+    "test:company-cpp": "tsx scripts/test-company-cpp.ts",
     "verify": "tsx scripts/verify.ts"
   },
   "dependencies": {

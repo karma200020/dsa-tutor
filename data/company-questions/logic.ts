@@ -1,5 +1,5 @@
 import { stageLabels, topicLabels } from "./schema";
-import type { CompanyQuestion, CompanyReport, QuestionBank, ReportDate, Recency } from "./schema";
+import type { CompanyQuestion, CompanyReport, QuestionBank, QuestionEvidence, ReportDate, Recency } from "./schema";
 
 export function dateBounds(date: ReportDate): [string, string] | null {
   if (date.precision === "unknown") return null;
@@ -30,6 +30,10 @@ export function reportRecency(report: CompanyReport, bank: Pick<QuestionBank, "r
   return "unknown";
 }
 
+export function occurrenceReport(report: CompanyReport, entry: QuestionEvidence): CompanyReport {
+  return entry.interview ? { ...report, interview: entry.interview } : report;
+}
+
 export interface BankFilters {
   q: string;
   company: string;
@@ -37,7 +41,7 @@ export interface BankFilters {
   tag: string;
   recency: string;
 }
-export const defaultFilters: BankFilters = { q: "", company: "google", stage: "all", tag: "all", recency: "recent" };
+export const defaultFilters: BankFilters = { q: "", company: "google", stage: "all", tag: "all", recency: "all" };
 
 export function parseFilters(params: Pick<URLSearchParams, "get">): BankFilters {
   return {
@@ -80,7 +84,7 @@ export function matchingQuestions(bank: QuestionBank, filters: BankFilters): Com
       if (!report) throw new Error(`Missing report: ${entry.reportId}`);
       return (filters.company === "all" || report.companyId === filters.company)
         && (filters.stage === "all" || entry.stage === filters.stage)
-        && (filters.recency === "all" || reportRecency(report, bank) === filters.recency);
+        && (filters.recency === "all" || reportRecency(occurrenceReport(report, entry), bank) === filters.recency);
     });
     return evidence.length ? [{ ...question, evidence }] : [];
   });
@@ -149,6 +153,13 @@ export function auditQuestionBank(bank: QuestionBank): string[] {
     for (const entry of question.evidence) {
       if (!reportMap.has(entry.reportId) || !entry.locator.trim()) fail(`${question.id}: missing source/locator`);
       if (!Object.hasOwn(stageLabels, entry.stage)) fail(`${question.id}: invalid stage`);
+      if (entry.detailUrl) https(entry.detailUrl, `${question.id} linked task notes`);
+      if (entry.interview) {
+        const bounds = validateDate(entry.interview, `${question.id} occurrence interview`);
+        const report = reportMap.get(entry.reportId);
+        const published = report ? dateBounds(report.published) : null;
+        if (bounds && published && bounds[0] > published[1]) fail(`${question.id}: occurrence interview after publication`);
+      }
       occurrences.push(`${entry.reportId}:${entry.locator.trim().toLowerCase()}`);
     }
     if (question.practice) {

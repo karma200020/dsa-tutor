@@ -52,6 +52,8 @@ export interface QuestionEvidence {
   stage: Stage;
   locator: string;
   note?: string;
+  interview?: ReportDate;
+  detailUrl?: string;
 }
 
 export interface CompanyQuestion {
@@ -68,6 +70,17 @@ export interface CompanyQuestion {
     note: string;
   };
   lessons?: { topicId: string; title: string }[];
+}
+
+export interface QuestionSolution {
+  hints: string[];
+  contract: "specified" | "conditional" | "clarification-required";
+  assumptions: string;
+  approach: string;
+  correctness: string;
+  complexity: string;
+  edgeCases: string;
+  code?: string;
 }
 
 export interface QuestionBank {
