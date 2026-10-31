@@ -44,6 +44,12 @@
 .coverage { margin-top: 32px; }
 .coverage h2 { margin-top: 0; }
 .coverage summary { cursor: pointer; padding: 10px 0; color: var(--color-cyan-soft); }
+.disclosure { border-top: 1px solid var(--color-border-strong); margin-top: 12px; }
+.disclosure summary { cursor: pointer; min-height: 44px; padding: 10px 0; color: var(--color-cyan-soft); font-weight: 700; }
+.disclosure li + li { margin-top: 12px; }
+.page a:focus-visible, .disclosure summary:focus-visible { outline: 2px solid var(--color-cyan-soft); outline-offset: 4px; border-radius: 3px; }
+.links a[aria-current="page"] { font-weight: 700; text-decoration-thickness: 3px; }
+.code { max-width: 100%; overflow-x: auto; white-space: pre; overflow-wrap: normal; padding: 16px; border-radius: 8px; background: var(--color-bg); font-size: 13px; line-height: 1.6; }
 
 @media (max-width: 720px) {
   .page { padding: 24px 16px 48px; }

@@ -4,7 +4,8 @@ import type { FormEvent } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { googleQuestionBank as bank } from "@/data/company-questions/google";
-import { defaultFilters, filterHref, formatReportDate, invalidFilters, matchingQuestions, parseFilters, reportRecency } from "@/data/company-questions/logic";
+import { googleSolutions } from "@/data/company-questions/solutions";
+import { defaultFilters, filterHref, formatReportDate, invalidFilters, matchingQuestions, occurrenceReport, parseFilters, reportRecency } from "@/data/company-questions/logic";
 import { stageLabels, topicLabels } from "@/data/company-questions/schema";
 import type { CompanyQuestion, Recency } from "@/data/company-questions/schema";
 import styles from "./questions.module.css";
@@ -49,11 +50,12 @@ export function QuestionBankView() {
         <p>{bank.questions.length} distinct question summaries across {bank.reports.length} report accounts:
           {" "}{categoryCount("recent")} with recent evidence, {categoryCount("older")} with older evidence,
           {" "}{categoryCount("unknown")} with unknown-date evidence. Categories can overlap when a question has distinct accounts.</p>
+        <p>All reported questions are shown by default, including useful older and undated accounts. Recency links narrow the bank; they do not relabel old reports as recent.</p>
         <nav className={styles.links} aria-label="Browse by interview recency">
-          <Link href={filterHref({ ...filters, recency: "recent" })} scroll={false}>Recent interviews</Link>
+          <Link href={filterHref({ ...filters, recency: "all" })} scroll={false} aria-current={filters.recency === "all" ? "page" : undefined}>All reported questions ({bank.questions.length})</Link>
+          <Link href={filterHref({ ...filters, recency: "recent" })} scroll={false} aria-current={filters.recency === "recent" ? "page" : undefined}>Recent interviews ({categoryCount("recent")})</Link>
           <Link href={filterHref({ ...filters, recency: "older" })} scroll={false}>Older interviews</Link>
           <Link href={filterHref({ ...filters, recency: "unknown" })} scroll={false}>Unknown dates</Link>
-          <Link href={filterHref({ ...filters, recency: "all" })} scroll={false}>All dates</Link>
         </nav>
       </aside>
 
@@ -88,7 +90,7 @@ export function QuestionBankView() {
             <option value="recent">Recent interviews (12 months)</option>
             <option value="older">Older interviews</option>
             <option value="unknown">Unknown / boundary-crossing dates</option>
-            <option value="all">All dates</option>
+            <option value="all">All reported questions (default)</option>
             {invalid.includes("recency") && <option value={filters.recency}>Unsupported: {filters.recency}</option>}
           </select>
         </label>
@@ -105,7 +107,7 @@ export function QuestionBankView() {
           <Link href={filterHref({ ...defaultFilters, recency: "all" })}>Browse all researched accounts</Link>
         </section>
       ) : (
-        <div className={styles.cards}>{questions.map((question) => <QuestionCard key={question.id} question={question} />)}</div>
+        <div className={styles.cards}>{questions.map((question) => <QuestionCard key={`${params.toString()}:${question.id}`} question={question} />)}</div>
       )}
 
       <section id="coverage" className={styles.coverage}>
@@ -118,13 +120,14 @@ export function QuestionBankView() {
           <p><strong>Reddit:</strong> searched r/leetcode, r/csMajors and r/developersIndia; direct candidate posts returned a bot challenge.
             {" "}<a href="https://github.com/AdityaIndoori/google-swe-interview-questions">A public Reddit-source sweep</a> supplied discovery links only, not verified original reports.</p>
           <p><strong>GitHub:</strong> inspected first-person accounts, company CSV lists, source attribution and commit history.
-            Recently updated collections and rolling frequency labels did not prove recent interviews; none supplied sufficient verified new original evidence for inclusion.</p>
+            Recently updated collections and rolling frequency labels did not prove recent interviews and were not imported as reported questions.</p>
           <p><strong>Codeforces:</strong> three original OA discussions were read. Relative post ages and internship-cycle titles are preserved as notes, not invented interview dates.</p>
           <p><strong>GeeksforGeeks:</strong> read two individual accounts. One lacked specific coding questions; the included account explicitly describes a January 2025 interview despite publication in February 2026.</p>
           <p><strong>Other public accounts:</strong> individual interviewexperiences.in narratives were read, not its generated question index.
+            All 76 archive reports published within the snapshot window across pages 1–6 were reviewed, including reports with no substantive coding tasks. Linked BeyondLeet task notes were read separately and remain community evidence.
             Original authorship and possible LeetCode republication could not be independently established; these are explicitly labelled community archive accounts.
             Medium access was blocked. Vague topics, forgotten prompts, preparation lists and live-interview-assistance sources were excluded.</p>
-          <p>Summaries are short original factual paraphrases, not copied prompts or validated solutions. Topic tags are editorial navigation aids; missing difficulty is unknown.
+          <p>Summaries are short original factual paraphrases, not copied prompts. Hints and solutions are independently authored practice material, not source claims or official answers. Conditional solutions state their assumptions; incomplete reports still require clarification. Topic tags are editorial navigation aids; missing difficulty is unknown.
             Ambiguities remain visible. Distinct accounts of the same question share a card; reposts must not be added as independent evidence.
             Canonical matches and related practice are labelled separately. Related lessons do not imply exact question matches.</p>
         </details>
@@ -135,6 +138,8 @@ export function QuestionBankView() {
 }
 
 function QuestionCard({ question }: { question: CompanyQuestion }) {
+  const solution = googleSolutions[question.id];
+  if (!solution) throw new Error(`Missing practice content ${question.id}`);
   return (
     <article id={question.id} className={styles.card}>
       <h2><a href={`#${question.id}`}>{question.title}</a></h2>
@@ -143,16 +148,39 @@ function QuestionCard({ question }: { question: CompanyQuestion }) {
         {question.tags.map((tag) => <li key={tag}>{topicLabels[tag]}</li>)}
       </ul>
       <p className={styles.muted}>Reported difficulty: {question.difficulty === "unknown" ? "Unknown (not inferred)" : question.difficulty}</p>
-      <h3>Report evidence</h3>
-      {question.evidence.map((entry) => {
+      <p className={styles.muted}>{Array.from(new Set(question.evidence.map((entry) => {
         const report = reports.get(entry.reportId);
         if (!report) throw new Error(`Missing report ${entry.reportId}`);
+        const occurrence = occurrenceReport(report, entry);
+        return `${stageLabels[entry.stage]} / ${recencyLabels[reportRecency(occurrence, bank)]} / ${formatReportDate(occurrence.interview)}`;
+      }))).join("; ")}</p>
+      {solution.contract !== "specified" && <p className={styles.muted}>Partial report contract: {solution.contract === "conditional" ? "solution uses explicit practice assumptions" : "clarification required before implementation"}.</p>}
+      <details className={styles.disclosure}>
+        <summary>Hints</summary>
+        <ol>{solution.hints.map((hint, index) => <li key={index}>{hint}</li>)}</ol>
+      </details>
+      <details className={styles.disclosure}>
+        <summary>Solution</summary>
+        <p><strong>Contract / assumptions:</strong> {solution.assumptions}</p>
+        <p><strong>Approach:</strong> {solution.approach}</p>
+        <p><strong>Why it works:</strong> {solution.correctness}</p>
+        <p><strong>Complexity:</strong> {solution.complexity}</p>
+        <p><strong>Edge cases:</strong> {solution.edgeCases}</p>
+        {solution.code && <><h3>C++17 practice implementation</h3><pre className={styles.code}><code>{solution.code}</code></pre></>}
+      </details>
+      <details className={styles.disclosure}>
+      <summary>References</summary>
+      {question.evidence.map((entry) => {
+        const account = reports.get(entry.reportId);
+        if (!account) throw new Error(`Missing report ${entry.reportId}`);
+        const report = occurrenceReport(account, entry);
         const company = bank.companies.find((c) => c.id === report.companyId);
         if (!company) throw new Error(`Missing company ${report.companyId}`);
         return (
           <section className={styles.evidence} key={`${entry.reportId}:${entry.locator}`} aria-label={report.title}>
             <p><strong>{company.name} / {stageLabels[entry.stage]}</strong> / {recencyLabels[reportRecency(report, bank)]}</p>
             <a href={report.url}>{report.title} (source report)</a>
+            {entry.detailUrl && <p><a href={entry.detailUrl}>Linked task notes (editorial description)</a></p>}
             <p>{report.provenance === "first-person-original" ? "Original first-person public post" : "Community-published account; original authorship/republication unverified"}</p>
             <dl>
               <dt>Interview date</dt><dd>{formatReportDate(report.interview)}</dd>
@@ -162,6 +190,7 @@ function QuestionCard({ question }: { question: CompanyQuestion }) {
               <dt>Source location</dt><dd>{entry.locator}</dd>
             </dl>
             <p>{report.dateNote}</p>
+            <p>{report.evidence}</p>
             {entry.note && <p>{entry.note}</p>}
           </section>
         );
@@ -170,6 +199,7 @@ function QuestionCard({ question }: { question: CompanyQuestion }) {
       {question.lessons && <nav className={styles.links} aria-label={`Related lessons for ${question.title}`}>
         {question.lessons.map((lesson) => <Link key={lesson.topicId} href={`/?track=DSA&topic=${encodeURIComponent(lesson.topicId)}`}>Lesson: {lesson.title}</Link>)}
       </nav>}
+      </details>
     </article>
   );
 }

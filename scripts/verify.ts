@@ -18,6 +18,7 @@ const audits: { name: string; script: string; args: string[] }[] = [
   { name: "generic-content", script: "audit-generic-content.ts", args: [] },
   { name: "dsa", script: "audit-dsa.ts", args: passThroughComplete ? ["--complete"] : [] },
   { name: "company-questions", script: "audit-company-questions.ts", args: [] },
+  { name: "company-cpp", script: "test-company-cpp.ts", args: [] },
   { name: "dsa-cpp", script: "test-dsa-cpp.ts", args: [] },
   { name: "faqs", script: "audit-faqs.ts", args: [] },
   { name: "hld-diagrams", script: "audit-hld-diagrams.ts", args: [] },

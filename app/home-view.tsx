@@ -428,6 +428,7 @@ export function HomeView({ topicCountsByTrack, totalTopics, optionalTopicCount }
             Explore Google coding interview and online-assessment accounts by topic, stage,
             and interview date. Recent, older, and unknown-date evidence stay separate;
             public reports are not an official or exhaustive question list.
+            Practice with hints and C++ solutions, hidden until you open them.
           </p>
           <Link href="/company-questions/" prefetch={false} className={styles.googleCheatSheetCta}>
             Browse Reported Questions →

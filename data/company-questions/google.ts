@@ -1,4 +1,5 @@
 import type { CompanyReport, QuestionBank } from "./schema";
+import { additionalEvidence, expandedQuestions, expandedReports } from "./expanded";
 
 const archive = "https://interviewexperiences.in/experience/google/";
 const checkedOn = "2026-10-30";
@@ -21,7 +22,7 @@ function account(
 export const googleQuestionBank: QuestionBank = {
   asOf: "2026-10-31",
   recentFrom: "2025-10-31",
-  checkedOn,
+  checkedOn: "2026-10-31",
   companies: [{ id: "google", name: "Google" }],
   reports: [
     account("google-onsite-oct-account", "google-l4-onsite-experience", "Google L4 on-site account", "2026-10-14", unknown,
@@ -259,3 +260,9 @@ export const googleQuestionBank: QuestionBank = {
     }
   ]
 };
+
+googleQuestionBank.reports.push(...expandedReports);
+googleQuestionBank.questions.push(...expandedQuestions);
+for (const question of googleQuestionBank.questions) {
+  question.evidence.push(...(additionalEvidence[question.id] ?? []));
+}

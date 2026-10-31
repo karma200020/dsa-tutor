@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { googleQuestionBank as bank } from "../data/company-questions/google";
-import { auditQuestionBank, dateBounds, defaultFilters, filterHref, invalidFilters, matchingQuestions, parseFilters, reportRecency } from "../data/company-questions/logic";
+import { auditQuestionBank, dateBounds, defaultFilters, filterHref, invalidFilters, matchingQuestions, occurrenceReport, parseFilters, reportRecency } from "../data/company-questions/logic";
+import { googleSolutions } from "../data/company-questions/solutions";
 import type { CompanyReport, QuestionBank } from "../data/company-questions/schema";
 import { allDsaTopics } from "../data/topics/dsa";
 
@@ -25,6 +26,17 @@ assert.equal(older.published.precision === "day" && older.published.value, "2026
 assert.equal(reportRecency(older, bank), "older", "Recent publication must not hide an older interview.");
 assert.equal(reportRecency(bank.reports.find((r) => r.id === "google-dec24-oa-phone")!, bank), "unknown", "A dated title must not be used as an interview date without evidence.");
 assert.deepEqual(auditQuestionBank(bank), []);
+assert.equal(defaultFilters.recency, "all", "All reported questions must be discoverable by default.");
+assert.deepEqual(new Set(Object.keys(googleSolutions)), new Set(bank.questions.map((q) => q.id)), "Practice coverage must exactly match inventory.");
+for (const question of bank.questions) {
+  const solution = googleSolutions[question.id];
+  assert(solution.hints.length >= 2 && solution.hints.every((hint) => hint.trim().length > 20), `${question.id}: progressive hints`);
+  for (const field of ["assumptions", "approach", "correctness", "complexity", "edgeCases"] as const) {
+    assert(solution[field].trim().length > 10, `${question.id}: missing ${field}`);
+  }
+  assert(["specified", "conditional", "clarification-required"].includes(solution.contract));
+  assert(solution.contract === "clarification-required" || solution.code?.includes("#include"), `${question.id}: missing implementation`);
+}
 
 function rejects(label: string, mutate: (fixture: QuestionBank) => void, expected: RegExp) {
   const fixture = structuredClone(bank);
@@ -51,6 +63,14 @@ rejects("interview after publication", (b) => { b.reports[0].interview = day("20
 rejects("bad snapshot", (b) => { b.recentFrom = "2027-01-01"; }, /Invalid snapshot/);
 rejects("duplicate tags", (b) => { b.questions[0].tags.push(b.questions[0].tags[0]); }, /Duplicate.*tags/);
 rejects("missing practice evidence", (b) => { b.questions[0].practice!.note = ""; }, /missing practice match evidence/);
+rejects("unsafe task-note URL", (b) => { b.questions[0].evidence[0].detailUrl = "http://example.test"; }, /Invalid HTTPS/);
+rejects("future occurrence", (b) => { b.questions[0].evidence[0].interview = day("2027-01-01"); }, /future date/);
+rejects("occurrence after publication", (b) => { b.questions[0].evidence[0].interview = day("2026-10-20"); }, /occurrence interview after publication/);
+const timeline = bank.reports.find((r) => r.id === "sweep-india-timeline")!;
+assert.equal(reportRecency(timeline, bank), "unknown", "A multi-round account must not get one invented date.");
+const step = bank.questions.find((q) => q.id === "google-step-subsequence")!;
+assert.equal(reportRecency(occurrenceReport(timeline, step.evidence[0]), bank), "recent");
+assert.equal(step.evidence[0].interview?.precision === "month" && step.evidence[0].interview.value, "2026-07");
 
 for (const question of bank.questions) {
   for (const lesson of question.lessons ?? []) {
@@ -63,7 +83,7 @@ assert(matchingQuestions(bank, { ...defaultFilters, q: "BFS" }).every((q) => q.t
 assert(matchingQuestions(bank, { ...defaultFilters, q: "prefix sums", recency: "all" }).length > 0);
 assert.equal(matchingQuestions(bank, { ...defaultFilters, q: "no-such-question" }).length, 0);
 assert.equal(matchingQuestions(bank, { ...defaultFilters, company: "unseeded" }).length, 0);
-assert.equal(matchingQuestions(bank, { ...defaultFilters, stage: "oa" }).length, 0, "Recent OA dates have not been established in this snapshot.");
+assert.equal(matchingQuestions(bank, { ...defaultFilters, stage: "oa", recency: "recent" }).length, 0, "Recent OA dates have not been established in this snapshot.");
 assert.equal(invalidFilters({ ...defaultFilters, tag: "constructor" }, bank).length, 1);
 assert.equal(invalidFilters(parseFilters(new URLSearchParams("stage=bad&recency=bad&company=bad&tag=bad")), bank).length, 4);
 assert.equal(matchingQuestions(bank, { ...defaultFilters, tag: "trees", recency: "all" }).length > 0, true);
@@ -72,8 +92,8 @@ assert.equal(matchingQuestions(bank, { ...defaultFilters, tag: "trees", recency:
 const joined = structuredClone(bank);
 joined.reports[0].interview = { precision: "unknown" };
 joined.questions[0].evidence[0].stage = "oa";
-assert(!matchingQuestions(joined, { ...defaultFilters, stage: "oa" }).some((q) => q.id === joined.questions[0].id));
-const recentFriendship = matchingQuestions(bank, defaultFilters).find((q) => q.id === "google-earliest-friendship")!;
+assert(!matchingQuestions(joined, { ...defaultFilters, stage: "oa", recency: "recent" }).some((q) => q.id === joined.questions[0].id));
+const recentFriendship = matchingQuestions(bank, { ...defaultFilters, recency: "recent" }).find((q) => q.id === "google-earliest-friendship")!;
 assert.equal(recentFriendship.evidence.length, 1, "Only matching dated evidence should be shown.");
 
 for (const filters of [
@@ -85,6 +105,7 @@ for (const filters of [
 }
 
 console.log(`PASS company question metadata, date/URL/source detectors, deduplication, lesson links, search and filter self-tests.`);
+console.log(`${Object.values(googleSolutions).filter((s) => s.code).length} executable solutions; ${Object.values(googleSolutions).filter((s) => s.contract === "clarification-required").length} clarification-only solutions.`);
 console.log(`${bank.reports.length} reports; ${bank.questions.length} distinct questions.`);
 for (const category of ["recent", "older", "unknown"] as const) {
   console.log(`${category}: ${bank.reports.filter((r) => reportRecency(r, bank) === category).length} reports; ${matchingQuestions(bank, { ...defaultFilters, recency: category }).length} questions`);
