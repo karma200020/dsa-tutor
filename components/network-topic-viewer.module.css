@@ -1,0 +1,57 @@
+.container {
+  max-width: 960px;
+  margin: auto;
+  padding: 24px;
+  color: var(--color-text);
+  overflow-wrap: anywhere;
+}
+.container header, .container section {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  margin: 20px 0;
+  padding: 24px;
+}
+.container p, .container li {
+  line-height: 1.75;
+  max-width: 78ch;
+}
+.container li { margin-bottom: 10px; }
+.container pre {
+  overflow-x: auto;
+  white-space: pre-wrap;
+  line-height: 1.6;
+  background: var(--color-bg-raised);
+  border: 1px solid var(--color-border);
+  padding: 16px;
+  border-radius: 8px;
+}
+.container details {
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  margin: 12px 0;
+  padding: 12px;
+}
+.container summary { cursor: pointer; min-height: 44px; align-content: center; font-weight: 600; }
+.container button, .container select, .modes a {
+  min-height: 44px;
+  padding: 10px 14px;
+  background: var(--color-bg-raised);
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  font: inherit;
+}
+.container button { cursor: pointer; }
+.container button:disabled { opacity: 0.5; cursor: default; }
+.container button[aria-pressed="true"] { border-color: #38bdf8; background: #123c56; }
+.container :focus-visible { outline: 3px solid #38bdf8; outline-offset: 3px; }
+.container a { color: #7dd3fc; }
+.modes { display: flex; flex-wrap: wrap; gap: 12px; margin: 16px 0; }
+.task { padding-bottom: 16px; border-bottom: 1px solid var(--color-border); }
+@media (max-width: 600px) {
+  .container { padding: 12px; }
+  .container header, .container section { padding: 16px; }
+  .container h1 { font-size: 26px; }
+  .container select { max-width: 100%; }
+}

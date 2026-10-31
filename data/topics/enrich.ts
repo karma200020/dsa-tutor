@@ -2,7 +2,7 @@
 // Track-specific enrichment (HLD/LLD solution sections and FAQs) is supplied by
 // the caller as a `TrackEnricher` so that each per-track module in this folder
 // can be loaded on its own, without dragging in the other tracks' builders.
-import { Example, LessonSection, Reference, Topic, syllabus, FaqItem } from "../syllabus";
+import { Example, LessonSection, Reference, Topic, syllabus, FaqItem, Track } from "../syllabus";
 import { isPracticeVariation } from "../practice-variation";
 
 const validModuleIds = new Set(syllabus.map((m) => m.id));
@@ -14,7 +14,7 @@ export type TrackEnricher = {
 
 // Enrichment is chosen by the topic's syllabus track.
 export type TrackEnrichers = Partial<
-  Record<"DSA" | "LLD" | "HLD" | "AI" | "OS" | "CPP", TrackEnricher>
+  Record<Track, TrackEnricher>
 >;
 
 function buildFallbackTopic(moduleId: string, moduleTitle: string): Topic {

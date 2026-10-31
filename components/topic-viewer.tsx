@@ -1,6 +1,7 @@
 import { Topic, Reference } from "@/data/syllabus";
 import { isPracticeVariation } from "@/data/practice-variation";
 import styles from "./topic-viewer.module.css";
+import { NetworkTopicViewer } from "./network-topic-viewer";
 
 type TopicViewerProps = {
   topic: Topic;
@@ -10,6 +11,7 @@ type TopicViewerProps = {
 };
 
 export function TopicViewer({ topic, masteryMap, onMasteryChange, onBackClick }: TopicViewerProps) {
+  if (topic.network) return <NetworkTopicViewer key={topic.id} topic={topic} masteryMap={masteryMap} onMasteryChange={onMasteryChange} onBackClick={onBackClick} />;
   const currentStatus = masteryMap[topic.id] || "not-started";
 
   // AI topics repurpose the `complexity` pair as a latency/cost profile rather than

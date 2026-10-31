@@ -1,9 +1,9 @@
 import { syllabus } from "@/data/syllabus";
-import { Module, Topic } from "@/data/syllabus";
+import { Module, Topic, Track } from "@/data/syllabus";
 import styles from "./module-list.module.css";
 
 type ModuleListProps = {
-  track: "DSA" | "LLD" | "HLD" | "AI" | "OS" | "CPP";
+  track: Track;
   masteryMap: Record<string, "not-started" | "learning" | "practiced" | "interview-ready">;
   onMasteryUpdate: (topicId: string, status: "not-started" | "learning" | "practiced" | "interview-ready") => void;
   onTopicClick: (topic: Topic) => void;
@@ -106,6 +106,10 @@ export function orderedModules(modules: Module[]): Module[] {
 }
 
 function buildModuleCheatsheet(mod: Module, topics: Topic[]): string[] {
+  if (mod.track === "CN") {
+    return topics.flatMap((topic) => (topic.network?.recall ?? []).slice(0, 1)
+      .map((card) => `${card.question} ${card.answer}`));
+  }
   // A module can author its own cheat sheet in the syllabus; that always wins.
   // Keyword matching on the title stays as the fallback for modules that don't.
   if (mod.cheatsheet && mod.cheatsheet.length > 0) {

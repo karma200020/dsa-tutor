@@ -1,7 +1,9 @@
 // Complete SWE Interview Syllabus with Module Dependencies
 import type { PracticeEntry } from "./practice-variation";
+import { cnModules } from "./cn-catalog";
+import type { NetworkLesson } from "./cn/schema";
 export type { PracticeEntry, PracticeVariation } from "./practice-variation";
-export type Track = "DSA" | "LLD" | "HLD" | "AI" | "OS" | "CPP";
+export type Track = "DSA" | "LLD" | "HLD" | "AI" | "OS" | "CPP" | "CN";
 export type Level = "Beginner" | "Intermediate" | "Advanced";
 export type MasteryStatus = "not-started" | "learning" | "practiced" | "interview-ready";
 
@@ -50,6 +52,7 @@ export interface Topic {
   title: string;
   intuition: string;
   optional?: boolean;
+  network?: NetworkLesson;
   
   // Lesson structure for teaching
   lesson?: LessonSection[]; // Full teaching content broken into sections
@@ -81,6 +84,7 @@ export interface Reference {
 }
 
 export const syllabus: Module[] = [
+  ...cnModules,
   // Foundation
   {
     id: "mod-foundations",
@@ -741,5 +745,5 @@ export const durationByTrack: Record<Track, number> = syllabus.reduce(
     acc[mod.track] += mod.estimatedHours;
     return acc;
   },
-  { DSA: 0, LLD: 0, HLD: 0, AI: 0, OS: 0, CPP: 0 } as Record<Track, number>
+  { DSA: 0, LLD: 0, HLD: 0, AI: 0, OS: 0, CPP: 0, CN: 0 }
 );

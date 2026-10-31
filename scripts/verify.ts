@@ -23,7 +23,9 @@ const audits: { name: string; script: string; args: string[] }[] = [
   { name: "faqs", script: "audit-faqs.ts", args: [] },
   { name: "hld-diagrams", script: "audit-hld-diagrams.ts", args: [] },
   { name: "lld-diagrams", script: "audit-lld-diagrams.ts", args: [] },
-  { name: "ai", script: "audit-ai.ts", args: passThroughComplete ? ["--complete"] : [] }
+  { name: "ai", script: "audit-ai.ts", args: passThroughComplete ? ["--complete"] : [] },
+  { name: "cn", script: "audit-cn.ts", args: [] },
+  { name: "cn-exercises", script: "test-cn.ts", args: [] }
 ];
 
 const tsxCli = path.join(process.cwd(), "node_modules", "tsx", "dist", "cli.mjs");
